@@ -32,7 +32,7 @@
 
 <div align="center">
   <img src="assets/dragon-mind.svg" alt="Illustrated neural workflow: goal, project map, tools, user approval, verification and evidence" width="100%" />
-  <sub>The same dragon identity throughout. Light pulses are decorative; the agent runs in Rust.</sub>
+  <sub>Animated neural workflow: travelling signals, rotating orbit and neural pulses. Motion is decorative; the agent runs in Rust.</sub>
 </div>
 
 Blue Dragon is designed around a simple engineering loop: **understand → act with approval → verify → explain**. Unlike an opaque "autopilot", writes and subprocess commands are presented for explicit user approval. The project is independently authored and is not a fork of AlphaCode.
