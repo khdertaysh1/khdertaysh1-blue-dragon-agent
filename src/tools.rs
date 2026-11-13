@@ -151,7 +151,7 @@ impl ToolBox {
             fs::read_to_string(&path).context("Cannot overwrite binary/non-text file")?
         } else { String::new() };
         if old_content.len() > MAX_TEXT_BYTES { anyhow::bail!("Existing file exceeds 128 KiB limit"); }
-        let diff = TextDiff::from_lines(&old_content, new_content)
+        let diff = TextDiff::from_lines(old_content.as_str(), new_content)
             .unified_diff().context_radius(3).header(&format!("a/{relative}"), &format!("b/{relative}"))
             .to_string();
         if old_content == new_content { return Ok(json!({"ok":true,"status":"unchanged"})); }
