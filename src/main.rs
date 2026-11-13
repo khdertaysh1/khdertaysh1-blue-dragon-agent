@@ -1,9 +1,9 @@
 mod agent;
 mod config;
-mod provider;
 mod project;
-mod skills;
+mod provider;
 mod session;
+mod skills;
 mod tools;
 
 use anyhow::{Context, Result};
@@ -107,11 +107,17 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some(Command::Map) => {
-            println!("{}", serde_json::to_string_pretty(&project::inspect(&settings.root)?)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&project::inspect(&settings.root)?)?
+            );
             Ok(())
         }
         Some(Command::Skills) => {
-            println!("{}", serde_json::to_string_pretty(&skills::list(&settings.sessions_dir)?)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&skills::list(&settings.sessions_dir)?)?
+            );
             Ok(())
         }
         cmd => {
@@ -149,7 +155,10 @@ fn run() -> Result<()> {
                                 continue;
                             }
                             "/map" => {
-                                println!("{}", serde_json::to_string_pretty(&agent.project_map()?)?);
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.project_map()?)?
+                                );
                                 continue;
                             }
                             "/status" => {
@@ -157,7 +166,10 @@ fn run() -> Result<()> {
                                 continue;
                             }
                             "/skills" => {
-                                println!("{}", serde_json::to_string_pretty(&agent.list_skills()?)?);
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.list_skills()?)?
+                                );
                                 continue;
                             }
                             name if name.starts_with("/skill ") => {

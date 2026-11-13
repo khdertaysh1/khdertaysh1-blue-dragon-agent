@@ -15,7 +15,9 @@ fn valid_name(name: &str) -> bool {
 }
 
 pub fn directory(sessions_dir: &Path) -> Result<PathBuf> {
-    let home = sessions_dir.parent().context("Missing Blue Dragon data directory")?;
+    let home = sessions_dir
+        .parent()
+        .context("Missing Blue Dragon data directory")?;
     Ok(home.join("skills"))
 }
 
@@ -73,7 +75,9 @@ mod tests {
         fs::write(dir.join("script.sh"), "echo unsafe").unwrap();
         let available = list(&sessions).unwrap();
         assert_eq!(available["skills"][0], "review");
-        assert!(load(&sessions, "review").unwrap().contains("Read the tests"));
+        assert!(load(&sessions, "review")
+            .unwrap()
+            .contains("Read the tests"));
         assert!(load(&sessions, "../review").is_err());
     }
 }

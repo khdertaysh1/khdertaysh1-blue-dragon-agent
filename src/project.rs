@@ -91,7 +91,11 @@ pub fn inspect(root: &Path) -> Result<Value> {
             }
             visited += 1;
             total_bytes = total_bytes.saturating_add(item.metadata().map(|m| m.len()).unwrap_or(0));
-            let relative = item.path().strip_prefix(root)?.to_string_lossy().to_string();
+            let relative = item
+                .path()
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .to_string();
             if let Some(ext) = item.path().extension().and_then(|x| x.to_str()) {
                 if let Some(lang) = language(&ext.to_ascii_lowercase()) {
                     *language_counts.entry(lang.to_string()).or_default() += 1;

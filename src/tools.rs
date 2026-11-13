@@ -224,7 +224,13 @@ impl ToolBox {
 
     pub fn git_status(&self) -> Result<Value> {
         let output = Command::new("git")
-            .args(["-C", &self.root.to_string_lossy(), "status", "--short", "--untracked-files=normal"])
+            .args([
+                "-C",
+                &self.root.to_string_lossy(),
+                "status",
+                "--short",
+                "--untracked-files=normal",
+            ])
             .env("GIT_OPTIONAL_LOCKS", "0")
             .output()
             .context("Git not available")?;
@@ -244,7 +250,9 @@ impl ToolBox {
             anyhow::bail!("Edit exceeds text size limit");
         }
         let original = self.read_file(path)?;
-        let body = original["content"].as_str().context("File content missing")?;
+        let body = original["content"]
+            .as_str()
+            .context("File content missing")?;
         let matches = body.matches(find).count();
         if matches != 1 {
             anyhow::bail!("Expected exactly one match, found {matches}; file not modified");
@@ -415,15 +423,21 @@ pub fn invoke(boxes: &ToolBox, name: &str, args: &Value) -> Value {
         "git_status" => boxes.git_status(),
         "read_lines" => (|| -> Result<Value> {
             let path = arg("path")?;
-            let start = args.get("start").and_then(Value::as_u64).context("Missing positive start")?;
-            let count = args.get("count").and_then(Value::as_u64).context("Missing positive count")?;
+            let start = args
+                .get("start")
+                .and_then(Value::as_u64)
+                .context("Missing positive start")?;
+            let count = args
+                .get("count")
+                .and_then(Value::as_u64)
+                .context("Missing positive count")?;
             let start = usize::try_from(start).context("Start out of range")?;
             let count = usize::try_from(count).context("Count out of range")?;
             boxes.read_lines(path, start, count)
         })(),
-        "edit_file" => (|| -> Result<Value> {
-            boxes.edit_file(arg("path")?, arg("find")?, arg("replace")?)
-        })(),
+        "edit_file" => {
+            (|| -> Result<Value> { boxes.edit_file(arg("path")?, arg("find")?, arg("replace")?) })()
+        }
         "write_file" => {
             arg("path").and_then(|p| arg("content").and_then(|c| boxes.write_file(p, c)))
         }
@@ -505,8 +519,14 @@ mod tests {
         let before = fs::read_to_string(tmp.path().join("hello.rs")).unwrap();
         assert!(toolbox.edit_file("hello.rs", "not present", "x").is_err());
         assert!(toolbox.edit_file("hello.rs", "n", "N").is_err());
-        assert_eq!(toolbox.edit_file("hello.rs", "hello", "world").unwrap()["ok"], false);
-        assert_eq!(fs::read_to_string(tmp.path().join("hello.rs")).unwrap(), before);
+        assert_eq!(
+            toolbox.edit_file("hello.rs", "hello", "world").unwrap()["ok"],
+            false
+        );
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("hello.rs")).unwrap(),
+            before
+        );
     }
 
     #[test]
