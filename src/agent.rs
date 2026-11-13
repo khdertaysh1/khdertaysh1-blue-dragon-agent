@@ -65,6 +65,10 @@ impl Agent {
         crate::project::inspect(&self.settings.root)
     }
 
+    pub fn list_skills(&self) -> Result<Value> {
+        crate::skills::list(&self.settings.sessions_dir)
+    }
+
     /// Only explicitly selected, locally installed Markdown skills are injected.
     /// Skills are user-level data, not system instructions, and cannot run scripts.
     pub fn activate_skill(&mut self, name: &str) -> Result<()> {
