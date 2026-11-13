@@ -22,6 +22,15 @@ impl Provider {
                 "JarvisClaw free access requires auto/free and no credential; use --provider free"
             );
         }
+        if matches!(
+            parsed.host_str(),
+            Some("ai-gateway.kilo.ai" | "api.kilo.ai")
+        ) && (!crate::models::kilo_id(&model) || key.is_some())
+        {
+            anyhow::bail!(
+                "Kilo free access requires a free model ID and no credential; use --provider kilo"
+            );
+        }
         let anthropic = parsed.host_str() == Some("api.anthropic.com");
         let url = if anthropic {
             format!("{}/messages", base_url)
@@ -72,7 +81,9 @@ impl Provider {
                 "temperature": 0.2
             })
         };
-        if self.url.starts_with("https://api.jarvisclaw.ai/") {
+        if self.url.starts_with("https://api.jarvisclaw.ai/")
+            || self.url.starts_with(crate::models::KILO_BASE)
+        {
             payload["max_tokens"] = json!(4096);
         }
         if stream {
@@ -157,6 +168,21 @@ mod tests {
     use super::*;
     #[test]
     fn anonymous_gateway_rejects_credentials_and_paid_models() {
+        assert!(
+            Provider::new(crate::models::KILO_BASE, "kilo-auto/frontier".into(), None).is_err()
+        );
+        assert!(Provider::new(
+            crate::models::KILO_BASE,
+            crate::models::KILO_MODEL.into(),
+            Some("unrelated-test-key".into())
+        )
+        .is_err());
+        assert!(Provider::new(
+            crate::models::KILO_BASE,
+            crate::models::KILO_MODEL.into(),
+            None
+        )
+        .is_ok());
         assert!(Provider::new(crate::models::FREE_BASE, "paid".into(), None).is_err());
         assert!(Provider::new(
             crate::models::FREE_BASE,

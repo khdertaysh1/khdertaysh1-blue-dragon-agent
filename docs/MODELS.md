@@ -1,53 +1,60 @@
-# Free access and model selection — v0.4.0-alpha.2
+# Ready-to-use free models — v0.4.0-alpha.3
 
-## Start without an account or API key
+## Start and choose without keys
 
 ```sh
 blue-dragon --provider free tui
 ```
 
-The `free` preset calls `https://api.jarvisclaw.ai/v1/chat/completions` using the documented anonymous `auto/free` route. No authorization header, wallet, payment flow or bundled secret is used. The gateway chooses the underlying model; these model weights are not bundled with Blue Dragon. No paid model fallback or automatic rate-limit retry occurs.
+`free` aliases the **Kilo anonymous free preset**. Type `/models` (or `/model`) for the terminal picker, type to filter, use Up/Down to choose, and Enter to select/save. Esc closes without changing anything. Plain `chat` lists IDs for selection with `/model kilo MODEL_ID`.
 
-A fresh installation with no saved selection, explicit model, endpoint or OpenAI key starts on this preset. Existing key/model and custom endpoint configurations keep their old behavior. If old `BLUE_DRAGON_MODEL` or `BLUE_DRAGON_BASE_URL` exports conflict with a new preset, unset them first; `--provider` and `--base-url` cannot be combined.
+`/models refresh` updates metadata. CLI equivalents: `blue-dragon models`, `blue-dragon models --refresh`, `blue-dragon model kilo MODEL_ID`. Listing is metadata discovery, not an availability test. No prompt/workspace content is sent when listing or selecting. Tasks send context and tool results to the chosen service. No account, API key, embedded secret, wallet or payment is configured for Kilo free access. Unrelated keys are never forwarded.
 
-Prompts, previous conversation context and tool results are sent to JarvisClaw and its chosen upstream when you submit a task. The active endpoint is displayed. Changing provider changes the destination for subsequent context. Free access is subject to the provider's quotas and availability; it is not unlimited or a service hosted by Blue Dragon. HTTP 429 and 402 stop the request with a clear error. Nothing automatically purchases capacity or switches services.
+## What AlphaCode uses
 
-## Choose and remember a model
+AlphaCode reference snapshot `7b325dfdb73066eaea372b7b39bf125effa2ae72` uses Kilo Gateway for Alphax Free. Its legacy base is `https://api.kilo.ai/api/gateway`, with `kilo-auto/free` and discovered `:free` pool members; its picker supports concrete pool members. Blue Dragon independently implements this using the same publicly documented service at `https://ai-gateway.kilo.ai/api/v1`. Both catalogs returned the same free IDs during verification. No additional AlphaCode source, branding or credentials are copied.
 
-In either the CLI chat or TUI:
+## Live catalog snapshot: 2026-11-13
 
-```text
-/models
-/model free
-/model openrouter openrouter/free
-/model ollama YOUR_INSTALLED_MODEL_ID
-/models refresh
-```
+These zero-priced tool-capable rows were returned by Kilo:
 
-Use `blue-dragon models` outside chat, `blue-dragon models --refresh` for discovery, or `blue-dragon model free` to save without a model request. A launch-only override is `--provider free`. Saved selection lives in application data as `model.json`, containing only provider/model names. It is never loaded from the inspected project and contains no keys. CLI flags/environment overrides take precedence as described above. Changing a model in chat updates both the active client and the session's model field; the same conversation is retained.
+| Model | Exact ID |
+|---|---|
+| Auto Free (gateway chooses) | `kilo-auto/free` |
+| Baidu ERNIE 5.5 Flash Preview | `baidu/ernie-5.5-flash-preview:free` |
+| Cohere North Mini Code | `cohere/north-mini-code:free` |
+| Dots3 Note Preview | `dots-studio/dots-3-note-preview:free` |
+| inclusionAI Ling 3.2 Flash | `inclusionai/ling-3.2-flash:free` |
+| LiquidAI LFM3 1.7B | `liquid/lfm-3-1.7b:free` |
+| Nemotron 3 Nano Omni Reasoning | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` |
+| Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b:free` |
+| Nemotron 3.5 Lightning | `nvidia/nemotron-3.5-lightning:free` |
+| Nemotron 3.5 Super VL | `nvidia/nemotron-3.5-super-vl:free` |
+| Particle 1 | `particle-ai/particle-1:free` |
 
-| Preset | Default / required model | Authentication |
+This is a historical snapshot, not a permanent lineup. Runtime filtering requires eligible free IDs, advertised tool support, zero prompt/completion prices, and zero for every other advertised price component. Missing/unknown/negative/exponential prices are rejected; no floating-point epsilon admits tiny nonzero prices. `kilo-auto/frontier`, `efficient` and `small` are excluded. Individual selections must exist in the validated local catalog. The documented Auto Free alias is the only offline floor.
+
+## Cache, selection and compatibility
+
+Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. HTTP 429/402 stop a task; choose another model manually. No automatic retry, paid fallback, purchase or cross-provider switch occurs.
+
+Selections are stored as provider/model names in `model.json`, never from repository config. Fresh installs use Kilo unless explicit legacy endpoint/model/key settings exist. Previously saved `{"provider":"free","model":"auto/free"}` migrates to **JarvisClaw** without silently changing its destination; `/model free` explicitly switches to Kilo.
+
+| Preset | Models | Key |
 |---|---|---|
-| `free` | `auto/free` only | None; unrelated exported keys are never forwarded |
-| `openrouter` | `openrouter/free`, or explicit `:free` ID | `OPENROUTER_API_KEY` |
-| `ollama` | Explicit installed model supporting tools | Local `127.0.0.1:11434/v1`; none |
-| `openai` | `gpt-4o-mini` or explicit ID | `OPENAI_API_KEY`; may incur charges |
-| `anthropic` | `claude-sonnet-4-5` or explicit ID | `ANTHROPIC_API_KEY`; may incur charges |
+| `free` / `kilo` | Auto Free or discovered eligible `:free` IDs | None |
+| `jarvis` | `auto/free` | None |
+| `openrouter` | `openrouter/free` or `:free` IDs | `OPENROUTER_API_KEY` |
+| `ollama` | Installed model with tools | None; local server required |
+| `openai` | Explicit ID or default | `OPENAI_API_KEY`; may incur charges |
+| `anthropic` | Explicit ID or default | `ANTHROPIC_API_KEY`; may incur charges |
 
-Custom OpenAI-compatible endpoints remain supported with `--base-url`, `--model`, and `BLUE_DRAGON_API_KEY`. The legacy global key is preserved for existing OpenAI setups, but is not reused across provider presets. Non-free models are rejected by the `free` and `openrouter` presets. Use a custom endpoint explicitly for other OpenRouter models.
+`/models openrouter` lists separate OpenRouter metadata, without claiming keyless inference. Existing custom `--base-url`, `--model`, `BLUE_DRAGON_API_KEY` configurations remain supported. Unset conflicting old `BLUE_DRAGON_BASE_URL` / `BLUE_DRAGON_MODEL` exports before a different preset. `--provider` cannot be combined with `--base-url`.
 
-`/models refresh` performs a public metadata GET of OpenRouter's model catalog, without credentials or conversation data. It includes only IDs ending in `:free` (or `openrouter/free`), tool support, zero prompt/completion prices, and no nonzero/unknown advertised price components. Missing prices are not treated as free. This is a catalog snapshot, not a live test or guarantee of future price, model quality or availability. The anonymous JarvisClaw catalog endpoint returned 401 during verification, so Blue Dragon lists only its documented free routing alias rather than inventing a selectable pool.
+## Data handling and validation
 
-TLS uses trusted bundled and OS certificates, honoring the native certificate-store configuration. It never disables certificate verification. Server requests time out and redirects are disabled. Native trust-store differences on physical Android still need device testing.
+Kilo Auto Free and NVIDIA free endpoints may log prompts, tool results and outputs and use them for service improvement. NVIDIA routes are trial use; do not submit personal/confidential data. The picker displays this notice. Blue Dragon does not operate the service or guarantee unlimited usage, retention, model identity or availability. TLS verification stays enabled with native and bundled trusted roots. No keys are extracted from AlphaCode or distributed here.
 
-## Validation (2026-11-13)
+Anonymous SSE calls to Auto Free, North Mini Code and LFM3 returned valid `ping` tool calls with gateway-reported cost zero. The opt-in `python scripts/check_free_models.py` exercises release-agent `read_file` roundtrips in temporary synthetic workspaces with provider keys removed. CI never makes live model calls. Tests cover catalog filters/cache/migration, key isolation, narrow/wide rendering, offline CLI selection and real Unix PTY picker/filter/select/save/exit. Physical Android needs device testing. Catalog membership is not a coding/security benchmark.
 
-- Real anonymous HTTP request to JarvisClaw: 200 with a function tool call.
-- Real anonymous SSE request: 200, fragmented tool arguments, finish reason and DONE marker.
-- Real release binary in a temporary synthetic workspace, with provider keys removed: streamed turn called `read_file`, obtained `BLUE_DRAGON_SYNTHETIC_42`, returned that content and persisted a successful action report. No private project contents were used.
-- Unit tests cover preset restrictions, keyless credential isolation, bounded/validated selection storage and zero-price/tool-capability filtering. Offline CLI and real Unix PTY tests cover switching and saved selections.
-- Other candidate gateways did not pass verification at that time (503/502) and are not automatic fallbacks.
-
-These checks demonstrate one real tool roundtrip, not a comparison benchmark or a promise that every coding task succeeds. Third-party upstream identity is gateway-reported. Physical Android and authenticated OpenRouter/Ollama calls were not tested in this revision.
-
-Primary service documentation: [JarvisClaw anonymous free API](https://jarvisclaw.ai/en/free-llm-api/), [OpenRouter free router](https://openrouter.ai/docs/guides/routing/routers/free-router).
+Primary documentation: [Kilo anonymous authentication](https://kilo.ai/docs/gateway/authentication), [models](https://kilo.ai/docs/gateway/models-and-providers), [free usage/data handling](https://kilo.ai/docs/getting-started/using-kilo-for-free).

@@ -25,6 +25,7 @@ pub enum AgentEvent {
     Delta(String),
     Plan(String),
     Model(String),
+    ModelChoices(Vec<crate::models::ModelChoice>, String),
     Finished(std::result::Result<(), String>),
     ToolStart(String),
     ToolResult(bool),
@@ -38,6 +39,15 @@ impl Agent {
         };
         session::recover_tool_history(&mut session);
         session.model = settings.model.clone();
+        if settings.base_url == crate::models::KILO_BASE {
+            crate::models::validate_kilo_selection(
+                settings
+                    .sessions_dir
+                    .parent()
+                    .context("Missing application directory")?,
+                &settings.model,
+            )?;
+        }
         let provider = Provider::new(
             &settings.base_url,
             settings.model.clone(),
@@ -86,6 +96,15 @@ impl Agent {
                     eprintln!("{error}");
                 }
             }
+            AgentEvent::ModelChoices(choices, source) => println!(
+                "{}\n{}",
+                source,
+                choices
+                    .iter()
+                    .map(|c| c.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
             AgentEvent::Model(text) => println!("Model: {text}"),
             AgentEvent::Plan(text) => println!("\nPlan:\n{text}"),
             AgentEvent::Delta(text) => {
@@ -116,6 +135,15 @@ impl Agent {
             self.settings.safe_endpoint()
         )
     }
+    pub fn kilo_models(&self, force: bool) -> Result<(Vec<crate::models::ModelChoice>, String)> {
+        crate::models::kilo_catalog(
+            self.settings
+                .sessions_dir
+                .parent()
+                .context("Missing application directory")?,
+            force,
+        )
+    }
     pub fn select_model(&mut self, input: &str) -> Result<String> {
         let words: Vec<_> = input.split_whitespace().collect();
         if words.is_empty() || words.len() > 2 {
@@ -129,6 +157,9 @@ impl Agent {
             .sessions_dir
             .parent()
             .context("Missing application directory")?;
+        if selection.provider == "kilo" {
+            crate::models::validate_kilo_selection(home, &selection.model)?;
+        }
         crate::models::save(home, &selection)?;
         self.provider = provider;
         self.settings.base_url = selection.base().into();

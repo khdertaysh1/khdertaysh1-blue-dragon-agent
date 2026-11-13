@@ -67,7 +67,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// List built-in profiles; --refresh fetches free tool-capable OpenRouter models
+    /// List keyless free models; --refresh updates the live Kilo catalog
     Models {
         #[arg(long)]
         refresh: bool,
@@ -106,9 +106,7 @@ fn run() -> Result<()> {
     match &args.command {
         Some(Command::Models { refresh }) => {
             println!("{}", models::menu());
-            if *refresh {
-                println!("{}", models::refresh()?);
-            }
+            println!("{}", models::kilo_listing(&home, *refresh)?);
             return Ok(());
         }
         Some(Command::Model {
@@ -258,10 +256,19 @@ fn run() -> Result<()> {
                                 continue;
                             }
                             "/model" | "/models" => {
-                                println!("{}\n{}", agent.model_status(), models::menu());
+                                println!(
+                                    "{}\n{}\n{}",
+                                    agent.model_status(),
+                                    models::menu(),
+                                    models::kilo_listing(&home, false)?
+                                );
                                 continue;
                             }
                             "/models refresh" => {
+                                println!("{}", models::kilo_listing(&home, true)?);
+                                continue;
+                            }
+                            "/models openrouter" => {
                                 println!("{}", models::refresh()?);
                                 continue;
                             }
