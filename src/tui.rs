@@ -257,6 +257,8 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             break;
         }
+        let can_type = !key.modifiers.contains(KeyModifiers::CONTROL)
+            && app.input.chars().count() < MAX_INPUT_CHARS;
         match key.code {
             KeyCode::Esc => break,
             KeyCode::PageUp => app.scroll_up = app.scroll_up.saturating_add(5),
@@ -270,10 +272,8 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
             KeyCode::Backspace => {
                 app.input.pop();
             }
-            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if app.input.chars().count() < MAX_INPUT_CHARS {
-                    app.input.push(ch);
-                }
+            KeyCode::Char(ch) if can_type => {
+                app.input.push(ch);
             }
             _ => {}
         }
