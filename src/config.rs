@@ -13,12 +13,21 @@ impl Settings {
     pub fn new(root: PathBuf, base_url: String, model: String) -> Result<Self> {
         let base_url = base_url.trim_end_matches('/').to_owned();
         let parsed = reqwest::Url::parse(&base_url).context("Invalid provider URL")?;
-        let local = matches!(parsed.host_str(), Some("localhost") | Some("127.0.0.1") | Some("[::1]"));
+        let local = matches!(
+            parsed.host_str(),
+            Some("localhost") | Some("127.0.0.1") | Some("[::1]")
+        );
         if !(parsed.scheme() == "https" || (parsed.scheme() == "http" && local)) {
             anyhow::bail!("Provider must use HTTPS, or HTTP on localhost only");
         }
-        if !parsed.username().is_empty() || parsed.password().is_some() || parsed.query().is_some() || parsed.fragment().is_some() {
-            anyhow::bail!("Provider URL must not include credentials, query parameters or fragments");
+        if !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            anyhow::bail!(
+                "Provider URL must not include credentials, query parameters or fragments"
+            );
         }
         let home = if let Ok(custom) = std::env::var("BLUE_DRAGON_HOME") {
             PathBuf::from(custom)

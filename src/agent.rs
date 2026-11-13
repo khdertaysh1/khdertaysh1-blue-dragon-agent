@@ -19,31 +19,65 @@ pub struct Agent {
 impl Agent {
     pub fn new(settings: Settings, approval: ApprovalMode, resume: Option<&str>) -> Result<Self> {
         let session = match resume {
-            Some(id) => session::load(&settings.sessions_dir,id,&settings.root)?,
-            None => session::new(&settings.root,&settings.model),
+            Some(id) => session::load(&settings.sessions_dir, id, &settings.root)?,
+            None => session::new(&settings.root, &settings.model),
         };
-        let provider = Provider::new(&settings.base_url,settings.model.clone(),settings.api_key.clone())?;
+        let provider = Provider::new(
+            &settings.base_url,
+            settings.model.clone(),
+            settings.api_key.clone(),
+        )?;
         let tools = ToolBox::new(settings.root.clone(), approval);
-        let mut agent = Self { provider, tools, settings, session };
-        if agent.session.messages.is_empty() { agent.session.messages.push(json!({"role":"system","content":system_prompt()})); }
+        let mut agent = Self {
+            provider,
+            tools,
+            settings,
+            session,
+        };
+        if agent.session.messages.is_empty() {
+            agent
+                .session
+                .messages
+                .push(json!({"role":"system","content":system_prompt()}));
+        }
         agent.persist()?;
         Ok(agent)
     }
 
-    pub fn session_id(&self) -> &str { &self.session.id }
-    pub fn model(&self) -> &str { &self.settings.model }
-    pub fn root(&self) -> &Path { &self.settings.root }
-    pub fn git_diff(&self) -> Result<String> { self.tools.git_diff() }
+    pub fn session_id(&self) -> &str {
+        &self.session.id
+    }
+    pub fn model(&self) -> &str {
+        &self.settings.model
+    }
+    pub fn root(&self) -> &Path {
+        &self.settings.root
+    }
+    pub fn git_diff(&self) -> Result<String> {
+        self.tools.git_diff()
+    }
 
-    fn persist(&mut self) -> Result<()> { session::save(&self.settings.sessions_dir,&mut self.session) }
+    fn persist(&mut self) -> Result<()> {
+        session::save(&self.settings.sessions_dir, &mut self.session)
+    }
 
     pub fn turn(&mut self, prompt: &str) -> Result<()> {
-        if prompt.len() > 25_000 { anyhow::bail!("Task prompt exceeds 25KiB limit"); }
-        self.session.messages.push(json!({"role":"user","content":prompt}));
+        if prompt.len() > 25_000 {
+            anyhow::bail!("Task prompt exceeds 25KiB limit");
+        }
+        self.session
+            .messages
+            .push(json!({"role":"user","content":prompt}));
         self.persist()?;
         for step in 0..12 {
-            let message = self.provider.complete(&self.session.messages,tools::definitions())?;
-            let calls = message.get("tool_calls").and_then(Value::as_array).cloned().unwrap_or_default();
+            let message = self
+                .provider
+                .complete(&self.session.messages, tools::definitions())?;
+            let calls = message
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             if calls.is_empty() {
                 let answer = extract_text(&message);
                 println!("\nDragon> {answer}");
@@ -51,13 +85,24 @@ impl Agent {
                 self.persist()?;
                 return Ok(());
             }
-            if calls.len() > 8 { anyhow::bail!("Provider requested too many parallel tools"); }
+            if calls.len() > 8 {
+                anyhow::bail!("Provider requested too many parallel tools");
+            }
             self.session.messages.push(message);
             self.persist()?;
             for call in calls {
-                let id = call.get("id").and_then(Value::as_str).context("Tool call missing id")?;
-                let name = call.pointer("/function/name").and_then(Value::as_str).context("Tool call missing name")?;
-                let arguments = call.pointer("/function/arguments").and_then(Value::as_str).context("Tool call missing arguments")?;
+                let id = call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .context("Tool call missing id")?;
+                let name = call
+                    .pointer("/function/name")
+                    .and_then(Value::as_str)
+                    .context("Tool call missing name")?;
+                let arguments = call
+                    .pointer("/function/arguments")
+                    .and_then(Value::as_str)
+                    .context("Tool call missing arguments")?;
                 let args: Value = match serde_json::from_str(arguments) {
                     Ok(value) => value,
                     Err(error) => {
@@ -66,12 +111,21 @@ impl Agent {
                         continue;
                     }
                 };
-                println!("\n[tool] {name} (step {})", step+1);
-                let result = tools::invoke(&self.tools,name,&args);
+                println!("\n[tool] {name} (step {})", step + 1);
+                let result = tools::invoke(&self.tools, name, &args);
                 let content = result.to_string();
                 // Avoid showing file contents or secrets in console output.
-                println!("[result] {}", if result.get("ok") == Some(&Value::Bool(false)) { "failed or denied" } else { "completed" });
-                self.session.messages.push(json!({"role":"tool","tool_call_id":id,"content":content}));
+                println!(
+                    "[result] {}",
+                    if result.get("ok") == Some(&Value::Bool(false)) {
+                        "failed or denied"
+                    } else {
+                        "completed"
+                    }
+                );
+                self.session
+                    .messages
+                    .push(json!({"role":"tool","tool_call_id":id,"content":content}));
                 self.persist()?;
             }
         }
@@ -82,7 +136,11 @@ impl Agent {
 fn extract_text(message: &Value) -> String {
     match message.get("content") {
         Some(Value::String(s)) => s.to_owned(),
-        Some(Value::Array(parts)) => parts.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => "(No text response from model)".to_string(),
     }
 }
@@ -96,10 +154,15 @@ mod tests {
     use super::*;
     #[test]
     fn reads_text_response() {
-        assert_eq!(extract_text(&json!({"content":"hello"})),"hello");
+        assert_eq!(extract_text(&json!({"content":"hello"})), "hello");
     }
     #[test]
     fn handles_array_response() {
-        assert_eq!(extract_text(&json!({"content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]})),"a\nb");
+        assert_eq!(
+            extract_text(
+                &json!({"content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]})
+            ),
+            "a\nb"
+        );
     }
 }
