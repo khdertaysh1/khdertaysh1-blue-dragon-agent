@@ -2,7 +2,7 @@
 
 **Cross-platform AI coding agent — built in Rust, designed for explicit consent and verifiable changes.**
 
-> **Status: v0.1.0 developer preview.** This is a functioning initial agent core, **not** feature parity with AlphaCode, Codex CLI, or Claude Code. A full-screen TUI, browser automation, multi-agent orchestration, MCP, and security scanner integrations are roadmap items, not current features.
+> **Status: v0.2.0-alpha.1 developer preview.** This is a functioning initial agent core, **not** feature parity with AlphaCode, Codex CLI, or Claude Code. A full-screen TUI, browser automation, multi-agent orchestration, MCP, and security scanner integrations are roadmap items, not current features.
 
 ## Why Blue Dragon?
 
@@ -11,7 +11,10 @@ Blue Dragon takes an evidence-first approach to autonomous code work: inspect th
 ### Available today
 
 - OpenAI-compatible `chat/completions` tool-calling API (cloud endpoints and local Ollama/LM Studio adapters where compatible).
-- Six tools: `list_files`, `read_file`, `search_files`, `git_diff`, `write_file`, `run_command`.
+- Native Anthropic Claude Messages API adapter with tool call/result conversion (unit tested; live provider credentials not tested).
+- Ten tools: `list_files`, `read_file`, `read_lines`, `search_files`, `project_map`, `git_status`, `git_diff`, `edit_file`, `write_file`, `run_command`.
+- Targeted exact-match editing with diff approval; rejects ambiguous or stale text.
+- Bounded project overview and explicitly activated local Markdown skills (scripts are never executed).
 - Mandatory interactive approval for **every** write or command. `--read-only` blocks both; noninteractive stdin defaults to **deny**.
 - Path traversal and protected-secret path blocking; file size limits, output caps, command timeout, and 12 tool-call rounds per turn.
 - Local JSON session persistence, `--resume <id>` or `--resume latest`, session listing.
@@ -46,6 +49,15 @@ $env:BLUE_DRAGON_MODEL = 'gpt-4o-mini'
 .\target\release\blue-dragon.exe --root . chat
 ```
 
+**Native Anthropic Claude API:**
+
+```bash
+export BLUE_DRAGON_BASE_URL="https://api.anthropic.com/v1"
+export BLUE_DRAGON_MODEL="claude-sonnet-5-5"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+./target/release/blue-dragon chat
+```
+
 **Local OpenAI-compatible server (no API key when the server permits it):**
 
 ```bash
@@ -61,6 +73,8 @@ Use a model that actually supports OpenAI-style function/tool calling; some loca
 ```text
 blue-dragon --help
 blue-dragon doctor
+blue-dragon map
+blue-dragon skills
 blue-dragon sessions
 blue-dragon --root /path/to/project chat
 blue-dragon --root /path/to/project run "Explain the code structure"
@@ -68,7 +82,9 @@ blue-dragon --root /path/to/project --read-only run "Review the repository"
 blue-dragon --root /path/to/project --resume latest chat
 ```
 
-Inside chat: `/help`, `/diff`, `/session`, `/doctor`, `/exit`.
+Inside chat: `/help`, `/diff`, `/status`, `/map`, `/skills`, `/skill <name>`, `/session`, `/doctor`, `/exit`.
+
+Skills: put Markdown files under the `skills/` sibling of the session directory printed by `doctor`. For example, create `review.md`, then use `/skill review` in chat. Activate only files you trust.
 
 ## Security and limitations
 
@@ -82,8 +98,8 @@ Inside chat: `/help`, `/diff`, `/session`, `/doctor`, `/exit`.
 
 ## Roadmap
 
-1. **v0.2**: streaming terminal UI (`ratatui`), patch-oriented editing, contextual project map, richer diff review.
-2. **v0.3**: browser via Playwright/CDP, MCP clients, parallel isolated worktrees, test evidence engine.
+1. **v0.2**: targeted edits and heuristic project map are available in this alpha; next implement streaming terminal UI (`ratatui`) and AST indexing.
+2. **v0.3**: browser via Playwright/CDP, MCP clients, parallel isolated worktrees, test evidence engine and more providers.
 3. **v0.4**: security modules (SAST, configuration, dependency scans), policy engine, reproducible benchmarks.
 4. **v1.0**: optional native desktop GUI plus release installers and verified cross-platform performance.
 
