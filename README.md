@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Developer preview: `v0.2.0-alpha.1` on `main`.** Blue Dragon has a working, testable agent core, but is **not** feature-equivalent to AlphaCode, Codex CLI or Claude Code. The full-screen TUI is in [experimental PR #1](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1), not in the current `main` binary. Browser automation, MCP and multi-agent orchestration are not implemented yet.
+> **Developer preview: `v0.4.0-alpha.1`.** Blue Dragon has a working, testable agent core, but is **not** feature-equivalent to AlphaCode, Codex CLI or Claude Code. This workbench revision adds a full-screen TUI, streamed model responses, task plans, action reports and opt-in stdio MCP tools. Browser/desktop automation and multi-agent orchestration are not implemented yet. See [workbench setup and limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
@@ -35,7 +35,7 @@
   <sub>Animated neural workflow: travelling signals, rotating orbit and neural pulses. Motion is decorative; the agent runs in Rust.</sub>
 </div>
 
-Blue Dragon is designed around a simple engineering loop: **understand → act with approval → verify → explain**. Unlike an opaque "autopilot", writes and subprocess commands are presented for explicit user approval. The project is independently authored and is not a fork of AlphaCode.
+Blue Dragon is designed around a simple engineering loop: **understand → act with approval → verify → explain**. Unlike an opaque "autopilot", writes and subprocess commands are presented for explicit user approval. The project is independently developed; a small adapted MIT protocol component is credited in [third-party notices](third_party/NOTICE.md).
 
 ## Capabilities
 
@@ -49,15 +49,19 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **Memory** | Locally saved JSON sessions, resume by ID or latest |
 | **Skills** | Opt-in local Markdown workflows, without running bundled scripts |
 | **Safety controls** | `--read-only`, protected-path checks and deny-by-default noninteractive approvals |
-| **Terminal** | CLI `chat`, `run` and diagnostics; [experimental full-screen TUI in PR #1](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1) |
+| **Terminal** | Full-screen `tui`, streamed responses, approval overlay, cancellation, plan pane; CLI `chat`, `run` and diagnostics |
+| **MCP** | Opt-in stdio servers, approved launch/discovery/tool calls; no auto-execution of repository config |
+| **Planning & evidence** | Saved task steps, bounded tool-action report, resume |
+| **Network & files** | Approved text web fetch, directory creation, file metadata |
 
 <details>
-<summary><b>See all 10 current agent tools</b></summary>
+<summary><b>See all 14 built-in agent tools</b></summary>
 
 ```text
 list_files     read_file      read_lines    search_files
 project_map    git_status     git_diff      edit_file
-write_file     run_command
+write_file     run_command    update_plan   create_directory
+file_info      web_fetch
 ```
 
 Every write or command requires a per-action approval. Tool availability depends on the local environment.
@@ -74,7 +78,7 @@ Every write or command requires a per-action approval. Tool availability depends
   <sub><strong>Animated product concept</strong> — not a recorded live session or a claim of current runtime functionality. Click to open the animation.</sub>
 </div>
 
-The full-screen Ratatui terminal is being developed in [experimental PR #1](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1). It introduces a conversational screen, tool progress and an approval modal. **The current `main` release uses the standard CLI**, not this illustrated interface.
+Run the actual terminal with `blue-dragon tui`. It includes a conversation, live output, tool progress and approval modal. The artwork above remains an illustration; it is not a captured runtime session. See [workbench documentation](docs/WORKBENCH.md).
 
 <details>
 <summary><strong>Explore the static terminal mockup and the design notes</strong></summary>
@@ -95,7 +99,7 @@ Requires a **Rust toolchain** and a model endpoint supporting tool/function call
 ```bash
 git clone https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent.git
 cd khdertaysh1-blue-dragon-agent
-cargo build --release
+cargo build --locked --release
 ./target/release/blue-dragon doctor
 ```
 
@@ -104,7 +108,7 @@ Start the agent with a hosted, OpenAI-compatible endpoint:
 ```bash
 export BLUE_DRAGON_API_KEY="YOUR_API_KEY"
 export BLUE_DRAGON_MODEL="YOUR_TOOL_CALLING_MODEL"
-./target/release/blue-dragon --root . chat
+./target/release/blue-dragon --root . tui
 ```
 
 Prefer to try inspection before connecting AI? The project map and diagnostics run locally:
@@ -161,7 +165,7 @@ Choose a model with compatible function calling. **No free hosted AI provider is
 pkg install git rust clang pkg-config
 git clone https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent.git
 cd khdertaysh1-blue-dragon-agent
-cargo build --release
+cargo build --locked --release
 ./target/release/blue-dragon doctor
 ```
 
@@ -215,8 +219,9 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 <details>
 <summary><b>In progress — A more capable developer experience</b></summary>
 
-- [ ] Merge and harden full-screen TUI (currently in [PR #1](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1))
-- [ ] Model token streaming, better patch-oriented edits and richer code navigation
+- [x] Integrated full-screen TUI, streaming, task plans and opt-in stdio MCP
+- [ ] Physical-device terminal testing and wider MCP compatibility
+- [ ] Better patch-oriented edits, context compaction and richer code navigation
 - [ ] Reliable release packaging and Termux-specific verification
 
 </details>
@@ -224,7 +229,7 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 <details>
 <summary><b>Planned — Beyond the terminal</b></summary>
 
-- [ ] Browser automation, MCP client integrations and isolated worktrees
+- [ ] Browser/desktop automation, remote MCP transports and isolated worktrees
 - [ ] Parallel agents, evidence-driven verification and security analysis modules
 - [ ] Optional native desktop interface and reproducible performance benchmarks
 
@@ -236,7 +241,7 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 cargo fmt --all -- --check
 cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
-cargo build --release
+cargo build --locked --release
 ```
 
 Read the [design notes](docs/VISUAL_IDENTITY.md), [feature-parity tracker](docs/ALPHACODE_PARITY.md), or open an issue with a reproducible bug. Contributions should preserve explicit approval, clear evidence and truthful documentation.

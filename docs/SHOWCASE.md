@@ -18,7 +18,7 @@ The diagram shows a *conceptual* workflow from project inspection to approved ac
 
 ![Illustrative animated terminal demo](../assets/neural-console-preview.gif)
 
-This looping animation is **not a screen recording**. It uses sample commands, sample output and a proposed change modal to show the intended terminal experience. The current Rust CLI provides project-map commands and per-action approval; the full-screen TUI is tracked in [PR #1](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1).
+This looping animation is **not a screen recording**. It uses sample commands, sample output and a proposed change modal to show the intended terminal experience. The Rust agent provides project-map commands and per-action approval; the actual full-screen TUI is available through `blue-dragon tui` in the workbench revision.
 
 ## 04 · Honest capability status
 

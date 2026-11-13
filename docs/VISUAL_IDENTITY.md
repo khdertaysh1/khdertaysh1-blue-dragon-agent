@@ -21,7 +21,7 @@ The workflow SVG and logo embed a small PNG of the companion head, with no remot
 
 README files on GitHub do **not** execute arbitrary client JavaScript. To ensure motion still plays inside GitHub, the terminal walkthrough is an optimized animated GIF rather than an embedded web application. The README uses native expandable `<details>` sections, a Mermaid diagram and SVG motion where the browser/GitHub renderer supports it. Every SVG remains readable without animation. GitHub may sanitize or cache remote media, so animation is not guaranteed to play in every viewer.
 
-The banners and diagrams represent the intended engineering workflow; they do **not** imply that pending features have shipped. In particular, the full-screen TUI remains in a draft PR until reviewed and merged.
+The banners and diagrams represent the intended engineering workflow; they do **not** imply that pending features have shipped. The workbench revision includes a real full-screen TUI, but the existing animated console media remains an illustration rather than a recorded session.
 
 ## Palette
 

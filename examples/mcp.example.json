@@ -1,0 +1,10 @@
+{
+  "servers": [
+    {
+      "name": "docs",
+      "command": "python",
+      "args": ["/absolute/path/to/your/mcp_server.py"],
+      "env": ["DOCS_TOKEN"]
+    }
+  ]
+}

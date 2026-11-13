@@ -1,15 +1,22 @@
 mod agent;
 mod anthropic;
 mod config;
+mod mcp;
+mod mcp_protocol;
+mod plan;
 mod project;
 mod provider;
 mod session;
 mod skills;
+mod streaming;
+#[cfg(test)]
+mod test_support;
 mod tools;
+mod tui;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
 use agent::{Agent, ApprovalMode};
@@ -34,7 +41,11 @@ struct Cli {
         default_value = "https://api.openai.com/v1"
     )]
     base_url: String,
-    #[arg(long, global = true, help = "Deny all filesystem writes and commands")]
+    #[arg(
+        long,
+        global = true,
+        help = "Deny writes, commands, web fetches and external MCP actions"
+    )]
     read_only: bool,
     #[arg(
         long,
@@ -42,6 +53,21 @@ struct Cli {
         help = "Resume a saved session by ID; 'latest' uses most recent"
     )]
     resume: Option<String>,
+    #[arg(
+        long,
+        global = true,
+        env = "BLUE_DRAGON_MCP_CONFIG",
+        help = "Opt-in JSON file listing trusted local MCP servers"
+    )]
+    mcp_config: Option<PathBuf>,
+    #[arg(
+        long,
+        global = true,
+        help = "Use non-streaming model responses for older compatible servers"
+    )]
+    no_stream: bool,
+    #[arg(long, global=true, default_value_t=24, value_parser=clap::value_parser!(u16).range(1..=100))]
+    max_steps: u16,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -50,6 +76,8 @@ struct Cli {
 enum Command {
     /// Start conversational agent with interactive approval prompts
     Chat,
+    /// Full-screen terminal with live answers and per-action approvals
+    Tui,
     /// Execute one task; approval is still required for writes/commands
     Run { task: String },
     /// Check local setup without uploading data
@@ -78,7 +106,10 @@ fn run() -> Result<()> {
     if !root.is_dir() {
         anyhow::bail!("Workspace must be a directory");
     }
-    let settings = Settings::new(root, args.base_url, args.model)?;
+    let mut settings = Settings::new(root, args.base_url, args.model)?;
+    settings.mcp_config = args.mcp_config;
+    settings.stream = !args.no_stream;
+    settings.max_steps = usize::from(args.max_steps);
     match args.command {
         Some(Command::Doctor) => {
             println!("Blue Dragon v{} | Diagnostic", env!("CARGO_PKG_VERSION"));
@@ -121,6 +152,10 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
+        Some(Command::Tui) => tui::run(settings, args.read_only, args.resume.as_deref()),
+        None if io::stdin().is_terminal() && io::stdout().is_terminal() => {
+            tui::run(settings, args.read_only, args.resume.as_deref())
+        }
         cmd => {
             let approval = if args.read_only {
                 ApprovalMode::ReadOnly
@@ -144,7 +179,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /exit /session /diff /status /map /skills /skill <name> /doctor — or enter a task");
+                                println!("/help /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/session" => {
@@ -178,6 +213,26 @@ fn run() -> Result<()> {
                                 match agent.activate_skill(name) {
                                     Ok(()) => println!("Activated local skill: {name}"),
                                     Err(error) => eprintln!("Skill error: {error:#}"),
+                                }
+                                continue;
+                            }
+                            "/plan" => {
+                                println!("{}", agent.plan_text());
+                                continue;
+                            }
+                            "/report" => {
+                                println!("{}", agent.report_text());
+                                continue;
+                            }
+                            "/mcp" => {
+                                println!("{}", agent.mcp_list());
+                                continue;
+                            }
+                            name if name.starts_with("/connect ") => {
+                                match agent.connect_mcp(name.trim_start_matches("/connect ").trim())
+                                {
+                                    Ok(v) => println!("{v}"),
+                                    Err(e) => eprintln!("MCP: {e:#}"),
                                 }
                                 continue;
                             }
