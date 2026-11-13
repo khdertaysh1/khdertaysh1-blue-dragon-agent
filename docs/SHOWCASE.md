@@ -4,9 +4,9 @@
 
 ## 01 · Identity
 
-![Blue Dragon: electric dragon protecting a neural brain](../assets/blue-dragon-hero.webp)
+![Blue Dragon: intact electric-blue cyber dragon](../assets/blue-dragon-hero.webp)
 
-The dragon stands for deliberate execution; the circuit brain stands for project context and tool orchestration. The visual language is original, not borrowed from another project's branding.
+The dragon stands for deliberate execution; the surrounding circuit motifs stand for project context and tool orchestration. The visual language is original, not borrowed from another project's branding.
 
 ## 02 · The Dragon Mind
 

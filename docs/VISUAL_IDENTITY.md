@@ -1,6 +1,6 @@
 # Blue Dragon visual identity
 
-The identity combines **an electric-blue dragon** (guided action) with a **neural brain and circuit nodes** (context, tools, verification). It is an original visual language rather than a recreation of another project's artwork.
+The identity combines **an electric-blue dragon** (guided action) with **circuit nodes** (context, tools, verification). It is an original visual language rather than a recreation of another project's artwork.
 
 ## Asset inventory
 
@@ -13,9 +13,9 @@ The identity combines **an electric-blue dragon** (guided action) with a **neura
 | `assets/tui-preview.svg` | SVG | **Illustrative concept** for PR #1, not a live screenshot |
 | `assets/neural-console-preview.gif` | Animated GIF | Multi-frame illustrative terminal walkthrough that plays in ordinary GitHub README image viewers; **not a real captured session** |
 
-## Anatomy and consistency
-The brain is a small cutaway inside the upper rear skull, behind the eye and above the jaw hinge. It must never sit in the throat, neck or lower jaw. The hero, workflow and compact mark use the same right-facing dragon identity, with a recognizable snout, eye, distinct jaw, swept-back horns and scaled neck.
-The workflow SVG and logo embed a small PNG of the approved head: self-contained images, with no remote dependencies or JavaScript. Keep cranial tissue within the skull if the character is revised.
+## Dragon identity
+The current character is an intact scaled blue dragon: no exposed brain, cranial window, cutaway, chip or anatomical diagram. The hero, workflow and compact mark share this character. Preserve the original cyber composition, travelling signals, rotating orbit and pulses.
+The workflow SVG and logo embed a small PNG of the companion head, with no remote dependencies or JavaScript.
 
 ## Motion and interactivity
 
@@ -45,3 +45,6 @@ The generated hero is assets/blue-dragon-hero.webp; the transparent companion is
 
 ## Motion restoration
 The original neural-workflow layout is retained: all six travelling SVG signal animations, rotating orbit, grid, glow filters and original panels. Only the ambiguous central dragon is replaced. The hero retains its original cyber frames, badges, icon connections and typography, with the corrected cranial brain. The previous minimal composition is superseded. Built-in image editing used both the original hero and the corrected dragon as references; surrounding identity was preserved.
+
+## Final user revision: intact dragon
+The cranial cutaway was removed from both raster assets with built-in image editing. Prompt: remove only the brain and its entire window/frame, seamlessly fill with intact blue scales, preserve pose, cyber composition, typography, icons, lighting and transparency. Current assets are assets/blue-dragon-hero.webp and assets/dragon-head.webp; both native SVGs embed the intact head. Earlier cutaway descriptions above refer to superseded artwork.

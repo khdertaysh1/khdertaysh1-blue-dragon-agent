@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/blue-dragon-hero.webp" alt="Blue Dragon — a blue dragon with its neural brain enclosed inside the skull" width="100%" />
+  <img src="assets/blue-dragon-hero.webp" alt="Blue Dragon — an intact electric-blue dragon with cyber lighting" width="100%" />
 </p>
 
 <h1 align="center">BLUE DRAGON</h1>
