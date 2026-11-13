@@ -1,29 +1,33 @@
-<div align="center">
+<p align="center">
+  <img src="assets/blue-dragon-hero.webp" alt="Blue Dragon — original electric-blue dragon with an AI neural brain" width="100%" />
+</p>
 
-<img src="assets/blue-dragon-hero.webp" alt="Blue Dragon — original electric-blue dragon with an AI neural brain" width="100%" />
+<h1 align="center">BLUE DRAGON</h1>
 
-<br/>
+<p align="center"><strong>An open-source, cross-platform AI coding agent built with Rust.</strong></p>
 
-# BLUE DRAGON
+<p align="center"><em>Inspect the project. Plan with context. Review every change.</em></p>
 
-**An open-source, cross-platform AI coding agent built with Rust.**
+<p align="center">
+  <a href="Cargo.toml"><img alt="Rust" src="https://img.shields.io/badge/Rust-2021-0c1c31?logo=rust&amp;logoColor=38d6f5"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-0c1c31?labelColor=09213a"></a>
+  <a href="https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml"><img alt="Build status" src="https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <img alt="Developer preview" src="https://img.shields.io/badge/Status-developer%20preview-2374bd">
+</p>
 
-*Inspect the project. Plan with context. Review every change.*
-
-[![Rust](https://img.shields.io/badge/Rust-2021-0c1c31?logo=rust&logoColor=38d6f5)](Cargo.toml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-0c1c31?labelColor=09213a)](LICENSE)
-[![CI](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml)
-![Status](https://img.shields.io/badge/Status-developer%20preview-2374bd)
-![Platforms](https://img.shields.io/badge/CI-Linux%20%7C%20Windows%20%7C%20macOS-0b507c)
-
-[**Get started**](#-quick-start) · [**Explore the agent**](#-the-dragon-mind) · [**Terminal preview**](#-terminal-preview) · [**Capabilities**](#-capabilities) · [**Safety**](#-human-in-control) · [**Roadmap**](#-roadmap)
-
-</div>
+<p align="center">
+  <a href="#quick-start">Get started</a> ·
+  <a href="#the-dragon-mind">Explore the agent</a> ·
+  <a href="#terminal-preview">Terminal preview</a> ·
+  <a href="#capabilities">Capabilities</a> ·
+  <a href="#human-in-control">Safety</a> ·
+  <a href="#roadmap">Roadmap</a>
+</p>
 
 > [!IMPORTANT]
 > **Developer preview: `v0.2.0-alpha.1` on `main`.** Blue Dragon has a working, testable agent core, but is **not** feature-equivalent to AlphaCode, Codex CLI or Claude Code. The full-screen TUI is in [experimental PR #1](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1), not in the current `main` binary. Browser automation, MCP and multi-agent orchestration are not implemented yet.
 
-## ✧ The Dragon Mind
+## The Dragon Mind
 
 <div align="center">
   <img src="assets/dragon-mind.svg" alt="Illustrated neural workflow: goal, project map, tools, user approval, verification and evidence" width="100%" />
@@ -32,7 +36,7 @@
 
 Blue Dragon is designed around a simple engineering loop: **understand → act with approval → verify → explain**. Unlike an opaque "autopilot", writes and subprocess commands are presented for explicit user approval. The project is independently authored and is not a fork of AlphaCode.
 
-## ✦ Capabilities
+## Capabilities
 
 | Area | What is currently available |
 |:--|:--|
@@ -59,7 +63,7 @@ Every write or command requires a per-action approval. Tool availability depends
 
 </details>
 
-## ✧ Terminal Preview
+## Terminal Preview
 
 <div align="center">
   <a href="https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1">
@@ -70,7 +74,7 @@ Every write or command requires a per-action approval. Tool availability depends
 
 The prototype TUI adds a full-screen conversation view, tool-step feedback and an approval dialog. The **stable `main` branch currently uses the standard CLI**.
 
-## ⚡ Quick Start
+## Quick Start
 
 Requires a **Rust toolchain** and a model endpoint supporting tool/function calling. Git is recommended.
 
@@ -151,7 +155,7 @@ Termux builds are device and package dependent; Linux CI success does not establ
 
 </details>
 
-## ◇ How It Works
+## How It Works
 
 ```mermaid
 flowchart LR
@@ -170,7 +174,7 @@ flowchart LR
 
 For module boundaries, provider integration and tool definitions, see [Architecture](docs/ARCHITECTURE.md).
 
-## ◈ Human in Control
+## Human in Control
 
 Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect each proposal before typing `y`. Files and tool transcripts can be sent to the configured model service. Secrets, excluded paths and size limits have safety checks, but cannot guarantee isolation from a hostile local workspace.
 
@@ -181,7 +185,7 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 
 [Read the security model](SECURITY.md) · [Review architecture](docs/ARCHITECTURE.md)
 
-## 🚀 Roadmap
+## Roadmap
 
 <details>
 <summary><b>Delivered — Agent foundation</b></summary>
@@ -212,7 +216,7 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 
 </details>
 
-## ◇ Development & Contributing
+## Development & Contributing
 
 ```bash
 cargo fmt --all -- --check
