@@ -6,6 +6,7 @@ mod provider;
 mod session;
 mod skills;
 mod tools;
+mod tui;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -56,6 +57,8 @@ enum Command {
     Doctor,
     /// List saved local sessions
     Sessions,
+    /// Launch the full-screen terminal UI with real-time status and approval prompts
+    Tui,
     /// Inspect file types, manifests and language distribution without sending code to AI
     Map,
     /// List user-level local Markdown skills
@@ -107,6 +110,7 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
+        Some(Command::Tui) => tui::run(settings, args.read_only, args.resume.as_deref()),
         Some(Command::Map) => {
             println!(
                 "{}",
