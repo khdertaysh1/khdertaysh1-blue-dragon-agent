@@ -278,11 +278,13 @@ impl ToolBox {
                 anyhow::bail!("Approval detail too large for the TUI; use interactive CLI instead");
             }
             let (respond_to, rx) = std::sync::mpsc::channel();
-            sender.send(ApprovalRequest {
-                action: action.to_owned(),
-                detail: detail.to_owned(),
-                respond_to,
-            }).context("Terminal UI closed while requesting approval")?;
+            sender
+                .send(ApprovalRequest {
+                    action: action.to_owned(),
+                    detail: detail.to_owned(),
+                    respond_to,
+                })
+                .context("Terminal UI closed while requesting approval")?;
             return Ok(rx.recv().unwrap_or(false));
         }
         println!("\n┌─ APPROVAL REQUIRED ──────────────────────────────────────");

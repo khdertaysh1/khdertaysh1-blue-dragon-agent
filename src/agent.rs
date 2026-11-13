@@ -66,7 +66,10 @@ impl Agent {
             AgentEvent::Answer(text) => println!("\nDragon> {text}"),
             AgentEvent::ToolStart(name) => println!("\n[tool] {name}"),
             AgentEvent::ToolResult(ok) => {
-                println!("[result] {}", if ok { "completed" } else { "failed or denied" });
+                println!(
+                    "[result] {}",
+                    if ok { "completed" } else { "failed or denied" }
+                );
             }
         }
     }

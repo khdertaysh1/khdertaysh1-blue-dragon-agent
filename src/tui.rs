@@ -123,7 +123,11 @@ impl Screen {
             let _ = request.respond_to.send(accepted);
             self.log(
                 "Approval:",
-                if accepted { "Approved one action" } else { "Denied action" },
+                if accepted {
+                    "Approved one action"
+                } else {
+                    "Denied action"
+                },
             );
             self.status = if accepted {
                 "Action approved; working".into()
@@ -147,10 +151,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         anyhow::bail!("TUI needs an interactive terminal. Use 'blue-dragon chat' or 'run' instead");
     }
-    let mut app = Screen::new(
-        settings.model.clone(),
-        settings.root.display().to_string(),
-    );
+    let mut app = Screen::new(settings.model.clone(), settings.root.display().to_string());
 
     let (work_tx, work_rx) = mpsc::channel::<Work>();
     let (message_tx, message_rx) = mpsc::channel::<AgentEvent>();
@@ -289,7 +290,11 @@ fn run_slash(agent: &mut Agent, tx: &Sender<AgentEvent>, line: &str) -> Result<(
         "/diff" => agent.git_diff()?,
         "/skills" => serde_json::to_string_pretty(&agent.list_skills()?)?,
         "/session" => agent.session_id().to_owned(),
-        "/doctor" => format!("Model: {} | workspace: {}", agent.model(), agent.root().display()),
+        "/doctor" => format!(
+            "Model: {} | workspace: {}",
+            agent.model(),
+            agent.root().display()
+        ),
         _ if line.starts_with("/skill ") => {
             let name = line.trim_start_matches("/skill ").trim();
             agent.activate_skill(name)?;
@@ -316,7 +321,11 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         Paragraph::new(" BLUE DRAGON  ◆  AI CODING AGENT ")
             .style(Style::default().fg(BLUE).add_modifier(Modifier::BOLD))
             .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(BLUE))),
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(BLUE)),
+            ),
         outer[0],
     );
 
@@ -331,16 +340,17 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     frame.render_widget(
         Paragraph::new(text)
             .style(Style::default().fg(Color::White))
-            .block(Block::default().title(" Conversation ").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(" Conversation ")
+                    .borders(Borders::ALL),
+            )
             .wrap(Wrap { trim: false })
             .scroll((scroll, 0)),
         outer[1],
     );
 
-    let status = format!(
-        " {}  |  {}  |  {} ",
-        app.status, app.model, app.workspace
-    );
+    let status = format!(" {}  |  {}  |  {} ", app.status, app.model, app.workspace);
     frame.render_widget(
         Paragraph::new(status)
             .style(Style::default().fg(MUTED))
@@ -352,7 +362,12 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     frame.render_widget(
         Paragraph::new(format!(" > {}▌", app.input))
             .style(Style::default().fg(Color::White))
-            .block(Block::default().title(prompt).borders(Borders::ALL).border_style(Style::default().fg(BLUE))),
+            .block(
+                Block::default()
+                    .title(prompt)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(BLUE)),
+            ),
         outer[3],
     );
 
