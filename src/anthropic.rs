@@ -55,7 +55,10 @@ pub fn request_body(messages: &[Value], tools: &Value, model: &str) -> Result<Va
                 });
                 if let Some(last) = history.last_mut() {
                     if last["role"] == "user" && last["content"].is_array() {
-                        last["content"].as_array_mut().context("Unexpected content")?.push(block);
+                        last["content"]
+                            .as_array_mut()
+                            .context("Unexpected content")?
+                            .push(block);
                         continue;
                     }
                 }
@@ -65,7 +68,9 @@ pub fn request_body(messages: &[Value], tools: &Value, model: &str) -> Result<Va
         }
     }
 
-    let available = tools.as_array().context("Tool definitions must be an array")?;
+    let available = tools
+        .as_array()
+        .context("Tool definitions must be an array")?;
     let definitions: Vec<Value> = available
         .iter()
         .map(|tool| {
@@ -90,7 +95,9 @@ pub fn request_body(messages: &[Value], tools: &Value, model: &str) -> Result<Va
 }
 
 pub fn decode_response(value: &Value) -> Result<Value> {
-    let parts = value["content"].as_array().context("Anthropic response has no content blocks")?;
+    let parts = value["content"]
+        .as_array()
+        .context("Anthropic response has no content blocks")?;
     let mut text = Vec::new();
     let mut calls = Vec::new();
     for part in parts {
@@ -141,7 +148,10 @@ mod tests {
         }}]);
         let request = request_body(&messages, &tools, "claude-test").unwrap();
         assert_eq!(request["messages"][1]["content"][0]["name"], "list_files");
-        assert_eq!(request["messages"][2]["content"][0]["tool_use_id"], "call_1");
+        assert_eq!(
+            request["messages"][2]["content"][0]["tool_use_id"],
+            "call_1"
+        );
         assert_eq!(request["tools"][0]["input_schema"]["type"], "object");
     }
 
