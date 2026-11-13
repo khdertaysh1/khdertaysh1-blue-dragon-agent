@@ -9,10 +9,18 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
+pub struct ApprovalRequest {
+    pub action: String,
+    pub detail: String,
+    pub respond_to: std::sync::mpsc::Sender<bool>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ApprovalMode {
     Ask,
     ReadOnly,
+    Tui(std::sync::mpsc::Sender<ApprovalRequest>),
 }
 
 pub struct ToolBox {
@@ -262,8 +270,20 @@ impl ToolBox {
     }
 
     fn approve(&self, action: &str, detail: &str) -> Result<bool> {
-        if matches!(self.approval, ApprovalMode::ReadOnly) {
+        if matches!(&self.approval, ApprovalMode::ReadOnly) {
             return Ok(false);
+        }
+        if let ApprovalMode::Tui(sender) = &self.approval {
+            if detail.len() > 8_000 {
+                anyhow::bail!("Approval detail too large for the TUI; use interactive CLI instead");
+            }
+            let (respond_to, rx) = std::sync::mpsc::channel();
+            sender.send(ApprovalRequest {
+                action: action.to_owned(),
+                detail: detail.to_owned(),
+                respond_to,
+            }).context("Terminal UI closed while requesting approval")?;
+            return Ok(rx.recv().unwrap_or(false));
         }
         println!("\n┌─ APPROVAL REQUIRED ──────────────────────────────────────");
         println!("│ {action}");
