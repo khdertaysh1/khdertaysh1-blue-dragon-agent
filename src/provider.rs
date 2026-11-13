@@ -8,11 +8,18 @@ pub struct Provider {
     url: String,
     model: String,
     key: Option<String>,
+    anthropic: bool,
 }
 
 impl Provider {
     pub fn new(base_url: &str, model: String, key: Option<String>) -> Result<Self> {
-        let url = format!("{}/chat/completions", base_url);
+        let parsed = reqwest::Url::parse(base_url).context("Invalid provider URL")?;
+        let anthropic = parsed.host_str() == Some("api.anthropic.com");
+        let url = if anthropic {
+            format!("{}/messages", base_url)
+        } else {
+            format!("{}/chat/completions", base_url)
+        };
         let client = Client::builder()
             .timeout(Duration::from_secs(120))
             .redirect(reqwest::redirect::Policy::none())
@@ -22,20 +29,32 @@ impl Provider {
             url,
             model,
             key,
+            anthropic,
         })
     }
 
     pub fn complete(&self, messages: &[Value], tools: Value) -> Result<Value> {
-        let payload = json!({
-            "model": self.model,
-            "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
-            "temperature": 0.2
-        });
+        let payload = if self.anthropic {
+            crate::anthropic::request_body(messages, &tools, &self.model)?
+        } else {
+            json!({
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto",
+                "temperature": 0.2
+            })
+        };
         let mut req = self.client.post(&self.url).json(&payload);
+        if self.anthropic {
+            req = req.header("anthropic-version", "2023-06-01");
+        }
         if let Some(ref key) = self.key {
-            req = req.bearer_auth(key);
+            req = if self.anthropic {
+                req.header("x-api-key", key.as_str())
+            } else {
+                req.bearer_auth(key)
+            };
         }
         let response = req.send().context("Provider request failed")?;
         let code = response.status();
@@ -55,10 +74,14 @@ impl Provider {
             );
         }
         let value: Value = serde_json::from_slice(&bytes).context("Invalid provider JSON")?;
-        value
-            .pointer("/choices/0/message")
-            .cloned()
-            .context("Response missing choices[0].message")
+        if self.anthropic {
+            crate::anthropic::decode_response(&value)
+        } else {
+            value
+                .pointer("/choices/0/message")
+                .cloned()
+                .context("Response missing choices[0].message")
+        }
     }
 }
 
