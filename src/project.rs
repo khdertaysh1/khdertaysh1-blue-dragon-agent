@@ -113,7 +113,8 @@ pub fn inspect(root: &Path) -> Result<Value> {
                     | "composer.json"
                     | "Dockerfile"
                     | "Makefile"
-            ) && manifests.len() < 30 {
+            ) && manifests.len() < 30
+            {
                 manifests.push(relative.clone());
             }
             if entries.len() < 50 {
