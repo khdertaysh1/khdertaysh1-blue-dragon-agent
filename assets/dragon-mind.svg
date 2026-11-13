@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="580" viewBox="0 0 1280 580" role="img" aria-labelledby="title desc">
+<title id="title">Blue Dragon — neural agent architecture</title>
+<desc id="desc">Original animated diagram of a glowing dragon brain connected to goal, project map, tools, approvals, verification and evidence nodes. Animated light travels across links; the static design remains informative if animation is disabled.</desc>
+<defs>
+  <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#061025"/><stop offset=".55" stop-color="#091b39"/><stop offset="1" stop-color="#031528"/></linearGradient>
+  <linearGradient id="a" x2="1" y2=".7"><stop stop-color="#09dcff"/><stop offset=".5" stop-color="#3984ff"/><stop offset="1" stop-color="#ad5cff"/></linearGradient>
+  <radialGradient id="core"><stop stop-color="#153b89" stop-opacity=".95"/><stop offset=".55" stop-color="#0b224c"/><stop offset="1" stop-color="#07152d" stop-opacity=".3"/></radialGradient>
+  <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse"><path d="M42 0H0V42" fill="none" stroke="#27668a" stroke-opacity=".16"/></pattern>
+  <filter id="glow"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="soft"><feGaussianBlur stdDeviation="17"/></filter>
+  <style><![CDATA[
+    .caps{font:700 15px ui-sans-serif,system-ui,sans-serif;letter-spacing:3px;fill:#5addff}
+    .title{font:800 34px ui-sans-serif,system-ui,sans-serif;fill:#edf9ff}
+    .subtitle{font:400 16px ui-sans-serif,system-ui,sans-serif;fill:#98afcc}
+    .node{fill:#0a2344;stroke:#24628e;stroke-width:1.6}
+    .name{font:700 23px ui-sans-serif,system-ui,sans-serif;fill:#effaff}
+    .small{font:400 15px ui-sans-serif,system-ui,sans-serif;fill:#9cbdda}
+    .pulse{animation:blink 3s ease-in-out infinite;transform-origin:center}
+    .orbit{animation:turn 28s linear infinite;transform-origin:640px 325px}
+    @keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+    @keyframes turn{to{transform:rotate(360deg)}}
+    @media(prefers-reduced-motion:reduce){.pulse,.orbit{animation:none}}
+  ]]></style>
+</defs>
+<rect width="1280" height="580" fill="url(#bg)"/>
+<rect width="1280" height="580" fill="url(#grid)"/>
+<circle cx="642" cy="321" r="205" fill="#136def" opacity=".09" filter="url(#soft)"/>
+<path d="M34 35h90 M34 35v55 M1155 35h90 M1245 35v55 M34 495v48h90 M1245 495v48h-90" stroke="#1fc8f8" stroke-width="2" fill="none" opacity=".67"/>
+<text x="54" y="78" class="caps">BLUE DRAGON / NEURAL WORKFLOW</text>
+<text x="54" y="124" class="title">One agent. Clear decisions. Verifiable work.</text>
+<text x="54" y="150" class="subtitle">The diagram illustrates the workflow; the code's capabilities are documented below.</text>
+
+<!-- Connections, drawn under their endpoints -->
+<g fill="none" stroke="#298fc0" stroke-width="2.2" opacity=".74">
+<path id="p1" d="M324 235 C426 235 450 247 505 281"/>
+<path id="p2" d="M324 365 C422 365 448 346 502 338"/>
+<path id="p3" d="M324 480 C420 480 454 423 522 391"/>
+<path id="p4" d="M779 276 C843 253 862 235 956 235"/>
+<path id="p5" d="M781 336 C857 344 879 367 956 367"/>
+<path id="p6" d="M768 397 C854 436 886 478 956 478"/>
+</g>
+<!-- Agent packets use SVG animation rather than JavaScript -->
+<g fill="#64e8ff" filter="url(#glow)">
+<circle r="5"><animateMotion dur="3.8s" repeatCount="indefinite"><mpath href="#p1"/></animateMotion></circle>
+<circle r="4"><animateMotion dur="4.4s" repeatCount="indefinite"><mpath href="#p2"/></animateMotion></circle>
+<circle r="4"><animateMotion dur="4s" repeatCount="indefinite"><mpath href="#p3"/></animateMotion></circle>
+<circle r="4"><animateMotion dur="3.9s" repeatCount="indefinite"><mpath href="#p4"/></animateMotion></circle>
+<circle r="4"><animateMotion dur="4.6s" repeatCount="indefinite"><mpath href="#p5"/></animateMotion></circle>
+<circle r="4"><animateMotion dur="4.2s" repeatCount="indefinite"><mpath href="#p6"/></animateMotion></circle>
+</g>
+
+<g>
+<rect x="45" y="190" width="279" height="88" rx="15" class="node"/><rect x="55" y="200" width="4" height="68" rx="2" fill="#48d8ff"/>
+<text x="78" y="226" class="name">01  Goal</text><text x="78" y="252" class="small">Describe what needs to change</text>
+<rect x="45" y="322" width="279" height="88" rx="15" class="node"/><rect x="55" y="332" width="4" height="68" rx="2" fill="#48d8ff"/>
+<text x="78" y="358" class="name">02  Project map</text><text x="78" y="384" class="small">Inspect files and find context</text>
+<rect x="45" y="442" width="279" height="83" rx="15" class="node"/><rect x="55" y="451" width="4" height="63" rx="2" fill="#48d8ff"/>
+<text x="78" y="476" class="name">03  Tools</text><text x="78" y="501" class="small">Read, edit, diff, run tests</text>
+<rect x="956" y="190" width="279" height="88" rx="15" class="node"/><rect x="1221" y="200" width="4" height="68" rx="2" fill="#ae84ff"/>
+<text x="980" y="226" class="name">04  Approval</text><text x="980" y="252" class="small">User reviews each mutation</text>
+<rect x="956" y="322" width="279" height="88" rx="15" class="node"/><rect x="1221" y="332" width="4" height="68" rx="2" fill="#ae84ff"/>
+<text x="980" y="358" class="name">05  Verify</text><text x="980" y="384" class="small">Run approved checks and tests</text>
+<rect x="956" y="442" width="279" height="83" rx="15" class="node"/><rect x="1221" y="451" width="4" height="63" rx="2" fill="#ae84ff"/>
+<text x="980" y="476" class="name">06  Evidence</text><text x="980" y="501" class="small">Explain results, preserve session</text>
+</g>
+
+<g>
+<circle cx="642" cy="326" r="158" stroke="#206296" stroke-width="1.5" fill="url(#core)"/>
+<circle cx="642" cy="326" r="143" stroke="#3689be" stroke-opacity=".35" fill="none" stroke-dasharray="4 9" class="orbit"/>
+<circle cx="642" cy="326" r="120" stroke="url(#a)" stroke-opacity=".65" fill="none" stroke-width="2"/>
+<!-- Abstract dragon crest, original vector drawn for this project -->
+<path d="M566 328 C553 277 573 234 610 219 C602 197 617 170 651 160 C629 188 649 197 674 202 C713 205 736 220 743 239 L765 244 L784 266 L763 280 L742 279 C731 311 714 342 680 359 C669 386 650 401 629 408 C639 377 634 351 613 343 C587 344 573 340 566 328Z"
+ fill="#0c3a75" stroke="#4bdcff" stroke-width="3.1" filter="url(#glow)"/>
+<path d="M610 219 C651 224 683 241 702 273 C690 299 672 310 642 316 C667 292 651 279 634 266 C613 248 600 234 610 219Z" fill="#2155ac" stroke="#9a87ff" stroke-width="1.8"/>
+<path d="M684 244 C715 241 736 252 751 267 C723 270 704 264 684 244Z" fill="#64f6ff" opacity=".87"/>
+<circle cx="717" cy="249" r="4.2" fill="white" filter="url(#glow)"/>
+<!-- Neural tissue sits inside the dragon's arc -->
+<path d="M586 301 C561 286 566 262 581 255 C576 230 594 220 607 223 C614 202 632 206 642 211 C653 198 678 205 677 223 C702 220 711 246 696 258 C714 277 701 299 682 303 C680 326 658 335 641 324 C620 342 597 327 596 312Z"
+ fill="#102f77" stroke="#44bdff" stroke-width="2.4"/>
+<g fill="none" stroke="#58dfff" stroke-width="2" stroke-linecap="round" opacity=".9">
+<path d="M607 223 Q624 240 614 257 L629 275 L624 296"/>
+<path d="M641 211 Q635 236 650 250 Q641 272 654 290 L642 324"/>
+<path d="M678 223 Q656 235 674 255 L681 270 L670 303"/>
+<path d="M584 255 Q612 265 599 288 L613 308"/>
+<path d="M696 258 Q670 277 682 303"/>
+</g>
+<g fill="#a5f9ff" filter="url(#glow)" class="pulse"><circle cx="614" cy="257" r="4"/><circle cx="651" cy="250" r="4"/><circle cx="671" cy="273" r="4"/><circle cx="625" cy="296" r="4"/><circle cx="683" cy="301" r="4"/></g>
+</g>
+<text x="640" y="463" text-anchor="middle" class="caps">AGENT CORE</text>
+<text x="640" y="491" text-anchor="middle" class="small">observe · reason · act · verify</text>
+<text x="638" y="553" text-anchor="middle" class="small" opacity=".65">Decorative motion only; no live code execution in this graphic.</text>
+</svg>
