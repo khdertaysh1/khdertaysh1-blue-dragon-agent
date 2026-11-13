@@ -7,7 +7,7 @@ Build with the current stable Rust toolchain (locally validated with rustc 1.100
     cargo build --locked --release
     ./target/release/blue-dragon tui
 
-Set BLUE_DRAGON_API_KEY, BLUE_DRAGON_MODEL and optionally BLUE_DRAGON_BASE_URL for your provider. Native OpenAI-compatible and Anthropic streaming are supported. No paid model credentials or free hosted endpoint are bundled. A server that does not implement SSE can use --no-stream.
+Set BLUE_DRAGON_API_KEY, BLUE_DRAGON_MODEL and optionally BLUE_DRAGON_BASE_URL for your provider. Native OpenAI-compatible and Anthropic streaming are supported. The built-in `free` preset uses JarvisClaw auto/free without credentials; no paid credentials are bundled. Provider/model selection is documented in [MODELS.md](MODELS.md). A server that does not implement SSE can use --no-stream.
 
 Commands: /help, /map, /status, /diff, /session, /skills, /skill NAME, /plan, /report, /mcp, /connect NAME, /clear, /exit.
 The wide terminal includes a task-plan pane. Small screens keep a single conversation pane. Input supports left/right/home/end, delete/backspace, Unicode code points and bracketed paste. Text shaping/grapheme-aware editing is not a full terminal text editor.

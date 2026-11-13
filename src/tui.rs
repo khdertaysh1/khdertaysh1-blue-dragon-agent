@@ -110,7 +110,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -195,6 +195,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
         };
         agent.set_cancellation(cancellation);
         agent.set_output(message_tx.clone());
+        let _ = message_tx.send(AgentEvent::Model(agent.model_status()));
         let _ = message_tx.send(AgentEvent::Plan(agent.plan_text()));
         for work in work_rx {
             let result = match work {
@@ -245,6 +246,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                             .collect();
                     }
                 }
+                AgentEvent::Model(text) => app.model = text,
                 AgentEvent::Plan(text) => app.plan = text,
                 AgentEvent::ToolStart(name) => {
                     app.log("Tool:", &name);
@@ -398,6 +400,11 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
 
 fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -> Result<()> {
     let response = match line {
+        "/model" | "/models" => format!("{}\n{}", agent.model_status(), crate::models::menu()),
+        "/models refresh" => crate::models::refresh()?,
+        _ if line.starts_with("/model ") => {
+            agent.select_model(line.trim_start_matches("/model "))?
+        }
         "/plan" => agent.plan_text(),
         "/report" => agent.report_text(),
         "/mcp" => serde_json::to_string_pretty(&agent.mcp_list())?,

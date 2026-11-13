@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Developer preview: `v0.4.0-alpha.1`.** Blue Dragon has a working, testable agent core, but is **not** feature-equivalent to AlphaCode, Codex CLI or Claude Code. This workbench revision adds a full-screen TUI, streamed model responses, task plans, action reports and opt-in stdio MCP tools. Browser/desktop automation and multi-agent orchestration are not implemented yet. See [workbench setup and limits](docs/WORKBENCH.md).
+> **Developer preview: `v0.4.0-alpha.2`.** Blue Dragon has a working, testable agent core, but is **not** feature-equivalent to AlphaCode, Codex CLI or Claude Code. This workbench revision adds a full-screen TUI, streamed model responses, task plans, action reports and opt-in stdio MCP tools. Browser/desktop automation and multi-agent orchestration are not implemented yet. See [workbench setup and limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
@@ -41,7 +41,7 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 
 | Area | What is currently available |
 |:--|:--|
-| **AI providers** | OpenAI-compatible tool calling, plus a native Anthropic Messages adapter (unit-tested) |
+| **AI providers** | Keyless free gateway, saved provider/model selection, OpenRouter free catalog, local Ollama, OpenAI-compatible and native Anthropic |
 | **Workspace intelligence** | Bounded project map, file listing, file reading, line-range reads and string search |
 | **Code changes** | Targeted exact-match edit and full text-file write, both behind diff approval |
 | **Git inspection** | Working-tree status and unstaged diff |
@@ -103,7 +103,26 @@ cargo build --locked --release
 ./target/release/blue-dragon doctor
 ```
 
-Start the agent with a hosted, OpenAI-compatible endpoint:
+Start free, without an API key or account:
+
+```bash
+./target/release/blue-dragon --provider free tui
+```
+
+This uses **JarvisClaw's public `auto/free` gateway**. A fresh install without saved configuration or provider keys selects it by default. It supports streamed tool calls; free capacity and availability are controlled by the service, not Blue Dragon. Prompts and tool results are sent to JarvisClaw and its selected upstream. No payment, wallet, hidden key or paid fallback is included.
+
+Select and save a provider from the terminal:
+
+```text
+/models
+/model free
+/model openrouter openrouter/free
+/model ollama YOUR_INSTALLED_MODEL
+```
+
+Or use `blue-dragon model free` before launching. `/models refresh` discovers zero-priced tool-capable OpenRouter models; OpenRouter needs your own `OPENROUTER_API_KEY`. Switching changes where subsequent conversation context is sent. See [model setup and live validation](docs/MODELS.md).
+
+To use a hosted, OpenAI-compatible endpoint with your own key:
 
 ```bash
 export BLUE_DRAGON_API_KEY="YOUR_API_KEY"

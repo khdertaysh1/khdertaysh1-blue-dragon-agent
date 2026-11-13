@@ -24,6 +24,7 @@ pub enum AgentEvent {
     Answer(String),
     Delta(String),
     Plan(String),
+    Model(String),
     Finished(std::result::Result<(), String>),
     ToolStart(String),
     ToolResult(bool),
@@ -85,6 +86,7 @@ impl Agent {
                     eprintln!("{error}");
                 }
             }
+            AgentEvent::Model(text) => println!("Model: {text}"),
             AgentEvent::Plan(text) => println!("\nPlan:\n{text}"),
             AgentEvent::Delta(text) => {
                 use std::io::Write;
@@ -106,6 +108,36 @@ impl Agent {
     }
     pub fn model(&self) -> &str {
         &self.settings.model
+    }
+    pub fn model_status(&self) -> String {
+        format!(
+            "{} | {}",
+            self.settings.model,
+            self.settings.safe_endpoint()
+        )
+    }
+    pub fn select_model(&mut self, input: &str) -> Result<String> {
+        let words: Vec<_> = input.split_whitespace().collect();
+        if words.is_empty() || words.len() > 2 {
+            anyhow::bail!("Use /model PROVIDER [MODEL_ID]");
+        }
+        let selection = crate::models::Selection::new(words[0], words.get(1).copied())?;
+        selection.require_key()?;
+        let provider = Provider::new(selection.base(), selection.model.clone(), selection.key())?;
+        let home = self
+            .settings
+            .sessions_dir
+            .parent()
+            .context("Missing application directory")?;
+        crate::models::save(home, &selection)?;
+        self.provider = provider;
+        self.settings.base_url = selection.base().into();
+        self.settings.model = selection.model.clone();
+        self.settings.api_key = selection.key();
+        self.session.model = selection.model;
+        self.persist()?;
+        self.output(AgentEvent::Model(self.model_status()));
+        Ok(format!("Selected {}. Subsequent conversation context goes to this service. No request sent yet.", self.model_status()))
     }
     pub fn root(&self) -> &Path {
         &self.settings.root

@@ -24,3 +24,5 @@ Wide terminals display a plan pane; narrow terminals use a single conversation. 
 Cancellation is cooperative and may wait for blocked provider I/O (request deadline 120 seconds). Direct tool processes are killed on cancellation; process descendants have no cross-platform isolation guarantee. MCP input/request limits and supported features are detailed in [WORKBENCH.md](WORKBENCH.md).
 
 Validation includes small/wide TestBackend rendering and a real Unix PTY launch/help/exit/mode-restoration smoke test. No physical Android or Windows Terminal input-latency benchmark has been performed.
+
+Use `/models` or `/model` for the provider menu, `/model free` for keyless access, and `/models refresh` for the public free OpenRouter catalog. The selected model/endpoint updates in the header. See [MODELS.md](MODELS.md).
