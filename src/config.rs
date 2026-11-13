@@ -47,9 +47,12 @@ impl Settings {
                 .ok()
                 .filter(|x| !x.is_empty())
                 .or_else(|| {
-                    std::env::var("OPENAI_API_KEY")
-                        .ok()
-                        .filter(|x| !x.is_empty())
+                    let key_name = if parsed.host_str() == Some("api.anthropic.com") {
+                        "ANTHROPIC_API_KEY"
+                    } else {
+                        "OPENAI_API_KEY"
+                    };
+                    std::env::var(key_name).ok().filter(|x| !x.is_empty())
                 }),
             sessions_dir,
         })

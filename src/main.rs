@@ -1,4 +1,5 @@
 mod agent;
+mod anthropic;
 mod config;
 mod project;
 mod provider;
