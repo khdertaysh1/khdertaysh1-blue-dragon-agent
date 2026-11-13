@@ -1,6 +1,6 @@
 [package]
 name = "blue-dragon"
-version = "0.4.0-alpha.2"
+version = "0.4.0-alpha.3"
 edition = "2021"
 license = "MIT"
 description = "Blue Dragon - cross-platform, consent-first AI coding agent"

@@ -18,7 +18,7 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Desktop control | Not implemented |
 | MCP client | stdio tools implemented, explicitly connected/approved; other transports/features absent |
 | Multi-agent swarm and isolated worktrees | Not implemented |
-| Model selection / free gateway | Saved presets and keyless JarvisClaw auto/free; gateway routes server-side. OpenRouter free catalog supported with own key |
+| Model selection / free gateway | Searchable picker of keyless Kilo free models, Auto Free routing, one-hour catalog cache, saved selections. JarvisClaw retained; OpenRouter requires own key |
 | Native desktop GUI | Not implemented |
 
 Next milestones: wider MCP and device verification, AST-oriented indexing, isolated patch worktrees, browser and MCP integration, evidence-first test reports, crash recovery, native installers.

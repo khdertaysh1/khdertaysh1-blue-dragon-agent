@@ -109,18 +109,19 @@ Start free, without an API key or account:
 ./target/release/blue-dragon --provider free tui
 ```
 
-This uses **JarvisClaw's public `auto/free` gateway**. A fresh install without saved configuration or provider keys selects it by default. It supports streamed tool calls; free capacity and availability are controlled by the service, not Blue Dragon. Prompts and tool results are sent to JarvisClaw and its selected upstream. No payment, wallet, hidden key or paid fallback is included.
+This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects Kilo Auto Free. Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
 
 Select and save a provider from the terminal:
 
 ```text
 /models
 /model free
-/model openrouter openrouter/free
+/model kilo cohere/north-mini-code:free
+/model jarvis
 /model ollama YOUR_INSTALLED_MODEL
 ```
 
-Or use `blue-dragon model free` before launching. `/models refresh` discovers zero-priced tool-capable OpenRouter models; OpenRouter needs your own `OPENROUTER_API_KEY`. Switching changes where subsequent conversation context is sent. See [model setup and live validation](docs/MODELS.md).
+Or use `blue-dragon model free` before launching. `/models refresh` updates Kilo's keyless free catalog. `/models openrouter` separately lists OpenRouter free models, which require your own `OPENROUTER_API_KEY`. Switching changes where subsequent conversation context is sent. See [model setup and live validation](docs/MODELS.md).
 
 To use a hosted, OpenAI-compatible endpoint with your own key:
 
@@ -173,7 +174,7 @@ BLUE_DRAGON_MODEL=YOUR_TOOL_CALLING_MODEL \
 ./target/release/blue-dragon chat
 ```
 
-Choose a model with compatible function calling. **No free hosted AI provider is bundled.**
+Choose a model with compatible function calling. A keyless free gateway is preconfigured; no model weights or paid credentials are bundled.
 
 </details>
 

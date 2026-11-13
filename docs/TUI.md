@@ -25,4 +25,4 @@ Cancellation is cooperative and may wait for blocked provider I/O (request deadl
 
 Validation includes small/wide TestBackend rendering and a real Unix PTY launch/help/exit/mode-restoration smoke test. No physical Android or Windows Terminal input-latency benchmark has been performed.
 
-Use `/models` or `/model` for the provider menu, `/model free` for keyless access, and `/models refresh` for the public free OpenRouter catalog. The selected model/endpoint updates in the header. See [MODELS.md](MODELS.md).
+Use `/models` or `/model` for the free-model picker: type to filter, Up/Down to choose, Enter to select/save, Esc to close. `/models refresh` updates the Kilo free catalog; `/model kilo MODEL_ID` also works directly. `/models openrouter` lists the separate OpenRouter catalog (requires a key to use). The selected model/endpoint updates in the status bar. See [MODELS.md](MODELS.md).

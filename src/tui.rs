@@ -14,7 +14,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
 };
 use std::{
@@ -40,11 +40,43 @@ enum Work {
     Slash(String),
 }
 
+struct ModelPicker {
+    choices: Vec<crate::models::ModelChoice>,
+    query: String,
+    selected: usize,
+    source: String,
+}
+impl ModelPicker {
+    fn filtered(&self) -> Vec<&crate::models::ModelChoice> {
+        let query = self.query.to_lowercase();
+        self.choices
+            .iter()
+            .filter(|c| {
+                c.id.to_lowercase().contains(&query) || c.name.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+    fn current(&self) -> Option<String> {
+        self.filtered().get(self.selected).map(|c| c.id.clone())
+    }
+    fn move_by(&mut self, down: bool) {
+        let count = self.filtered().len();
+        if count == 0 {
+            self.selected = 0;
+        } else if down {
+            self.selected = (self.selected + 1).min(count - 1);
+        } else {
+            self.selected = self.selected.saturating_sub(1);
+        }
+    }
+}
+
 struct Screen {
     lines: Vec<String>,
     input: String,
     busy: bool,
     approval: Option<ApprovalRequest>,
+    picker: Option<ModelPicker>,
     approval_scroll: u16,
     scroll_up: usize,
     status: String,
@@ -66,6 +98,7 @@ impl Screen {
             input: String::new(),
             busy: false,
             approval: None,
+            picker: None,
             approval_scroll: 0,
             scroll_up: 0,
             status: "Ready".into(),
@@ -246,6 +279,16 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                             .collect();
                     }
                 }
+                AgentEvent::ModelChoices(choices, source) => {
+                    app.picker = Some(ModelPicker {
+                        choices,
+                        source,
+                        query: String::new(),
+                        selected: 0,
+                    });
+                    app.status =
+                        "Choose free model: arrows, type to filter, Enter select, Esc close".into();
+                }
                 AgentEvent::Model(text) => app.model = text,
                 AgentEvent::Plan(text) => app.plan = text,
                 AgentEvent::ToolStart(name) => {
@@ -293,7 +336,14 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
         }
         let event = event::read()?;
         if let Event::Paste(text) = &event {
-            if app.approval.is_none() {
+            if let Some(picker) = &mut app.picker {
+                picker.query.extend(
+                    text.chars()
+                        .filter(|c| !c.is_control())
+                        .take(100usize.saturating_sub(picker.query.chars().count())),
+                );
+                picker.selected = 0;
+            } else if app.approval.is_none() {
                 for ch in text
                     .chars()
                     .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
@@ -325,6 +375,43 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
             break;
         }
         if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        if let Some(picker) = &mut app.picker {
+            match key.code {
+                KeyCode::Esc => {
+                    app.picker = None;
+                    app.status = "Ready".into();
+                }
+                KeyCode::Up => picker.move_by(false),
+                KeyCode::Down => picker.move_by(true),
+                KeyCode::Backspace => {
+                    picker.query.pop();
+                    picker.selected = 0;
+                }
+                KeyCode::Char(c)
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && picker.query.chars().count() < 100 =>
+                {
+                    picker.query.push(c);
+                    picker.selected = 0;
+                }
+                KeyCode::Enter if !app.busy => {
+                    if let Some(id) = picker.current() {
+                        app.picker = None;
+                        app.cancelled
+                            .store(false, std::sync::atomic::Ordering::Relaxed);
+                        if work_tx
+                            .send(Work::Slash(format!("/model kilo {id}")))
+                            .is_ok()
+                        {
+                            app.busy = true;
+                            app.status = "Selecting model".into();
+                        }
+                    }
+                }
+                _ => {}
+            }
             continue;
         }
         if app.approval.is_some() {
@@ -399,9 +486,13 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
 }
 
 fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -> Result<()> {
+    if matches!(line, "/model" | "/models" | "/models refresh") {
+        let (choices, source) = agent.kilo_models(line == "/models refresh")?;
+        let _ = tx.send(AgentEvent::ModelChoices(choices, source));
+        return Ok(());
+    }
     let response = match line {
-        "/model" | "/models" => format!("{}\n{}", agent.model_status(), crate::models::menu()),
-        "/models refresh" => crate::models::refresh()?,
+        "/models openrouter" => crate::models::refresh()?,
         _ if line.starts_with("/model ") => {
             agent.select_model(line.trim_start_matches("/model "))?
         }
@@ -524,6 +615,63 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         outer[3],
     );
 
+    if let Some(picker) = &app.picker {
+        let popup = center(frame.area(), 94, 90);
+        frame.render_widget(Clear, popup);
+        let regions = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4),
+                Constraint::Min(1),
+                Constraint::Length(4),
+            ])
+            .split(popup);
+        frame.render_widget(
+            Paragraph::new(format!("Filter: {}\n{}", picker.query, picker.source))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title(" FREE MODELS | Kilo | NO API KEY ")
+                        .borders(Borders::ALL),
+                )
+                .style(Style::default().fg(BLUE)),
+            regions[0],
+        );
+        let filtered = picker.filtered();
+        let items: Vec<_> = filtered
+            .iter()
+            .map(|c| ListItem::new(format!("{}\n{}", c.name, c.id)))
+            .collect();
+        let mut state = ListState::default();
+        if !items.is_empty() {
+            state.select(Some(picker.selected.min(items.len() - 1)));
+        }
+        frame.render_stateful_widget(
+            List::new(items)
+                .block(
+                    Block::default()
+                        .title(" Up/Down choose; type filter ")
+                        .borders(Borders::ALL),
+                )
+                .highlight_style(Style::default().fg(Color::Black).bg(BLUE))
+                .highlight_symbol("> "),
+            regions[1],
+            &mut state,
+        );
+        let footer = if popup.width < 70 {
+            "Enter saves / Esc closes\nPrompts may be logged. Public only."
+        } else {
+            "Arrows: choose | Enter: select & save | Esc: close\nCatalog is not a live test. Kilo/upstreams may log prompts & tool results. No confidential data."
+        };
+        frame.render_widget(
+            Paragraph::new(footer)
+                .wrap(Wrap { trim: false })
+                .block(Block::default().borders(Borders::ALL))
+                .style(Style::default().fg(MUTED)),
+            regions[2],
+        );
+    }
+
     if let Some(request) = &app.approval {
         let popup = center(frame.area(), 86, 54);
         frame.render_widget(Clear, popup);
@@ -620,6 +768,56 @@ fn center(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_picker_filters_concrete_choices_and_renders_on_mobile_width() {
+        let mut picker = ModelPicker {
+            choices: vec![
+                crate::models::ModelChoice {
+                    id: "kilo-auto/free".into(),
+                    name: "Auto Free".into(),
+                    context_length: 0,
+                },
+                crate::models::ModelChoice {
+                    id: "liquid/code:free".into(),
+                    name: "Liquid Code".into(),
+                    context_length: 32000,
+                },
+            ],
+            query: String::new(),
+            selected: 0,
+            source: "Offline fixture".into(),
+        };
+        picker.move_by(true);
+        assert_eq!(picker.current().as_deref(), Some("liquid/code:free"));
+        picker.query = "LIQUID".into();
+        picker.selected = 0;
+        assert_eq!(picker.filtered().len(), 1);
+        picker.query = "absent".into();
+        assert!(picker.current().is_none());
+        picker.query.clear();
+        for (width, height) in [(40, 14), (120, 32)] {
+            let mut app = Screen::new("fixture".into(), ".".into());
+            app.picker = Some(ModelPicker {
+                choices: picker.choices.clone(),
+                query: String::new(),
+                selected: 1,
+                source: "Offline fixture".into(),
+            });
+            let mut terminal =
+                Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>();
+            assert!(text.contains("FREE MODELS"));
+            assert!(text.contains("Liquid Code"));
+        }
+    }
 
     #[test]
     fn small_and_wide_terminal_render_with_unicode_and_approval() {
