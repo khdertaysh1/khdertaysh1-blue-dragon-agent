@@ -1,6 +1,6 @@
 [package]
 name = "blue-dragon"
-version = "0.4.0-alpha.1"
+version = "0.4.0-alpha.2"
 edition = "2021"
 license = "MIT"
 description = "Blue Dragon - cross-platform, consent-first AI coding agent"
@@ -15,7 +15,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "rustls-tls-native-roots"] }
 dirs = "6"
 similar = "2"
 chrono = { version = "0.4", features = ["serde", "clock"] }

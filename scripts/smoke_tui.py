@@ -32,6 +32,13 @@ try:
         wait_for(b"BLUE DRAGON")
         os.write(master, b"/help\r")
         wait_for(b"Commands:")
+        os.write(master, b"/model free\r")
+        until = time.monotonic() + 5
+        while not os.path.isfile(os.path.join(home, "model.json")) and time.monotonic() < until:
+            if select.select([master], [], [], 0.05)[0]:
+                captured.extend(os.read(master, 65536))
+        assert os.path.isfile(os.path.join(home, "model.json")), "Model selection was not saved"
+
         os.write(master, b"/exit\r")
         assert process.wait(timeout=5) == 0
         # Drain the final restoration sequence.

@@ -26,6 +26,8 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked --release
+      - name: Offline provider selection smoke test
+        run: python scripts/smoke_models.py
       - name: Real terminal smoke test
         if: runner.os != 'Windows'
         run: python scripts/smoke_tui.py

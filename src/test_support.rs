@@ -24,6 +24,9 @@ pub fn http(responses: Vec<(&'static str, String)>) -> (String, thread::JoinHand
                     Err(e) => panic!("{e}"),
                 }
             };
+            // Windows inherits nonblocking mode from the listener. The fixture
+            // uses blocking buffered reads with a deadline on accepted sockets.
+            socket.set_nonblocking(false).unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();

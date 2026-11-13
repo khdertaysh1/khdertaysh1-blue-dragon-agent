@@ -32,13 +32,7 @@ impl Settings {
                 "Provider URL must not include credentials, query parameters or fragments"
             );
         }
-        let home = if let Ok(custom) = std::env::var("BLUE_DRAGON_HOME") {
-            PathBuf::from(custom)
-        } else {
-            dirs::data_local_dir()
-                .context("Unable to find app-data directory; set BLUE_DRAGON_HOME")?
-                .join("blue-dragon")
-        };
+        let home = app_home()?;
         let sessions_dir = home.join("sessions");
         std::fs::create_dir_all(&sessions_dir)
             .with_context(|| format!("Could not create {}", sessions_dir.display()))?;
@@ -74,5 +68,16 @@ impl Settings {
                     .map(|host| format!("{}://{}", url.scheme(), host))
             })
             .unwrap_or_else(|| "configured".to_owned())
+    }
+}
+
+/// Application data is separate from the inspected project.
+pub fn app_home() -> Result<PathBuf> {
+    if let Ok(custom) = std::env::var("BLUE_DRAGON_HOME") {
+        Ok(PathBuf::from(custom))
+    } else {
+        Ok(dirs::data_local_dir()
+            .context("Unable to find app-data directory; set BLUE_DRAGON_HOME")?
+            .join("blue-dragon"))
     }
 }

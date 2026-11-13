@@ -3,6 +3,7 @@ mod anthropic;
 mod config;
 mod mcp;
 mod mcp_protocol;
+mod models;
 mod plan;
 mod project;
 mod provider;
@@ -27,26 +28,18 @@ use config::Settings;
 struct Cli {
     #[arg(long, global = true, default_value = ".", help = "Project workspace")]
     root: PathBuf,
-    #[arg(
-        long,
-        global = true,
-        env = "BLUE_DRAGON_MODEL",
-        default_value = "gpt-4o-mini"
-    )]
-    model: String,
-    #[arg(
-        long,
-        global = true,
-        env = "BLUE_DRAGON_BASE_URL",
-        default_value = "https://api.openai.com/v1"
-    )]
-    base_url: String,
+    #[arg(long, global = true, env = "BLUE_DRAGON_MODEL")]
+    model: Option<String>,
+    #[arg(long, global = true, env = "BLUE_DRAGON_BASE_URL")]
+    base_url: Option<String>,
     #[arg(
         long,
         global = true,
         help = "Deny writes, commands, web fetches and external MCP actions"
     )]
     read_only: bool,
+    #[arg(long, global = true, env = "BLUE_DRAGON_PROVIDER")]
+    provider: Option<String>,
     #[arg(
         long,
         global = true,
@@ -74,6 +67,16 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// List built-in profiles; --refresh fetches free tool-capable OpenRouter models
+    Models {
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Save a provider/model selection, without making a model request
+    Model {
+        target_provider: String,
+        target_model: Option<String>,
+    },
     /// Start conversational agent with interactive approval prompts
     Chat,
     /// Full-screen terminal with live answers and per-action approvals
@@ -99,6 +102,54 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Cli::parse();
+    let home = config::app_home()?;
+    match &args.command {
+        Some(Command::Models { refresh }) => {
+            println!("{}", models::menu());
+            if *refresh {
+                println!("{}", models::refresh()?);
+            }
+            return Ok(());
+        }
+        Some(Command::Model {
+            target_provider,
+            target_model,
+        }) => {
+            let selection = models::Selection::new(target_provider, target_model.as_deref())?;
+            models::save(&home, &selection)?;
+            println!(
+                "Saved {} / {}. No request sent. Run blue-dragon tui.",
+                selection.provider, selection.model
+            );
+            return Ok(());
+        }
+        _ => {}
+    }
+    if args.provider.is_some() && args.base_url.is_some() {
+        anyhow::bail!("Use either --provider or --base-url, not both");
+    }
+    let selection = if args.base_url.is_some() {
+        None
+    } else if let Some(provider) = args.provider.as_deref() {
+        Some(models::Selection::new(provider, args.model.as_deref())?)
+    } else if let Some(mut saved) = models::load(&home)? {
+        if let Some(model) = args.model.as_deref() {
+            saved = models::Selection::new(&saved.provider, Some(model))?;
+        }
+        Some(saved)
+    } else {
+        // Preserve existing explicit key/model configurations; fresh installs start keyless.
+        let provider = if args.model.is_some()
+            || std::env::var_os("BLUE_DRAGON_API_KEY").is_some()
+            || std::env::var_os("OPENAI_API_KEY").is_some()
+        {
+            "openai"
+        } else {
+            "free"
+        };
+        Some(models::Selection::new(provider, args.model.as_deref())?)
+    };
+
     let root = args
         .root
         .canonicalize()
@@ -106,7 +157,27 @@ fn run() -> Result<()> {
     if !root.is_dir() {
         anyhow::bail!("Workspace must be a directory");
     }
-    let mut settings = Settings::new(root, args.base_url, args.model)?;
+    let base = selection
+        .as_ref()
+        .map(|s| s.base().to_owned())
+        .or(args.base_url)
+        .unwrap();
+    let model = selection
+        .as_ref()
+        .map(|s| s.model.clone())
+        .or(args.model)
+        .unwrap_or_else(|| "gpt-4o-mini".into());
+    let mut settings = Settings::new(root, base, model)?;
+    if let Some(selection) = selection {
+        settings.api_key = selection.key();
+        // Legacy global key is accepted only for OpenAI, never sent to free/local/other services.
+        if selection.provider == "openai" {
+            settings.api_key = std::env::var("BLUE_DRAGON_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty())
+                .or(settings.api_key);
+        }
+    }
     settings.mcp_config = args.mcp_config;
     settings.stream = !args.no_stream;
     settings.max_steps = usize::from(args.max_steps);
@@ -164,6 +235,10 @@ fn run() -> Result<()> {
             };
             let mut agent = Agent::new(settings, approval, args.resume.as_deref())?;
             print_banner();
+            println!(
+                "Model: {}. Conversation is sent to this endpoint when you enter a task.",
+                agent.model_status()
+            );
             match cmd {
                 Some(Command::Run { task }) => agent.turn(&task),
                 None | Some(Command::Chat) => {
@@ -179,7 +254,22 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                continue;
+                            }
+                            "/model" | "/models" => {
+                                println!("{}\n{}", agent.model_status(), models::menu());
+                                continue;
+                            }
+                            "/models refresh" => {
+                                println!("{}", models::refresh()?);
+                                continue;
+                            }
+                            line if line.starts_with("/model ") => {
+                                match agent.select_model(line.trim_start_matches("/model ")) {
+                                    Ok(text) => println!("{text}"),
+                                    Err(e) => eprintln!("Model: {e:#}"),
+                                }
                                 continue;
                             }
                             "/session" => {
@@ -265,4 +355,19 @@ fn print_banner() {
     println!("  ║  BLUE DRAGON  ◆  AI CODING AGENT     ║");
     println!("  ╚═══════════════════════════════════════╝");
     println!("  Consent-first • Cross-platform • Rust");
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    #[test]
+    fn model_selection_positionals_do_not_shadow_global_options() {
+        let args = Cli::try_parse_from(["blue-dragon", "model", "free"]).unwrap();
+        assert!(
+            matches!(args.command, Some(Command::Model { target_provider, target_model: None }) if target_provider == "free")
+        );
+        let args = Cli::try_parse_from(["blue-dragon", "--provider", "free", "tui"]).unwrap();
+        assert_eq!(args.provider.as_deref(), Some("free"));
+        assert!(Cli::try_parse_from(["blue-dragon", "models", "--refresh"]).is_ok());
+    }
 }
