@@ -7,10 +7,15 @@ The identity combines **an electric-blue dragon** (guided action) with a **neura
 | Asset | Format | Purpose |
 | --- | --- | --- |
 | `assets/blue-dragon-hero.webp` | Optimized WebP | Main README hero artwork, composed from the project's original generated dragon-brain concept |
-| `assets/dragon-mark.svg` | SVG | Compact brand logo |
+| `assets/dragon-head.webp` | WebP with alpha | Corrected companion dragon head |
+| `assets/dragon-mark.svg` | SVG | Compact brand logo using the same corrected head |
 | `assets/dragon-mind.svg` | SVG, decorative SMIL/CSS animation | Explains the inspection and approval workflow |
 | `assets/tui-preview.svg` | SVG | **Illustrative concept** for PR #1, not a live screenshot |
 | `assets/neural-console-preview.gif` | Animated GIF | Multi-frame illustrative terminal walkthrough that plays in ordinary GitHub README image viewers; **not a real captured session** |
+
+## Anatomy and consistency
+The brain is a small cutaway inside the upper rear skull, behind the eye and above the jaw hinge. It must never sit in the throat, neck or lower jaw. The hero, workflow and compact mark use the same right-facing dragon identity, with a recognizable snout, eye, distinct jaw, swept-back horns and scaled neck.
+The workflow SVG and logo embed a small PNG of the approved head: self-contained images, with no remote dependencies or JavaScript. Keep cranial tissue within the skull if the character is revised.
 
 ## Motion and interactivity
 
@@ -32,3 +37,8 @@ The source image artwork and SVGs belong to Blue Dragon branding. Avoid using th
 ## Accessibility and maintenance
 
 All README images include alt text. SVG diagrams provide `<title>` and `<desc>`, and decorative animations include reduced-motion fallbacks. Prefer static images over animations when showing real CLI output; real screenshots should identify their platform and release.
+
+## Corrected artwork — 13 November 2026
+The raster hero and companion mascot were redrawn with the built-in image generator, then exported as WebP. Prompt direction: recognizable right-facing blue dragon; swept-back horns, distinct snout/eye/jaw and narrow scaled neck; a small neural brain fully enclosed in the upper rear cranium, behind the eye and above the jaw hinge. No brain in the throat or neck, no disconnected brain mass. Navy/cyan palette, restrained glow, consistent character.
+
+The generated hero is assets/blue-dragon-hero.webp; the transparent companion is assets/dragon-head.webp. The native workflow and mark SVGs embed an optimized PNG of that companion, replacing the ambiguous abstract crest. No third-party logo or source artwork is used. The SVG geometry/text remain editable; pulse motion is decorative.
