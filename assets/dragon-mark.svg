@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320" role="img" aria-labelledby="t d">
+<title id="t">Blue Dragon mark</title><desc id="d">Original cyan dragon crest enclosing a neural circuit.</desc>
+<defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#19e9ff"/><stop offset="1" stop-color="#655cff"/></linearGradient><radialGradient id="bg"><stop stop-color="#0b326b"/><stop offset="1" stop-color="#061024"/></radialGradient><filter id="gl"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+<rect x="4" y="4" width="312" height="312" rx="69" fill="url(#bg)" stroke="#1a78ae" stroke-width="3"/>
+<circle cx="163" cy="163" r="123" stroke="#236aa7" stroke-opacity=".5" stroke-dasharray="5 9" fill="none"/>
+<path d="M92 201 C74 147 96 116 132 105 C128 81 148 57 182 51 C169 71 178 83 200 88 C240 89 263 108 269 131 L291 143 L273 163 L250 160 C237 208 206 242 167 254 C171 225 164 209 146 203 C121 214 104 210 92 201Z" fill="#092e69" stroke="url(#g)" stroke-width="5" filter="url(#gl)"/>
+<path d="M129 125 C117 111 136 97 150 102 C163 86 187 102 181 117 C203 109 215 132 203 146 C219 164 203 178 189 177 C183 198 157 204 151 186 C131 199 116 179 123 160 C106 149 112 130 129 125Z" fill="#1456a9" stroke="#4bdcff" stroke-width="3"/>
+<g fill="none" stroke="#7cecff" stroke-width="3" stroke-linecap="round"><path d="M141 113L147 132L134 150L149 174"/><path d="M170 113L162 133L183 149L173 183"/><path d="M121 140L144 146L160 160"/><path d="M194 131L175 140L183 161"/></g>
+<g fill="#d6ffff" filter="url(#gl)"><circle cx="147" cy="132" r="4"/><circle cx="183" cy="149" r="4"/><circle cx="160" cy="160" r="4"/><circle cx="173" cy="183" r="4"/><circle cx="240" cy="134" r="6"/></g>
+</svg>

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="580" viewBox="0 0 1280 580" role="img" aria-labelledby="t d">
+<title id="t">Blue Dragon experimental terminal preview</title><desc id="d">Illustration of the Blue Dragon terminal interface with conversation, tool progress and an approval dialog. Concept image; not an actual execution screenshot.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#06142a"/><stop offset="1" stop-color="#0e1f38"/></linearGradient><linearGradient id="a" x2="1"><stop stop-color="#16deff"/><stop offset="1" stop-color="#697dff"/></linearGradient><filter id="g"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+<rect width="1280" height="580" fill="#03101f"/><rect x="34" y="27" width="1212" height="525" rx="20" fill="url(#bg)" stroke="#24466e" stroke-width="2"/>
+<path d="M34 73H1246" stroke="#24466e" stroke-width="2"/>
+<circle cx="65" cy="49" r="7" fill="#ff7676"/><circle cx="89" cy="49" r="7" fill="#ffcc66"/><circle cx="113" cy="49" r="7" fill="#42d7a6"/>
+<text x="640" y="56" text-anchor="middle" font-family="monospace" font-size="17" fill="#8fb7d1">BLUE DRAGON / EXPERIMENTAL TUI BRANCH</text>
+<rect x="54" y="91" width="1171" height="55" rx="9" fill="#0b2d54" stroke="#267aa8"/>
+<text x="78" y="127" font-family="monospace" font-size="24" font-weight="bold" fill="#60dfff">BLUE DRAGON</text>
+<text x="1165" y="126" text-anchor="end" font-family="monospace" font-size="17" fill="#b9a5ff">AGENT CORE</text>
+<rect x="54" y="163" width="1171" height="262" rx="10" fill="#071629" stroke="#235079"/>
+<g font-family="monospace" font-size="23">
+<text x="87" y="211" fill="#5ddbff">you &gt;</text><text x="180" y="211" fill="#e5f1ff">Inspect this Rust project and identify its entry point.</text>
+<text x="87" y="260" fill="#ab8dff">dragon &gt;</text><text x="207" y="260" fill="#cedeee">Reading project structure...</text>
+<text x="88" y="304" fill="#59cfc9">[tool]</text><text x="185" y="304" fill="#bbd6ed">project_map</text><text x="410" y="304" fill="#68d49e">completed</text>
+<text x="88" y="351" fill="#59cfc9">[tool]</text><text x="185" y="351" fill="#bbd6ed">read_file("src/main.rs")</text><text x="570" y="351" fill="#68d49e">completed</text>
+<text x="88" y="396" fill="#59cfc9">[tool]</text><text x="185" y="396" fill="#bbd6ed">edit_file("src/main.rs")</text><text x="602" y="396" fill="#ffd57f">approval requested</text>
+</g>
+<rect x="54" y="442" width="1171" height="42" rx="8" fill="#0e2440" stroke="#305275"/>
+<text x="74" y="470" fill="#9bc7e0" font-family="monospace" font-size="18">STATUS: Waiting for your approval   |   consent-first   |   v0.3 preview</text>
+<rect x="54" y="497" width="1171" height="38" rx="7" fill="#091b32" stroke="#235479"/>
+<text x="76" y="523" fill="#7ee7ff" font-family="monospace" font-size="19">&gt; Enter a prompt or /help</text>
+<g>
+<rect x="714" y="204" width="474" height="218" rx="16" fill="#07192e" stroke="#ffd47b" stroke-width="2"/>
+<text x="740" y="241" font-family="monospace" font-weight="bold" font-size="20" fill="#ffde8f">APPROVAL REQUIRED</text>
+<path d="M736 256H1164" stroke="#354868"/>
+<text x="740" y="290" font-family="monospace" font-size="17" fill="#d9edfb">Proposed edit: src/main.rs</text>
+<text x="740" y="324" font-family="monospace" font-size="16" fill="#f89298">- old code</text>
+<text x="740" y="348" font-family="monospace" font-size="16" fill="#87e5bd">+ proposed change</text>
+<text x="740" y="390" font-family="monospace" font-size="18" fill="#8fe3ff">[Y] approve        [N] deny</text>
+</g>
+<text x="640" y="571" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#7c9fbc">Illustrative preview of the experimental TUI in PR #1 — not a real execution screenshot.</text>
+</svg>
