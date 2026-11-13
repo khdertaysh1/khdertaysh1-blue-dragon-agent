@@ -14,6 +14,14 @@ pub struct Agent {
     tools: ToolBox,
     settings: Settings,
     session: Session,
+    output: Option<std::sync::mpsc::Sender<AgentEvent>>,
+}
+
+#[derive(Debug)]
+pub enum AgentEvent {
+    Answer(String),
+    ToolStart(String),
+    ToolResult(bool),
 }
 
 impl Agent {
@@ -33,6 +41,7 @@ impl Agent {
             tools,
             settings,
             session,
+            output: None,
         };
         if agent.session.messages.is_empty() {
             agent
@@ -42,6 +51,24 @@ impl Agent {
         }
         agent.persist()?;
         Ok(agent)
+    }
+
+    pub fn set_output(&mut self, sender: std::sync::mpsc::Sender<AgentEvent>) {
+        self.output = Some(sender);
+    }
+
+    fn output(&self, event: AgentEvent) {
+        if let Some(sender) = &self.output {
+            let _ = sender.send(event);
+            return;
+        }
+        match event {
+            AgentEvent::Answer(text) => println!("\nDragon> {text}"),
+            AgentEvent::ToolStart(name) => println!("\n[tool] {name}"),
+            AgentEvent::ToolResult(ok) => {
+                println!("[result] {}", if ok { "completed" } else { "failed or denied" });
+            }
+        }
     }
 
     pub fn session_id(&self) -> &str {
@@ -106,7 +133,7 @@ impl Agent {
                 .unwrap_or_default();
             if calls.is_empty() {
                 let answer = extract_text(&message);
-                println!("\nDragon> {answer}");
+                self.output(AgentEvent::Answer(answer));
                 self.session.messages.push(message);
                 self.persist()?;
                 return Ok(());
@@ -137,18 +164,13 @@ impl Agent {
                         continue;
                     }
                 };
-                println!("\n[tool] {name} (step {})", step + 1);
+                self.output(AgentEvent::ToolStart(format!("{name} (step {})", step + 1)));
                 let result = tools::invoke(&self.tools, name, &args);
                 let content = result.to_string();
                 // Avoid showing file contents or secrets in console output.
-                println!(
-                    "[result] {}",
-                    if result.get("ok") == Some(&Value::Bool(false)) {
-                        "failed or denied"
-                    } else {
-                        "completed"
-                    }
-                );
+                self.output(AgentEvent::ToolResult(
+                    result.get("ok") != Some(&Value::Bool(false)),
+                ));
                 self.session
                     .messages
                     .push(json!({"role":"tool","tool_call_id":id,"content":content}));
