@@ -1,6 +1,8 @@
 mod agent;
 mod config;
 mod provider;
+mod project;
+mod skills;
 mod session;
 mod tools;
 
@@ -53,6 +55,10 @@ enum Command {
     Doctor,
     /// List saved local sessions
     Sessions,
+    /// Inspect file types, manifests and language distribution without sending code to AI
+    Map,
+    /// List user-level local Markdown skills
+    Skills,
 }
 
 fn main() {
@@ -100,6 +106,14 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
+        Some(Command::Map) => {
+            println!("{}", serde_json::to_string_pretty(&project::inspect(&settings.root)?)?);
+            Ok(())
+        }
+        Some(Command::Skills) => {
+            println!("{}", serde_json::to_string_pretty(&skills::list(&settings.sessions_dir)?)?);
+            Ok(())
+        }
         cmd => {
             let approval = if args.read_only {
                 ApprovalMode::ReadOnly
@@ -123,7 +137,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /exit /session /diff /doctor — or type a natural-language task");
+                                println!("/help /exit /session /diff /status /map /skills /skill <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/session" => {
@@ -132,6 +146,26 @@ fn run() -> Result<()> {
                             }
                             "/diff" => {
                                 println!("{}", agent.git_diff()?);
+                                continue;
+                            }
+                            "/map" => {
+                                println!("{}", serde_json::to_string_pretty(&agent.project_map()?)?);
+                                continue;
+                            }
+                            "/status" => {
+                                println!("{}", serde_json::to_string_pretty(&agent.git_status()?)?);
+                                continue;
+                            }
+                            "/skills" => {
+                                println!("{}", serde_json::to_string_pretty(&agent.list_skills()?)?);
+                                continue;
+                            }
+                            name if name.starts_with("/skill ") => {
+                                let name = name.trim_start_matches("/skill ").trim();
+                                match agent.activate_skill(name) {
+                                    Ok(()) => println!("Activated local skill: {name}"),
+                                    Err(error) => eprintln!("Skill error: {error:#}"),
+                                }
                                 continue;
                             }
                             "/doctor" => {
