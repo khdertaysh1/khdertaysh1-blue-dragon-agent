@@ -205,6 +205,54 @@ impl ToolBox {
         Ok(text.chars().take(MAX_OUTPUT_BYTES).collect())
     }
 
+    /// Read only a bounded range so large files do not waste model context.
+    pub fn read_lines(&self, path: &str, start: usize, count: usize) -> Result<Value> {
+        if start == 0 || count == 0 || count > 200 {
+            anyhow::bail!("Start must be >= 1 and count must be 1..200");
+        }
+        let data = self.read_file(path)?;
+        let body = data["content"].as_str().context("File content missing")?;
+        let selected: Vec<_> = body
+            .lines()
+            .enumerate()
+            .skip(start - 1)
+            .take(count)
+            .map(|(index, line)| json!({"line": index + 1, "text": line}))
+            .collect();
+        Ok(json!({"path": path, "lines": selected, "start": start}))
+    }
+
+    pub fn git_status(&self) -> Result<Value> {
+        let output = Command::new("git")
+            .args(["-C", &self.root.to_string_lossy(), "status", "--short", "--untracked-files=normal"])
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .output()
+            .context("Git not available")?;
+        if !output.status.success() {
+            anyhow::bail!("Cannot read Git working tree status");
+        }
+        Ok(json!({"status": String::from_utf8_lossy(&output.stdout)
+            .chars().take(MAX_OUTPUT_BYTES).collect::<String>()}))
+    }
+
+    /// Replace exactly one expected occurrence; refuses ambiguous or stale edits.
+    pub fn edit_file(&self, path: &str, find: &str, replace: &str) -> Result<Value> {
+        if find.is_empty() {
+            anyhow::bail!("Expected text cannot be empty");
+        }
+        if find.len() > MAX_TEXT_BYTES || replace.len() > MAX_TEXT_BYTES {
+            anyhow::bail!("Edit exceeds text size limit");
+        }
+        let original = self.read_file(path)?;
+        let body = original["content"].as_str().context("File content missing")?;
+        let matches = body.matches(find).count();
+        if matches != 1 {
+            anyhow::bail!("Expected exactly one match, found {matches}; file not modified");
+        }
+        let modified = body.replacen(find, replace, 1);
+        self.write_file(path, &modified)
+    }
+
     fn approve(&self, action: &str, detail: &str) -> Result<bool> {
         if matches!(self.approval, ApprovalMode::ReadOnly) {
             return Ok(false);
@@ -342,6 +390,10 @@ pub fn definitions() -> Value {
         {"type":"function","function":{"name":"list_files","description":"List project files under a workspace-relative directory. No hidden secrets.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Directory relative to workspace; use . for root"}},"required":["path"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"read_file","description":"Read one UTF-8 project file, up to 128KiB, excluding secret paths.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"search_files","description":"Find exact string occurrences across project text files.","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}}},
+        {"type":"function","function":{"name":"project_map","description":"Generate a bounded language and manifest overview of the current project (heuristic; does not read source contents).","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
+        {"type":"function","function":{"name":"git_status","description":"Read Git working tree status, including untracked files.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
+        {"type":"function","function":{"name":"read_lines","description":"Read a bounded line range from one source file, with line numbers.","parameters":{"type":"object","properties":{"path":{"type":"string"},"start":{"type":"integer","minimum":1},"count":{"type":"integer","minimum":1,"maximum":200}},"required":["path","start","count"],"additionalProperties":false}}},
+        {"type":"function","function":{"name":"edit_file","description":"Replace exactly one expected text occurrence in an existing file. Refuses ambiguous changes and requires a diff approval.","parameters":{"type":"object","properties":{"path":{"type":"string"},"find":{"type":"string"},"replace":{"type":"string"}},"required":["path","find","replace"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"git_diff","description":"Show unstaged Git diff. Read-only.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
         {"type":"function","function":{"name":"write_file","description":"Replace or create a UTF-8 file relative to workspace. User approval is mandatory and a diff is shown.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"run_command","description":"Execute a program with arguments in workspace (no shell expansion); requires user approval. 30-second timeout.","parameters":{"type":"object","properties":{"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["program","args"],"additionalProperties":false}}}
@@ -359,6 +411,19 @@ pub fn invoke(boxes: &ToolBox, name: &str, args: &Value) -> Value {
         "read_file" => arg("path").and_then(|x| boxes.read_file(x)),
         "search_files" => arg("query").and_then(|x| boxes.search_files(x)),
         "git_diff" => boxes.git_diff().map(|x| json!({"diff":x})),
+        "project_map" => crate::project::inspect(&boxes.root),
+        "git_status" => boxes.git_status(),
+        "read_lines" => (|| -> Result<Value> {
+            let path = arg("path")?;
+            let start = args.get("start").and_then(Value::as_u64).context("Missing positive start")?;
+            let count = args.get("count").and_then(Value::as_u64).context("Missing positive count")?;
+            let start = usize::try_from(start).context("Start out of range")?;
+            let count = usize::try_from(count).context("Count out of range")?;
+            boxes.read_lines(path, start, count)
+        })(),
+        "edit_file" => (|| -> Result<Value> {
+            boxes.edit_file(arg("path")?, arg("find")?, arg("replace")?)
+        })(),
         "write_file" => {
             arg("path").and_then(|p| arg("content").and_then(|c| boxes.write_file(p, c)))
         }
@@ -434,6 +499,25 @@ mod tests {
             false
         );
     }
+    #[test]
+    fn targeted_edits_reject_ambiguity_and_require_approval() {
+        let (tmp, toolbox) = setup();
+        let before = fs::read_to_string(tmp.path().join("hello.rs")).unwrap();
+        assert!(toolbox.edit_file("hello.rs", "not present", "x").is_err());
+        assert!(toolbox.edit_file("hello.rs", "n", "N").is_err());
+        assert_eq!(toolbox.edit_file("hello.rs", "hello", "world").unwrap()["ok"], false);
+        assert_eq!(fs::read_to_string(tmp.path().join("hello.rs")).unwrap(), before);
+    }
+
+    #[test]
+    fn numbered_read_range_is_bounded() {
+        let (_tmp, toolbox) = setup();
+        let lines = toolbox.read_lines("hello.rs", 1, 1).unwrap();
+        assert_eq!(lines["lines"][0]["line"], 1);
+        assert!(toolbox.read_lines("hello.rs", 0, 1).is_err());
+        assert!(toolbox.read_lines("hello.rs", 1, 201).is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_symlink_escape() {
