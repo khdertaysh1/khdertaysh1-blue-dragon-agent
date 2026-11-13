@@ -16,7 +16,7 @@ use ratatui::{
 };
 use std::{
     io::{self, IsTerminal},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{self, Sender},
     thread,
     time::Duration,
 };
@@ -42,6 +42,7 @@ struct Screen {
     input: String,
     busy: bool,
     approval: Option<ApprovalRequest>,
+    approval_scroll: u16,
     scroll_up: usize,
     status: String,
     model: String,
@@ -58,6 +59,7 @@ impl Screen {
             input: String::new(),
             busy: false,
             approval: None,
+            approval_scroll: 0,
             scroll_up: 0,
             status: "Ready".into(),
             model,
@@ -81,9 +83,12 @@ impl Screen {
     }
 
     fn submit(&mut self, tx: &Sender<Work>) {
+        if self.busy {
+            return;
+        }
         let text = self.input.trim().to_string();
         self.input.clear();
-        if text.is_empty() || self.busy {
+        if text.is_empty() {
             return;
         }
         if text == "/help" {
@@ -114,6 +119,7 @@ impl Screen {
 
     fn approve(&mut self, accepted: bool) {
         if let Some(request) = self.approval.take() {
+            self.approval_scroll = 0;
             let _ = request.respond_to.send(accepted);
             self.log(
                 "Approval:",
@@ -206,7 +212,8 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                 let _ = request.respond_to.send(false);
                 app.log("System:", "Concurrent approval request rejected");
             } else {
-                app.status = "Approval required (Y/N)".into();
+                app.status = "Approval required (Y/N, arrows to scroll)".into();
+                app.approval_scroll = 0;
                 app.approval = Some(request);
             }
         }
@@ -236,6 +243,12 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
             match key.code {
                 KeyCode::Char('y' | 'Y') => app.approve(true),
                 KeyCode::Char('n' | 'N') | KeyCode::Esc => app.approve(false),
+                KeyCode::PageDown | KeyCode::Down => {
+                    app.approval_scroll = app.approval_scroll.saturating_add(3);
+                }
+                KeyCode::PageUp | KeyCode::Up => {
+                    app.approval_scroll = app.approval_scroll.saturating_sub(3);
+                }
                 _ => {}
             }
             continue;
@@ -359,7 +372,8 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::Yellow)),
                 )
-                .wrap(Wrap { trim: false }),
+                .wrap(Wrap { trim: false })
+                .scroll((app.approval_scroll, 0)),
             popup,
         );
     }
