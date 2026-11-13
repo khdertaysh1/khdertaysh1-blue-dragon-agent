@@ -15,14 +15,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo test --all-targets
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo build --release
+      - run: cargo test --locked --all-targets
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --locked --release
+      - name: Real terminal smoke test
+        if: runner.os != 'Windows'
+        run: python scripts/smoke_tui.py
       - uses: actions/upload-artifact@v4
         with:
           name: blue-dragon-${{ runner.os }}-${{ runner.arch }}
@@ -31,3 +37,35 @@ jobs:
             target/release/blue-dragon.exe
           if-no-files-found: error
           retention-days: 7
+  android:
+    name: Android ARM64 binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Build with Android NDK
+        shell: bash
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [[ -z "$ndk" ]]; then
+            echo "::error::Android NDK is not available on this runner."
+            exit 1
+          fi
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/aarch64-linux-android26-clang"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android26-clang"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          cargo build --locked --release --target aarch64-linux-android
+          mkdir -p android-package
+          cp target/aarch64-linux-android/release/blue-dragon android-package/
+          (cd android-package && sha256sum blue-dragon > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blue-dragon-Android-ARM64
+          path: android-package/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
+use std::io::Read;
 use std::time::Duration;
 
 pub struct Provider {
@@ -34,7 +35,26 @@ impl Provider {
     }
 
     pub fn complete(&self, messages: &[Value], tools: Value) -> Result<Value> {
-        let payload = if self.anthropic {
+        self.request(messages, tools, false, |_| {}, || false)
+    }
+    pub fn stream(
+        &self,
+        messages: &[Value],
+        tools: Value,
+        delta: impl FnMut(&str),
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<Value> {
+        self.request(messages, tools, true, delta, cancelled)
+    }
+    fn request(
+        &self,
+        messages: &[Value],
+        tools: Value,
+        stream: bool,
+        delta: impl FnMut(&str),
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<Value> {
+        let mut payload = if self.anthropic {
             crate::anthropic::request_body(messages, &tools, &self.model)?
         } else {
             json!({
@@ -45,6 +65,9 @@ impl Provider {
                 "temperature": 0.2
             })
         };
+        if stream {
+            payload["stream"] = json!(true);
+        }
         let mut req = self.client.post(&self.url).json(&payload);
         if self.anthropic {
             req = req.header("anthropic-version", "2023-06-01");
@@ -58,8 +81,22 @@ impl Provider {
         }
         let response = req.send().context("Provider request failed")?;
         let code = response.status();
-        let bytes = response
-            .bytes()
+        if code.is_success() && stream {
+            if !response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .starts_with("text/event-stream")
+            {
+                anyhow::bail!("Provider did not return SSE; use --no-stream for this endpoint");
+            }
+            return crate::streaming::decode(response, self.anthropic, delta, cancelled);
+        }
+        let mut bytes = Vec::new();
+        response
+            .take(4_000_001)
+            .read_to_end(&mut bytes)
             .context("Could not read provider response")?;
         if bytes.len() > 4_000_000 {
             anyhow::bail!("Provider response exceeded size limit");
@@ -90,6 +127,6 @@ fn redact_error(text: &str) -> String {
     if clean.to_ascii_lowercase().contains("sk-") || clean.to_ascii_lowercase().contains("bearer") {
         "provider rejected request (details suppressed)".to_string()
     } else {
-        clean
+        "provider rejected request (response payload suppressed)".to_owned()
     }
 }

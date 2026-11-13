@@ -29,4 +29,7 @@ Session (JSON, app-data directory) records dialogue and tool results after each 
 
 ## Future design (not yet implemented)
 
-Model streaming, independent policy daemon, MCP, browser instrumentation, distributed workers, project indexing, permission-scoped resource graph, and evidence-gated multi-agent execution.
+Independent policy daemon, remote MCP transports, browser instrumentation, distributed workers, project indexing, permission-scoped resource graph, and evidence-gated multi-agent execution.
+
+## Workbench modules
+TUI rendering and input run separately from the model worker. A bounded ordered event queue carries deltas, tools, plans and task completion; approval replies use a separate one-shot response. Cooperative cancellation is shared with command polling, SSE parsing and MCP RPC waits. Session plan/report fields are serde-defaulted to preserve old session compatibility. stdio MCP is explicit opt-in and never auto-launches repository config. See WORKBENCH.md for transport and cancellation limits.

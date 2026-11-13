@@ -12,6 +12,10 @@ pub struct Session {
     pub model: String,
     pub updated_at: DateTime<Utc>,
     pub messages: Vec<Value>,
+    #[serde(default)]
+    pub plan: crate::plan::Plan,
+    #[serde(default)]
+    pub last_report: Value,
 }
 
 #[derive(Debug)]
@@ -22,10 +26,12 @@ pub struct SessionSummary {
 }
 
 pub fn new(root: &Path, model: &str) -> Session {
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let id = format!(
-        "{}-{}",
+        "{}-{}-{}",
         Utc::now().format("%Y%m%dT%H%M%S"),
-        std::process::id()
+        std::process::id(),
+        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
     Session {
         id,
@@ -33,6 +39,8 @@ pub fn new(root: &Path, model: &str) -> Session {
         model: model.to_string(),
         updated_at: Utc::now(),
         messages: Vec::new(),
+        plan: crate::plan::Plan::default(),
+        last_report: Value::Null,
     }
 }
 
@@ -58,7 +66,8 @@ pub fn save(sessions_dir: &Path, session: &mut Session) -> Result<()> {
 pub fn load(sessions_dir: &Path, id: &str, root: &Path) -> Result<Session> {
     let id = if id == "latest" {
         list_sessions(sessions_dir)?
-            .first()
+            .iter()
+            .find(|s| s.workspace == root.to_string_lossy())
             .map(|s| s.id.clone())
             .context("No saved sessions")?
     } else {
@@ -71,6 +80,9 @@ pub fn load(sessions_dir: &Path, id: &str, root: &Path) -> Result<Session> {
         anyhow::bail!("Invalid session ID");
     }
     let path = sessions_dir.join(format!("{id}.json"));
+    if fs::metadata(&path)?.len() > 16_000_000 {
+        anyhow::bail!("Session exceeds 16 MB limit");
+    }
     let session: Session = serde_json::from_slice(&fs::read(path)?)?;
     if session.workspace != root.to_string_lossy() {
         anyhow::bail!("Session belongs to another workspace; refusing to resume");
@@ -83,6 +95,12 @@ pub fn list_sessions(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
     for entry in fs::read_dir(sessions_dir)? {
         let path: PathBuf = entry?.path();
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        if fs::metadata(&path)
+            .map(|m| m.len() > 16_000_000)
+            .unwrap_or(true)
+        {
             continue;
         }
         if let Ok(bytes) = fs::read(path) {
@@ -119,5 +137,17 @@ mod tests {
     fn prevents_session_id_traversal() {
         let dir = tempfile::tempdir().unwrap();
         assert!(load(dir.path(), "../../sensitive", dir.path()).is_err());
+    }
+    #[test]
+    fn latest_session_is_scoped_to_workspace_and_ids_are_unique() {
+        let home = tempfile::tempdir().unwrap();
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let mut first = new(a.path(), "a");
+        save(home.path(), &mut first).unwrap();
+        let mut second = new(b.path(), "b");
+        save(home.path(), &mut second).unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(load(home.path(), "latest", a.path()).unwrap().id, first.id);
     }
 }

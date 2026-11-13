@@ -7,6 +7,9 @@ pub struct Settings {
     pub model: String,
     pub api_key: Option<String>,
     pub sessions_dir: PathBuf,
+    pub mcp_config: Option<PathBuf>,
+    pub stream: bool,
+    pub max_steps: usize,
 }
 
 impl Settings {
@@ -55,6 +58,9 @@ impl Settings {
                     std::env::var(key_name).ok().filter(|x| !x.is_empty())
                 }),
             sessions_dir,
+            mcp_config: None,
+            stream: true,
+            max_steps: 24,
         })
     }
 
