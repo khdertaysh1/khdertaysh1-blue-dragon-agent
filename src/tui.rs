@@ -195,6 +195,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
         };
         agent.set_cancellation(cancellation);
         agent.set_output(message_tx.clone());
+        let _ = message_tx.send(AgentEvent::Plan(agent.plan_text()));
         for work in work_rx {
             let result = match work {
                 Work::Prompt(prompt) => agent.turn(&prompt),

@@ -28,6 +28,14 @@ impl Assembly {
         if anthropic {
             match v["type"].as_str() {
                 Some("message_stop") => self.finished = true,
+                Some("message_delta")
+                    if matches!(
+                        v["delta"]["stop_reason"].as_str(),
+                        Some("max_tokens" | "refusal")
+                    ) =>
+                {
+                    bail!("Provider stopped before a complete response (token limit or refusal)");
+                }
                 Some("content_block_start") => {
                     let index = v["index"].as_u64().context("Missing block index")? as usize;
                     if index > 63 {
@@ -85,6 +93,12 @@ impl Assembly {
                         }
                     }
                 }
+            }
+            if matches!(
+                choice["finish_reason"].as_str(),
+                Some("length" | "content_filter")
+            ) {
+                bail!("Provider stopped before a complete response (token limit or filter)");
             }
             if choice["finish_reason"].is_string() {
                 self.finished = true;
@@ -228,5 +242,11 @@ mod tests {
         )
         .is_err());
         assert!(decode(b"data: [DONE]\n\n".as_slice(), false, |_| {}, || true).is_err());
+    }
+    #[test]
+    fn token_limit_does_not_report_completion() {
+        let event = json!({"choices":[{"delta":{"content":"partial"},"finish_reason":"length"}]});
+        let stream = format!("data: {event}\n\n");
+        assert!(decode(stream.as_bytes(), false, |_| {}, || false).is_err());
     }
 }

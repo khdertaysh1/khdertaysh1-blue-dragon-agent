@@ -31,10 +31,12 @@ pub enum AgentEvent {
 
 impl Agent {
     pub fn new(settings: Settings, approval: ApprovalMode, resume: Option<&str>) -> Result<Self> {
-        let session = match resume {
+        let mut session = match resume {
             Some(id) => session::load(&settings.sessions_dir, id, &settings.root)?,
             None => session::new(&settings.root, &settings.model),
         };
+        session::recover_tool_history(&mut session);
+        session.model = settings.model.clone();
         let provider = Provider::new(
             &settings.base_url,
             settings.model.clone(),

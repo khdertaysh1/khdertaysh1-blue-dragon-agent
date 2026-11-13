@@ -44,6 +44,41 @@ pub fn new(root: &Path, model: &str) -> Session {
     }
 }
 
+/// Complete only missing tool-result envelopes after an interrupted run.
+/// Execution is UNKNOWN, never replayed or reported as successful.
+pub fn recover_tool_history(session: &mut Session) -> usize {
+    let mut fixed = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+    let mut count = 0;
+    let flush = |fixed: &mut Vec<Value>, pending: &mut Vec<String>, count: &mut usize| {
+        for id in pending.drain(..) {
+            fixed.push(serde_json::json!({"role":"tool","tool_call_id":id,"content":serde_json::json!({"ok":false,"execution_status":"unknown","error":"Previous run ended before this result was saved. Inspect the workspace before proposing a retry."}).to_string()}));
+            *count += 1;
+        }
+    };
+    for message in std::mem::take(&mut session.messages) {
+        if message["role"] != "tool" {
+            flush(&mut fixed, &mut pending, &mut count);
+        }
+        if message["role"] == "assistant" {
+            if let Some(calls) = message["tool_calls"].as_array() {
+                pending = calls
+                    .iter()
+                    .filter_map(|c| c["id"].as_str().map(str::to_owned))
+                    .collect();
+            }
+        } else if message["role"] == "tool" {
+            if let Some(id) = message["tool_call_id"].as_str() {
+                pending.retain(|x| x != id);
+            }
+        }
+        fixed.push(message);
+    }
+    flush(&mut fixed, &mut pending, &mut count);
+    session.messages = fixed;
+    count
+}
+
 pub fn save(sessions_dir: &Path, session: &mut Session) -> Result<()> {
     session.updated_at = Utc::now();
     let output = sessions_dir.join(format!("{}.json", session.id));
@@ -149,5 +184,23 @@ mod tests {
         save(home.path(), &mut second).unwrap();
         assert_ne!(first.id, second.id);
         assert_eq!(load(home.path(), "latest", a.path()).unwrap().id, first.id);
+    }
+    #[test]
+    fn interrupted_tools_get_unknown_results_before_next_user() {
+        let root = tempfile::tempdir().unwrap();
+        let mut session = new(root.path(), "test");
+        session.messages = vec![
+            serde_json::json!({"role":"assistant","tool_calls":[{"id":"a"},{"id":"b"}]}),
+            serde_json::json!({"role":"tool","tool_call_id":"a","content":"observed"}),
+            serde_json::json!({"role":"user","content":"Continue"}),
+        ];
+        assert_eq!(recover_tool_history(&mut session), 1);
+        assert_eq!(session.messages[2]["tool_call_id"], "b");
+        assert!(session.messages[2]["content"]
+            .as_str()
+            .unwrap()
+            .contains("unknown"));
+        assert_eq!(session.messages[3]["role"], "user");
+        assert_eq!(recover_tool_history(&mut session), 0);
     }
 }

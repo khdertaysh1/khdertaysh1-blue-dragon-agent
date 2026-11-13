@@ -15,11 +15,11 @@ The wide terminal includes a task-plan pane. Small screens keep a single convers
 Ctrl+C requests cancellation while working; when idle it exits. Esc exits. Active direct subprocesses are killed on cancellation. Provider cancellation is cooperative: blocked network I/O can wait for the request timeout (120 seconds). MCP requests have a 30-second wait budget and an input-queue limit. Process descendants are not an OS sandbox and do not have a cross-platform process-tree guarantee.
 
 ## Plans and evidence
-The model can use update_plan to maintain at most 20 steps and one in-progress item. Plans survive session resume. Plan completion is a model claim, not verification evidence.
+The model can use update_plan to maintain at most 20 steps and one in-progress item. Plans survive session resume and are restored to the terminal pane. Plan completion is a model claim, not verification evidence.
 
 Each task records an action summary in the session: tool names, return success/failure, steps and completion/cancellation. /report shows it. Tool result success means the tool returned successfully; it does not certify a vulnerability or prove the project correct. Results still need inspection and relevant tests.
 
-Tool-call batches are validated before entering the saved history. Denied/cancelled tools receive paired tool results, so resuming cannot silently execute unfinished proposals. A 1 MB transcript budget stops growth rather than silently deleting context. This revision does not implement intelligent context compaction.
+Tool-call batches are validated before entering the saved history. Denied/cancelled tools receive paired tool results. If a process ended before saving a result, resume inserts an explicitly unknown-status envelope; it never reruns the action or invents success. The user/model must inspect the workspace before proposing a retry. A 1 MB transcript budget stops growth rather than silently deleting context. This revision does not implement intelligent context compaction.
 
 ## MCP (stdio, explicit opt-in)
 Copy examples/mcp.example.json to a private file and configure a trusted local process. The file is loaded only through --mcp-config or BLUE_DRAGON_MCP_CONFIG. Repository files are not auto-executed.
