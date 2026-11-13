@@ -94,20 +94,23 @@ The demo is deliberately illustrative. Commands and results are sample text; the
 
 ## Quick Start
 
-Requires a **Rust toolchain** and a model endpoint supporting tool/function calling. Git is recommended.
+**Termux / Android ARM64: install a ready-made binary. No Rust, Git clone or compilation required.**
 
 ```bash
-git clone https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent.git
-cd khdertaysh1-blue-dragon-agent
-cargo build --locked --release
-./target/release/blue-dragon doctor
+pkg install curl jq -y &&
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/main/scripts/install.sh | bash
 ```
 
-Start free, without an API key or account:
+Then run from the project you want to inspect:
 
 ```bash
-./target/release/blue-dragon --provider free tui
+blue-dragon --version
+blue-dragon --provider free tui
 ```
+
+Run the **same installer command to update**. It selects a published release for your device, verifies SHA256 and the executable's version, then replaces the binary atomically. Failed downloads/checks leave the installed binary intact; the previous binary is saved for rollback. Sessions, settings and source checkouts are untouched. Installation needs `curl`, `jq` and a SHA256 utility, not a model API key. Only complete published releases are selected, including alpha prereleases.
+
+See [installation, supported systems, rollback and developer source builds](docs/INSTALL.md). [Published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases) contain persistent downloads and checksums; Actions artifacts are temporary developer outputs.
 
 This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects Kilo Auto Free. Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
 
@@ -179,7 +182,7 @@ Choose a model with compatible function calling. A keyless free gateway is preco
 </details>
 
 <details>
-<summary><b>Termux / Android (not yet verified in CI)</b></summary>
+<summary><b>Developer source build on Termux / Android</b></summary>
 
 ```bash
 pkg install git rust clang pkg-config
