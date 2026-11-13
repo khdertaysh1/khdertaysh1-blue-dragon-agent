@@ -439,6 +439,17 @@ mod tests {
     }
 
     #[test]
+    fn busy_worker_preserves_pending_input() {
+        let (tx, rx) = mpsc::channel();
+        let mut app = Screen::new("test".into(), ".".into());
+        app.busy = true;
+        app.input = "draft".into();
+        app.submit(&tx);
+        assert_eq!(app.input, "draft");
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
     fn approval_is_default_deny() {
         let (tx, rx) = mpsc::channel();
         let mut app = Screen::new("test".into(), ".".into());

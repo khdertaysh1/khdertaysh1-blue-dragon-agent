@@ -2,13 +2,15 @@
 
 **Cross-platform AI coding agent — built in Rust, designed for explicit consent and verifiable changes.**
 
-> **Status: v0.2.0-alpha.1 developer preview.** This is a functioning initial agent core, **not** feature parity with AlphaCode, Codex CLI, or Claude Code. A full-screen TUI, browser automation, multi-agent orchestration, MCP, and security scanner integrations are roadmap items, not current features.
+> **Status: v0.3.0-alpha.1 developer preview.** This is a functioning initial agent core, **not** feature parity with AlphaCode, Codex CLI, or Claude Code. A full-screen TUI is now available; browser automation, multi-agent orchestration, MCP, and security scanner integrations remain roadmap items.
 
 ## Why Blue Dragon?
 
 Blue Dragon takes an evidence-first approach to autonomous code work: inspect the project, ask before making changes, execute tests with approval, and preserve an auditable local conversation. It is an independently implemented project; it is **not** a fork or source-code copy of AlphaCode.
 
 ### Available today
+
+- **Full-screen terminal UI** using Ratatui and Crossterm: run blue-dragon tui. Responsive status/tool events, scrollable transcript and explicit per-action approval dialogs. [TUI guide](docs/TUI.md). Model token streaming is still planned.
 
 - OpenAI-compatible `chat/completions` tool-calling API (cloud endpoints and local Ollama/LM Studio adapters where compatible).
 - Native Anthropic Claude Messages API adapter with tool call/result conversion (unit tested; live provider credentials not tested).
@@ -73,6 +75,8 @@ Use a model that actually supports OpenAI-style function/tool calling; some loca
 ```text
 blue-dragon --help
 blue-dragon doctor
+blue-dragon tui
+blue-dragon --read-only tui
 blue-dragon map
 blue-dragon skills
 blue-dragon sessions
