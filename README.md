@@ -18,7 +18,8 @@
 <p align="center">
   <a href="#quick-start">Get started</a> ·
   <a href="#the-dragon-mind">Explore the agent</a> ·
-  <a href="#terminal-preview">Terminal preview</a> ·
+  <a href="#terminal-preview">Animated preview</a> ·
+  <a href="docs/SHOWCASE.md">Visual gallery</a> ·
   <a href="#capabilities">Capabilities</a> ·
   <a href="#human-in-control">Safety</a> ·
   <a href="#roadmap">Roadmap</a>
@@ -66,13 +67,26 @@ Every write or command requires a per-action approval. Tool availability depends
 ## Terminal Preview
 
 <div align="center">
-  <a href="https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1">
-    <img src="assets/tui-preview.svg" alt="Concept preview of the terminal conversation and approval dialog in the experimental TUI" width="100%"/>
+  <a href="assets/neural-console-preview.gif">
+    <img src="assets/neural-console-preview.gif" alt="Animated illustrative walkthrough of the Blue Dragon terminal: project map, tool steps, and an explicit approve-or-deny dialog" width="100%" />
   </a>
-  <sub>Illustrative mockup, not a captured live session. Click to inspect the experimental TUI branch.</sub>
+  <br />
+  <sub><strong>Animated product concept</strong> — not a recorded live session or a claim of current runtime functionality. Click to open the animation.</sub>
 </div>
 
-The prototype TUI adds a full-screen conversation view, tool-step feedback and an approval dialog. The **stable `main` branch currently uses the standard CLI**.
+The full-screen Ratatui terminal is being developed in [experimental PR #1](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/pull/1). It introduces a conversational screen, tool progress and an approval modal. **The current `main` release uses the standard CLI**, not this illustrated interface.
+
+<details>
+<summary><strong>Explore the static terminal mockup and the design notes</strong></summary>
+
+<br />
+<p align="center">
+  <img src="assets/tui-preview.svg" alt="Static illustrated mockup of the experimental terminal UI, with a proposed change approval" width="100%" />
+</p>
+
+The demo is deliberately illustrative. Commands and results are sample text; they are **not** captured execution evidence. The agent's real, tested capabilities are listed in the table above. See the [visual identity and motion notes](docs/VISUAL_IDENTITY.md) for the editable asset inventory.
+
+</details>
 
 ## Quick Start
 

@@ -10,10 +10,11 @@ The identity combines **an electric-blue dragon** (guided action) with a **neura
 | `assets/dragon-mark.svg` | SVG | Compact brand logo |
 | `assets/dragon-mind.svg` | SVG, decorative SMIL/CSS animation | Explains the inspection and approval workflow |
 | `assets/tui-preview.svg` | SVG | **Illustrative concept** for PR #1, not a live screenshot |
+| `assets/neural-console-preview.gif` | Animated GIF | Multi-frame illustrative terminal walkthrough that plays in ordinary GitHub README image viewers; **not a real captured session** |
 
 ## Motion and interactivity
 
-README files on GitHub do **not** execute arbitrary client JavaScript. The README uses native expandable `<details>` sections, a Mermaid diagram and SVG motion where the browser/GitHub renderer supports it. Every SVG remains readable without animation. GitHub may sanitize or cache remote media, so animation is not guaranteed to play in every viewer.
+README files on GitHub do **not** execute arbitrary client JavaScript. To ensure motion still plays inside GitHub, the terminal walkthrough is an optimized animated GIF rather than an embedded web application. The README uses native expandable `<details>` sections, a Mermaid diagram and SVG motion where the browser/GitHub renderer supports it. Every SVG remains readable without animation. GitHub may sanitize or cache remote media, so animation is not guaranteed to play in every viewer.
 
 The banners and diagrams represent the intended engineering workflow; they do **not** imply that pending features have shipped. In particular, the full-screen TUI remains in a draft PR until reviewed and merged.
 
