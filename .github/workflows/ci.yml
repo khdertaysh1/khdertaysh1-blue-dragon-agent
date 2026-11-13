@@ -31,6 +31,18 @@ jobs:
       - name: Real terminal smoke test
         if: runner.os != 'Windows'
         run: python scripts/smoke_tui.py
+      - name: Package release binary
+        shell: bash
+        run: |
+          binary=target/release/blue-dragon
+          if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
+          python scripts/package_binary.py "$binary" "$RUNNER_OS" "$RUNNER_ARCH"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}-${{ runner.arch }}
+          path: release-payload/
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: blue-dragon-${{ runner.os }}-${{ runner.arch }}
@@ -49,6 +61,9 @@ jobs:
         with:
           targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
       - name: Build with Android NDK
         shell: bash
         run: |
@@ -71,3 +86,70 @@ jobs:
           path: android-package/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Package Android release binary
+        run: python scripts/package_binary.py target/aarch64-linux-android/release/blue-dragon Android ARM64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-Android-ARM64
+          path: release-payload/
+          if-no-files-found: error
+          retention-days: 14
+  installer:
+    name: Installer safety and upgrade checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: bash -n scripts/install.sh
+      - run: python scripts/test_installer.py
+      - run: python scripts/test_source_upgrade.py
+      - run: python scripts/test_release_payload.py
+  publish:
+    name: Publish verified binaries
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, android, installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: blue-dragon-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-payload/
+      - name: Prepare complete release
+        id: prepare
+        run: python scripts/prepare_release.py
+      - name: Publish after all platforms and installer checks pass
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > release-state.json 2>/dev/null; then
+            if jq -e '.draft == false' release-state.json >/dev/null; then
+              echo "Release already published; never replacing public binaries. Bump Cargo version for a new release."
+              exit 0
+            fi
+            jq -e --arg sha "$GITHUB_SHA" '.target_commitish == $sha' release-state.json >/dev/null || {
+              echo "Draft belongs to another commit; refusing to replace it."
+              exit 1
+            }
+          else
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --prerelease \
+              --title "Blue Dragon $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          fi
+          gh release upload "$RELEASE_TAG" release-payload/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
