@@ -20,6 +20,10 @@ pub struct Session {
     pub observations: Vec<crate::reasoning::Observation>,
     #[serde(default)]
     pub findings: Vec<crate::reasoning::Finding>,
+    #[serde(default)]
+    pub task_checks: crate::intelligence::checks::Contract,
+    #[serde(default)]
+    pub memory_scope: Option<String>,
 }
 
 #[derive(Debug)]
@@ -47,6 +51,8 @@ pub fn new(root: &Path, model: &str) -> Session {
         last_report: Value::Null,
         observations: Vec::new(),
         findings: Vec::new(),
+        task_checks: crate::intelligence::checks::Contract::default(),
+        memory_scope: None,
     }
 }
 

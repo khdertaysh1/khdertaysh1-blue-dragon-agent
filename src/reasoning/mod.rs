@@ -11,6 +11,8 @@ pub struct Observation {
     pub tool: String,
     pub ok: bool,
     pub excerpt: String,
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
@@ -53,6 +55,7 @@ pub fn observe(index: usize, tool: &str, result: &Value) -> Observation {
             && result["denied"] != true
             && result["execution_status"] != "unknown",
         excerpt: context::clip(&result.to_string(), 1000),
+        origin: None,
     }
 }
 pub fn briefing(task: &str) -> &'static str {

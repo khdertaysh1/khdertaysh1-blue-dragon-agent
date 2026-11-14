@@ -171,6 +171,22 @@ pub fn build(
             object.remove("automatic_browser_indexes");
         }
         if level > 0 {
+            if let Some(notes) = memory
+                .get_mut("historical_project_notes")
+                .and_then(|v| v.get_mut("notes"))
+                .and_then(Value::as_array_mut)
+            {
+                notes.truncate(if level >= 3 { 2 } else { 4 });
+                for note in notes {
+                    if let Some(text) = note["text"].as_str() {
+                        let cap = if level >= 3 { 160 } else { 500 };
+                        if text.chars().count() > cap {
+                            note["text"] = json!(clip(text, cap));
+                            note["text_excerpted"] = json!(true);
+                        }
+                    }
+                }
+            }
             for field in ["findings", "recent_observations"] {
                 if let Some(rows) = memory.get_mut(field).and_then(Value::as_array_mut) {
                     rows.truncate(if level >= 3 { 4 } else { 8 });

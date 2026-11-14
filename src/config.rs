@@ -12,6 +12,7 @@ pub struct Settings {
     pub free_rotation: bool,
     pub max_steps: usize,
     pub context_tokens: usize,
+    pub project_memory: bool,
 }
 
 impl Settings {
@@ -59,6 +60,7 @@ impl Settings {
             free_rotation: true,
             max_steps: 24,
             context_tokens: 32768,
+            project_memory: true,
         })
     }
 

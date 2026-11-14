@@ -2,13 +2,15 @@
 
 Blue Dragon is independently written. This is an implementation audit, not a claim of feature parity.
 
-| Capability | Status in v0.6 alpha |
+| Capability | Status in v0.7 alpha |
 |---|---|
 | Rust CLI and cross-platform CI | Implemented |
 | OpenAI-compatible tool calling | Implemented |
 | Native Anthropic API | Adapter + unit tests; live access not validated |
 | Source search/read and targeted edit | Implemented |
-| Project indexing | Heuristic file overview, not an AST graph |
+| Project indexing | Bounded content-hashed index; Tree-sitter declarations/imports/syntactic references in Rust, Python, JavaScript and TypeScript/TSX; lexical ranking, not resolved cross-file semantic graph |
+| Persistent project memory | Workspace/target-scoped historical notes with qualified source-session IDs, atomic locked storage, lexical retrieval; no embedding/semantic graph |
+| Verification contracts | Exact native tool/input/result metadata with bounded snapshot freshness, stale-proof invalidation and one completion review; model criteria may be insufficient |
 | Git diff and Git status | Implemented |
 | Explicit approval for writes and commands | Implemented |
 | Local user skills | Markdown files; user must activate them |
@@ -22,10 +24,12 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Model selection / free gateway | Searchable picker of keyless Kilo free models, Blue Free bounded automatic rotation, pinned concrete choices, one-hour catalog cache, saved selections. JarvisClaw retained; OpenRouter requires own key |
 | Native desktop GUI | Not implemented |
 
-Next milestones: wider MCP and device verification, AST-oriented indexing, isolated patch worktrees, signed extension distribution, evidence-first test reports, crash recovery, native installers.
+Next milestones: wider MCP and device verification, resolved cross-file indexing, isolated patch worktrees, signed extension distribution, richer structured test reports, crash recovery, native installers.
 
 Acceptance gate: complete CI on Windows/Linux/macOS, functional model tests with opted-in credentials, repeated benchmark tasks on identical model settings, no unverified success claims.
 
 Task plans, action summaries, cancellation, directory creation and approved bounded web fetch are implemented. No model-quality parity percentage is claimed. See WORKBENCH.md and third_party/NOTICE.md for limits and attribution.
 
 See [the control/context comparison audit](AGENT_REASONING.md) for the inspected AlphaCode commit, independent implementation, evidence checks and remaining gaps.
+
+The 0.7 comparison inspected AlphaCode commit `2e1db4018f65c12429c8d113aa469617836e5873`. See [project intelligence](PROJECT_INTELLIGENCE.md) for the specific reference modules, independent code and remaining gaps.

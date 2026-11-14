@@ -1,4 +1,4 @@
-# Blue Dragon workbench — 0.6 alpha
+# Blue Dragon workbench — 0.7 alpha
 
 This revision integrates the formerly experimental terminal into the current core while preserving the visual assets. It is a practical capability upgrade, not AlphaCode parity.
 
@@ -67,3 +67,8 @@ Version 0.5 adds the approved `browser` tool and `/browser` setup commands; [BRO
 Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or TUI. `blue-dragon inspect URL` and `blue-dragon URL` are equivalent entry points. Browser preparation, form/DOM/JS/network/console collection precede the model call; further mutation approvals are unchanged. See URL_INSPECTION.md.
 
 `/context` displays request-budget statistics; `/findings` displays observation references and saved model findings. `--context-tokens N` configures the context window including reply/schema reserves. The runtime blocks repeated denied/uncertain actions and detects repeated unchanged observations; this is not a guarantee of semantic correctness or unlimited memory.
+
+## Project intelligence
+`code_search` locates fresh local text and Tree-sitter symbols/references without running the project or contacting an embedding service. `project_memory` stores historical notes under app data, scoped by canonical workspace and explicit URL target; follow-up turns retain that scope and multiple targets have a distinct scope. New sessions begin with project scope; resumed sessions retain saved target scope. `/memory` searches the current scope, `/memory URL` selects that origin for the lookup, and `/memory forget ID` deletes a note. `--no-project-memory` disables reading/writing project notes, not ordinary session persistence.
+
+`set_task_checks` binds a requested check to exact `run_command` or `file_info` arguments and native result metadata. It does not run commands or grant approval. `/checks` and `/report` expose observed/missing/stale states. A source mutation invalidates previous proof; native output must be observed after declaration. Finalization permits one review continuation, then explicitly reports `needs_verification` when checks are missing. The protocol report's `finished` means the turn returned normally; inspect `task_status` for acceptance status. A successful exit code and model-authored criteria do not prove semantic correctness. See [limits and audit](PROJECT_INTELLIGENCE.md).

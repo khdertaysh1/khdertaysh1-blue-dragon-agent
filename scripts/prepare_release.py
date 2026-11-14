@@ -26,7 +26,7 @@ version = tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"]
 (folder / "LICENSES.txt").write_text(
     Path("LICENSE").read_text() + "\n\n--- Third-party attribution ---\n" +
     Path("third_party/NOTICE.md").read_text() + "\n" +
-    Path("third_party/AlphaCode-LICENSE").read_text(), encoding="utf-8")
+    "\n\n".join(f"--- {p.name} ---\n{p.read_text()}" for p in sorted(Path("third_party").glob("*-LICENSE"))), encoding="utf-8")
 (folder / "release.json").write_text(json.dumps({
     "version": version, "commit": os.environ["GITHUB_SHA"],
     "browser_extension_signed": False,
