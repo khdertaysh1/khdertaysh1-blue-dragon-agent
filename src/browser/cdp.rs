@@ -206,11 +206,20 @@ impl Cdp {
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.id += 1;
         let id = self.id;
-        self.ws.send(Message::Text(
-            json!({"id":id,"method":method,"params":params})
-                .to_string()
-                .into(),
-        ))?;
+        if self
+            .ws
+            .send(Message::Text(
+                json!({"id":id,"method":method,"params":params})
+                    .to_string()
+                    .into(),
+            ))
+            .is_err()
+        {
+            self.alive = false;
+            anyhow::bail!(
+                "Browser connection interrupted while sending; action outcome unknown; no retry"
+            );
+        }
         let until = Instant::now() + Duration::from_secs(30);
         while Instant::now() < until {
             match self.ws.read() {
@@ -247,7 +256,8 @@ impl Cdp {
                 }
             }
         }
-        anyhow::bail!("Browser action deadline exceeded; outcome unknown; inspect before retry")
+        self.alive = false;
+        anyhow::bail!("Browser action deadline exceeded; outcome unknown; reconnect explicitly and inspect before retry")
     }
     fn evaluate(&mut self, expression: String) -> Result<Value> {
         let result=self.call("Runtime.evaluate",json!({"expression":expression,"returnByValue":true,"awaitPromise":true,"timeout":15000}))?;
