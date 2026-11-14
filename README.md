@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Developer preview: `v0.5.0-alpha.1`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Browser setup is explicit; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
+> **Developer preview: `v0.5.0-alpha.2`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Pasting a URL now prepares a local browser and collects an initial review automatically; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
@@ -96,7 +96,9 @@ The demo is deliberately illustrative. Commands and results are sample text; the
 
 ## Browser and automatic free models
 
-After installation, launch `blue-dragon --provider free tui`. Use `/model blue-free` for automatic free-model rotation and `/rotation` for its status. On desktop use `/browser launch`; for Firefox use `/browser start` and pair the extension. Android Chrome uses authorized ADB forwarding and `/browser attach 9222`; a browser is not embedded in the executable. See [platform-specific instructions](docs/BROWSER.md) and [free routing policy](docs/FREE_ROTATION.md).
+After installation, run `blue-dragon 'https://example.com'`, or paste a URL into chat/TUI. The agent prepares the browser and collects DOM, forms, JavaScript indicators, network and console before model analysis. Relevant URL inputs receive at most two benign DOM execution checks, with observed proof separated from static hints. Termux first use installs official Chromium automatically and runs it in the background unless X11 is available; no ADB setup is required for this path. Initial inspection reads need no individual confirmations; further interactions still require approval. See [URL inspection and platform limits](docs/URL_INSPECTION.md). Physical Android validation remains pending.
+
+Use `/model blue-free` for automatic free-model rotation and `/rotation` for its status. Firefox extension pairing and advanced Chrome ADB attachment remain available: [browser instructions](docs/BROWSER.md), [free routing policy](docs/FREE_ROTATION.md).
 
 ## Quick Start
 

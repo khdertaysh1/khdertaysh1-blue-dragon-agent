@@ -14,7 +14,7 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Local user skills | Markdown files; user must activate them |
 | Persistent sessions and resume | Implemented |
 | Full-screen TUI / streaming UI | Implemented; OpenAI-compatible and Anthropic SSE, local fixture-tested |
-| Chromium/Firefox browser automation | Own CDP client and authenticated extension bridge; managed tab DOM/click/fill/JS/network/console/source/screenshots. Linux real-browser tests; Android physical validation and Firefox signing pending |
+| Chromium/Firefox browser automation | URL-only automatic preparation/initial inspection, official Termux Chromium setup, own CDP client and authenticated extension bridge; managed tab DOM/click/fill/JS/network/console/source/screenshots. Linux real-browser tests; Android physical validation and Firefox signing pending |
 | Desktop control | Not implemented |
 | MCP client | stdio tools implemented, explicitly connected/approved; other transports/features absent |
 | Multi-agent swarm and isolated worktrees | Not implemented |

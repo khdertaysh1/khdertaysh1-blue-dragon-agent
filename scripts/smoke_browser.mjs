@@ -17,7 +17,7 @@ async function until(fn,timeout=20000){const end=Date.now()+timeout;while(Date.n
 let apiHits=0;
 const server=http.createServer((req,res)=>{
  if(req.url==='/api'){apiHits++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({message:'Hello Browser42'}));}
- else if(req.url==='/app.js'){res.setHeader('Content-Type','application/javascript');res.end(`console.log('BB_BROWSER_TEST');document.querySelector('#send').onclick=async()=>{const r=await fetch('/api');document.querySelector('#out').textContent=(await r.json()).message;};`);}
+ else if(req.url==='/app.js'){res.setHeader('Content-Type','application/javascript');res.end(`console.log('BB_BROWSER_TEST');window.__freshLoad=location.hash;document.querySelector('#send').onclick=async()=>{const r=await fetch('/api');document.querySelector('#out').textContent=(await r.json()).message;};`);}
  else if(req.url==='/unmanaged'){res.end('<h1>UNMANAGED_SECRET</h1>');}
  else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Blue Dragon fixture</title><h1>BB fixture ready</h1><input id="name"><button id="send">Send</button><div id="out"></div><script src="/app.js"></script>');}
 });
@@ -69,11 +69,24 @@ try{
    await wd('/execute/sync',{script:`document.querySelector('#token').value=arguments[0].token;document.querySelector('#port').value=arguments[0].port;document.querySelector('#pair').requestSubmit();return true;`,args:[config]});
   }else{
   const worker=await until(async()=>{const list=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json();return list.find(t=>t.type==='service_worker'&&t.url.endsWith('/worker.js'));});
-  inspector=new WebSocket(worker.webSocketDebuggerUrl);
+  const optionsURL=new URL('options.html',worker.url).href;
+  const optionsTab=await(await fetch(`http://127.0.0.1:${port}/json/new?${optionsURL}`,{method:'PUT'})).json();
+  inspector=new WebSocket(optionsTab.webSocketDebuggerUrl);
   await new Promise((resolve,reject)=>{inspector.addEventListener('open',resolve,{once:true});inspector.addEventListener('error',reject,{once:true});});
-  const token=paired.pairing_token,bridgePort=Number(new URL(paired.url).port);
-  const reply=new Promise((resolve,reject)=>{inspector.addEventListener('message',event=>{const d=JSON.parse(event.data);if(d.id===1){if(d.error||d.result?.exceptionDetails)reject(Error(JSON.stringify(d)));else resolve(d);}});});
-  inspector.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:`chrome.storage.local.set(${JSON.stringify({token,port:bridgePort})})`,awaitPromise:true,returnByValue:true}}));await reply;
+  let sequence=0;
+  async function evaluateOptions(expression){
+   const id=++sequence;
+   const reply=new Promise((resolve,reject)=>{
+    const listener=event=>{const data=JSON.parse(event.data);if(data.id!==id)return;inspector.removeEventListener('message',listener);if(data.error||data.result?.exceptionDetails)reject(Error(JSON.stringify(data)));else resolve(data.result.result.value);};
+    inspector.addEventListener('message',listener);
+   });
+   inspector.send(JSON.stringify({id,method:'Runtime.evaluate',params:{expression,awaitPromise:true,returnByValue:true}}));
+   return await reply;
+  }
+  await until(()=>evaluateOptions("document.readyState==='complete' && !!document.querySelector('#pair')"));
+  const config={token:paired.pairing_token,port:Number(new URL(paired.url).port)};
+  await evaluateOptions(`(()=>{const c=${JSON.stringify(config)};document.querySelector('#token').value=c.token;document.querySelector('#port').value=c.port;document.querySelector('#pair').requestSubmit();return true;})()`);
+
   }
   await until(async()=>{await sleep(100);return(await send('/browser status')).data?.ready;});
  }else{assert.equal((await send(`/browser attach ${port}`)).data.ready,true);}
@@ -91,6 +104,8 @@ try{
  await action({action:'evaluate',expression:'console.warn("BRIDGE_LATE"); 42'});
  assert((await action({action:'console'})).entries.some(e=>(e.text||'').includes('BRIDGE_LATE')));
  const shot=await action({action:'screenshot'});assert(fs.statSync(shot.path).size>100);assert.equal(fs.readFileSync(shot.path)[0],0xff);
+ await action({action:'navigate',url:site+'#fresh-document-test',fresh_document:true});
+ assert.equal(await action({action:'evaluate',expression:'window.__freshLoad'}),'#fresh-document-test');
  const rotation=(await send('/rotation')).data;assert.equal(rotation.mode,'Blue Free automatic');
  agent.stdin.write('/exit\n');await new Promise(resolve=>agent.once('exit',resolve));
  console.log(`${firefoxMode?'FIREFOX EXTENSION':extensionMode?'CHROMIUM EXTENSION':'CDP'} real browser: open/DOM/fill/click/JS/network/source/console/screenshot, managed-tab isolation and approved CLI roundtrips passed`);
