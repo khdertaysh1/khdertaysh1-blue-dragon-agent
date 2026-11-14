@@ -1,4 +1,4 @@
-# Blue Dragon workbench — 0.4 alpha
+# Blue Dragon workbench — 0.5 alpha
 
 This revision integrates the formerly experimental terminal into the current core while preserving the visual assets. It is a practical capability upgrade, not AlphaCode parity.
 
@@ -31,7 +31,7 @@ Copy examples/mcp.example.json to a private file and configure a trusted local p
 
 Configuration holds environment variable names, not secret values. Only explicitly named values and basic OS variables are inherited. The server runs with your OS permissions and can modify files or use the network; approval is not isolation.
 
-Implemented: JSON-RPC stdio, initialization/version checking, paginated tool discovery, bounded messages/queues, timeout/cancellation, call results, default denial for unsupported server requests. Not included: Streamable HTTP, OAuth, roots/resources/prompts, sampling, elicitation, server reconnection or a browser extension. Test coverage uses a real local subprocess fixture; third-party MCP servers still require compatibility testing.
+Implemented: JSON-RPC stdio, initialization/version checking, paginated tool discovery, bounded messages/queues, timeout/cancellation, call results, default denial for unsupported server requests. Not included: Streamable HTTP, OAuth, roots/resources/prompts, sampling, elicitation, server reconnection. Browser automation uses a separate local CDP/extension transport; see BROWSER.md. Test coverage uses a real local subprocess fixture; third-party MCP servers still require compatibility testing.
 
 ## Added tools
 Alongside the existing ten workspace tools:
@@ -59,3 +59,7 @@ Linux x86_64 binaries do not run on ARM64 Android. MCP servers/dependencies must
 AlphaCode's module structure and stdio protocol were consulted at commit 7b325dfdb73066eaea372b7b39bf125effa2ae72. The adapted JSON-RPC envelope preserves MIT attribution in third_party/. No AlphaCode API endpoints, account flows or branding are copied.
 
 Validation includes both SSE protocols, fragmented tool arguments/Unicode, truncated streams, a local model-tool roundtrip with denied writes, persisted reports, a real stdio MCP handshake/tool call, response-ID rejection, and small/wide terminal rendering with approval overlays. No live provider account or physical Android device was used.
+
+## Browser and Blue Free
+
+Version 0.5 adds the approved `browser` tool and `/browser` setup commands; [BROWSER.md](BROWSER.md) documents platform paths and current limits. `/rotation` displays Blue Free retry/cooldown status. See [FREE_ROTATION.md](FREE_ROTATION.md); completed tools and partial streams are never automatically replayed.

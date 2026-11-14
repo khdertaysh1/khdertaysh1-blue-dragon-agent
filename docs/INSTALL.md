@@ -23,7 +23,7 @@ Run the same installer to update. It selects the newest compatible **published**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/main/scripts/install.sh |
-  bash -s -- --version v0.4.0-alpha.4
+  bash -s -- --version v0.5.0-alpha.1
 ```
 
 The installer detects OS/CPU, downloads a raw executable plus license notices, checks SHA256, and runs `--version` before replacing an existing binary. The final move stays on the same filesystem. A failed network request, missing release, checksum/version mismatch, unsupported CPU or non-executable storage leaves the installed binary intact. This is integrity verification using GitHub HTTPS/checksums, not an independent code-signing system.
@@ -71,4 +71,6 @@ It verifies the configured repository, refuses tracked local edits, fetches main
 
 ## Release safeguards
 
-GitHub Actions publishes only after Windows/Linux/macOS tests/builds, Android ARM64 cross-build, and installer/legacy-upgrade regressions pass. A release starts as a draft; all binaries, SHA256 checksums, source commit metadata and combined license notices are uploaded before publication. Published assets are not replaced by later main builds with the same version; bump Cargo version to publish an update. A failed draft upload can resume only for the same source commit.
+GitHub Actions publishes only after Windows/Linux/macOS tests/builds, Android ARM64 cross-build, installer/legacy-upgrade regressions, and Linux real-browser tests pass. A release starts as a draft; all binaries, unsigned developer browser-extension archives, SHA256 checksums, source commit metadata and combined license notices are uploaded before publication. Published assets are not replaced by later main builds with the same version; bump Cargo version to publish an update. A failed draft upload can resume only for the same source commit.
+
+Browser control needs an installed browser and explicit connection. The extension archives are not signed/store-approved. See [BROWSER.md](BROWSER.md) before installing a bridge, especially on Android.

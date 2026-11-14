@@ -7,12 +7,22 @@ use std::{
     time::{Duration, Instant},
 };
 pub fn http(responses: Vec<(&'static str, String)>) -> (String, thread::JoinHandle<Vec<Value>>) {
+    http_status(
+        responses
+            .into_iter()
+            .map(|(kind, body)| (200, kind, body))
+            .collect(),
+    )
+}
+pub fn http_status(
+    responses: Vec<(u16, &'static str, String)>,
+) -> (String, thread::JoinHandle<Vec<Value>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let worker = thread::spawn(move || {
         let mut requests = Vec::new();
-        for (content_type, body) in responses {
+        for (status, content_type, body) in responses {
             let end = Instant::now() + Duration::from_secs(10);
             let mut socket = loop {
                 match listener.accept() {
@@ -47,7 +57,7 @@ pub fn http(responses: Vec<(&'static str, String)>) -> (String, thread::JoinHand
             let mut data = vec![0; size];
             input.read_exact(&mut data).unwrap();
             requests.push(serde_json::from_slice(&data).unwrap_or(Value::Null));
-            write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+            write!(socket,"HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
         }
         requests
     });

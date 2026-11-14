@@ -9,6 +9,7 @@ pub struct Settings {
     pub sessions_dir: PathBuf,
     pub mcp_config: Option<PathBuf>,
     pub stream: bool,
+    pub free_rotation: bool,
     pub max_steps: usize,
 }
 
@@ -54,6 +55,7 @@ impl Settings {
             sessions_dir,
             mcp_config: None,
             stream: true,
+            free_rotation: true,
             max_steps: 24,
         })
     }
