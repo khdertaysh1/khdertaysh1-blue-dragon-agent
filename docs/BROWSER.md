@@ -4,7 +4,17 @@ Blue Dragon 0.5 adds independently written browser control through a local CDP c
 
 ## Automatic URL workflow
 
-In 0.5.0-alpha.2, run `blue-dragon 'https://example.com'` or paste only the URL in chat/TUI. On Termux this automatically installs/detects official Termux Chromium, starts a dedicated browser, and collects an initial review. It uses a real headless browser without X11, or a visible window with an existing graphical session. This path does not need ADB. See [URL_INSPECTION.md](URL_INSPECTION.md) for first-download size, sandbox/platform limits and what runs automatically. Physical Android verification remains pending.
+In 0.5.0-alpha.2, run `blue-dragon 'https://example.com'` or paste only the URL in chat/TUI. On Termux this detects official Termux Chromium, or asks for explicit approval to install the official packages on first use, starts a dedicated browser, and collects an initial review. It uses a real headless browser without X11, or a visible window with an existing graphical session. This path does not need ADB. See [URL_INSPECTION.md](URL_INSPECTION.md) for first-download size, sandbox/platform limits and what runs automatically. Physical Android verification remains pending.
+
+First-use installation has a separate approval naming `x11-repo` and `chromium`, including download/storage effects. Approving a browser navigation does not approve package installation. Declining leaves packages unchanged and does not send the requested browser action. An already installed browser or restored connection needs no installation prompt.
+
+## Connection recovery
+
+Approved `open` / `navigate` actions now prepare a dedicated browser even when the task contains instructions around the URL, not just a bare URL. Connection preference is remembered across agent sessions in `browser-connection.json`: local launch mode, explicitly attached localhost port, or extension bridge port. Status reports `reconnect_pending` separately from `ready`; it does not pretend that an old socket is live. New sessions never restore page contents, login cookies, tab IDs or action grants. Open the target again before asking for a snapshot or interaction.
+
+An unavailable saved CDP port reports how to reconnect rather than silently switching browsers. A saved extension bridge restarts with the existing pairing token; wait for the extension to reconnect before retrying the unsent action. `/browser stop` closes the connection and clears its saved preference. `/browser launch` automatically selects headless mode when no display is available, including phone-only Termux.
+
+Interrupted or timed-out actions are never automatically replayed. Reconnect and inspect the state before retrying a click, form fill or other potentially state-changing action. Physical Android verification remains pending.
 
 ## Choose a connection
 
