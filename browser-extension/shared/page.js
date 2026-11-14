@@ -25,6 +25,9 @@ function blueDragonPage(action, args) {
   if (action === 'snapshot') {
     return {untrusted_web_content: true, url: location.href, title: document.title, ready: document.readyState,
       text: clip(document.body?.innerText),
+      forms: [...document.forms].slice(0, 20).map(f => ({action: f.action, method: f.method,
+        fields: [...f.elements].slice(0, 60).map(e => ({tag: e.tagName.toLowerCase(), type: e.type || '', name: clip(e.name, 100), selector: selectorFor(e), required: !!e.required, minlength: e.minLength, maxlength: e.maxLength, pattern: clip(e.pattern, 100), autocomplete: clip(e.autocomplete, 100)}))})),
+      inline_scripts: [...document.scripts].filter(e => !e.src).slice(0, 6).map(e => clip(e.textContent, 4000)),
       elements: [...document.querySelectorAll('a,button,input,textarea,select,[role="button"]')].filter(e => e.getClientRects().length).slice(0, 100).map(e => ({
         selector: selectorFor(e), tag: e.tagName.toLowerCase(), type: e.type || '',
         label: clip(e.getAttribute('aria-label') || e.innerText || e.placeholder || e.name, 200),

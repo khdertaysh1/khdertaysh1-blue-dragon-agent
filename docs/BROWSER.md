@@ -2,6 +2,10 @@
 
 Blue Dragon 0.5 adds independently written browser control through a local CDP client or its own Firefox/Chromium extension. This drives an installed browser and executes page JavaScript; it is separate from `web_fetch`. No AlphaCode browser source or third-party bridge executable is included.
 
+## Automatic URL workflow
+
+In 0.5.0-alpha.2, run `blue-dragon 'https://example.com'` or paste only the URL in chat/TUI. On Termux this automatically installs/detects official Termux Chromium, starts a dedicated browser, and collects an initial review. It uses a real headless browser without X11, or a visible window with an existing graphical session. This path does not need ADB. See [URL_INSPECTION.md](URL_INSPECTION.md) for first-download size, sandbox/platform limits and what runs automatically. Physical Android verification remains pending.
+
 ## Choose a connection
 
 | System | Connection | Setup required |
@@ -9,11 +13,11 @@ Blue Dragon 0.5 adds independently written browser control through a local CDP c
 | Windows x64 | `/browser launch` with Chrome/Edge, or extension | Installed browser; extension pairing if used |
 | Linux x64 | `/browser launch` with Chromium/Chrome/Edge, or extension | Installed browser and working graphical session; headless is optional |
 | macOS ARM64 | `/browser launch` with Chrome/Edge, or extension | Installed browser |
-| Android / Termux ARM64 | Chrome CDP through authorized ADB forwarding | Android 11+ wireless debugging for phone-only pairing; Chrome running; no root |
+| Android / Termux ARM64 | URL command with automatic local Chromium (primary); stock Chrome via authorized ADB (optional) | Official Termux package manager for automatic Chromium; Android 11+ wireless debugging only for the optional stock Chrome path |
 | Firefox desktop | Own extension and `/browser start` | Firefox 140+; temporary developer loading or a signed extension |
 | Firefox Android | Extension protocol and `/browser start` | Firefox 142+; a signed compatible add-on for regular installation; physical verification pending |
 
-The CLI does not embed/download a browser. Safari and generic desktop control are not implemented. Desktop release builds are CI-tested on Windows/Linux/macOS, but real-browser integration runs on Linux. Android is cross-built, not physically tested. Extension archives are **unsigned developer builds**, not published or approved in browser stores. Stable Firefox's regular installation requires Mozilla signing; an unsigned XPI is not a one-click Android installation.
+The executable does not embed a browser. First-use URL inspection can install official Termux Chromium through pkg; desktop systems use an installed browser. Safari and generic desktop control are not implemented. Desktop release builds are CI-tested on Windows/Linux/macOS, but real-browser integration runs on Linux. Android is cross-built, not physically tested. Extension archives are **unsigned developer builds**, not published or approved in browser stores. Stable Firefox's regular installation requires Mozilla signing; an unsigned XPI is not a one-click Android installation.
 
 ## Desktop: easiest CDP setup
 
@@ -30,7 +34,7 @@ Inside its conversation:
 /browser status
 ```
 
-Then ask, for example: “Open http://127.0.0.1:3000, inspect the page, fill the search box, click Search, and report the observed network requests and console.” Each browser action requires approval. `/browser launch headless` is available without a visible window. Browser detection checks PATH and common Windows/macOS Chrome/Edge installation paths. Use `/browser attach PORT` for a manually started local Chromium debugger. Chrome 136+ needs a separate `--user-data-dir`; do not expose the debugger to a network interface.
+Then ask, for example: “Open http://127.0.0.1:3000, inspect the page, fill the search box, click Search, and report the observed network requests and console.” Manual browser actions require approval; the explicit URL workflow grants initial read operations for that turn. `/browser launch headless` is available without a visible window. Browser detection checks PATH and common Windows/macOS Chrome/Edge installation paths. Use `/browser attach PORT` for a manually started local Chromium debugger. Chrome 136+ needs a separate `--user-data-dir`; do not expose the debugger to a network interface.
 
 The launched browser uses a new temporary profile; it does not reuse personal cookies or tabs. Attached CDP sessions create a dedicated new tab and close only that tab on stop. When Blue Dragon launched the browser itself, stop also closes that browser process.
 
@@ -101,7 +105,7 @@ Addresses and ports come from Android, not literal fixed values. Pairing and con
 
 Snapshots include bounded visible text and selectors. Click/fill require one visible enabled control; iframe and closed-shadow-root automation is not provided. HTTP(S) URLs are accepted; credentials in URLs and privileged schemes are refused. Read-only mode denies browser interaction.
 
-Network output is bounded request metadata, not a Burp interception proxy: cookies, authorization headers and request bodies are not captured by default. CDP `source` takes a previously observed response `request_id` and returns its bounded body; binary bodies can be base64. Extension `source` takes an observed `url` and fetches a **new unauthenticated copy**, not the original response. Extension console collection starts after first page interaction, whereas CDP subscribes before navigation. Screenshot JPEGs are saved locally; model vision upload is not implemented. Extension screenshots require the managed tab to be active.
+Network output is bounded request metadata, not a Burp interception proxy: cookies, authorization headers and request bodies are not captured. CDP includes only selected security headers (CSP, HSTS, framing, MIME/referrer/permissions policies). CDP `source` takes a previously observed response `request_id` and returns its bounded body; binary bodies can be base64. Extension `source` takes an observed `url` and fetches a **new unauthenticated copy**, not the original response. Extension console collection starts after first page interaction, whereas CDP subscribes before navigation. Screenshot JPEGs are saved locally; model vision upload is not implemented. Extension screenshots require the managed tab to be active.
 
 Page content, console and errors are untrusted. Approving a browser action may send extracted website data to the configured model in the next request. The bridge listens only on 127.0.0.1, requires an extension Origin, a 256-bit token, protocol/capability negotiation and bounded messages. Reconnection never replays an action; a lost/expired reply has an unknown outcome, which must be inspected before retrying.
 

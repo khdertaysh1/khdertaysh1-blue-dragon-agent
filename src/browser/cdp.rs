@@ -15,6 +15,7 @@ pub struct Cdp {
     id: u64,
     network: VecDeque<Value>,
     console: VecDeque<Value>,
+    loaded_documents: VecDeque<String>,
     target: String,
     port: u16,
     alive: bool,
@@ -75,6 +76,7 @@ impl Cdp {
             id: 0,
             network: VecDeque::new(),
             console: VecDeque::new(),
+            loaded_documents: VecDeque::new(),
             target: info["id"].as_str().context("CDP target missing")?.into(),
             port,
             alive: true,
@@ -84,6 +86,7 @@ impl Cdp {
         for method in ["Page.enable", "Runtime.enable", "Network.enable"] {
             cdp.call(method, json!({}))?;
         }
+        cdp.call("Page.setLifecycleEventsEnabled", json!({"enabled":true}))?;
         Ok(cdp)
     }
     pub fn launch(headless: bool, executable: Option<PathBuf>) -> Result<Self> {
@@ -107,6 +110,14 @@ impl Cdp {
         if headless {
             command.arg("--headless=new");
         }
+        // Official Termux Chromium cannot use the desktop setuid/seccomp sandbox.
+        // This applies only to our dedicated Termux child, never a desktop browser.
+        if super::setup::termux() {
+            command.args(["--no-sandbox", "--disable-dev-shm-usage"]);
+            if headless {
+                command.arg("--disable-gpu");
+            }
+        }
         let mut child = command.spawn()?;
         let started = Instant::now();
         let port = loop {
@@ -117,7 +128,7 @@ impl Cdp {
                 }
             }
             if child.try_wait()?.is_some() {
-                anyhow::bail!("Browser exited before debugger startup. No sandbox-disabling flags were added.");
+                anyhow::bail!("Browser exited before debugger startup. Check installed browser compatibility and browser-install.log.");
             }
             if started.elapsed() > Duration::from_secs(20) {
                 child.kill().ok();
@@ -140,16 +151,26 @@ impl Cdp {
         }
     }
     pub fn status(&self) -> Value {
-        json!({"backend":"cdp","ready":self.alive,"port":self.port,"dedicated_tab":self.target,"launched_by_blue_dragon":self.child.is_some()})
+        json!({"backend":"cdp","ready":self.alive,"port":self.port,"dedicated_tab":self.target,"launched_by_blue_dragon":self.child.is_some(),"termux_chromium_sandbox_unavailable":self.child.is_some() && super::setup::termux()})
     }
     fn record(&mut self, value: &Value) {
         let p = &value["params"];
+        if value["method"] == "Page.lifecycleEvent"
+            && matches!(p["name"].as_str(), Some("DOMContentLoaded" | "load"))
+        {
+            if let Some(loader) = p["loaderId"].as_str() {
+                self.loaded_documents.push_back(loader.to_owned());
+                if self.loaded_documents.len() > 16 {
+                    self.loaded_documents.pop_front();
+                }
+            }
+        }
         let event = match value["method"].as_str() {
             Some("Network.requestWillBeSent") => Some(
                 json!({"event":"request","request_id":p["requestId"],"url":p["request"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"method":p["request"]["method"],"type":p["type"]}),
             ),
             Some("Network.responseReceived") => Some(
-                json!({"event":"response","request_id":p["requestId"],"url":p["response"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"status":p["response"]["status"],"mime_type":p["response"]["mimeType"]}),
+                json!({"event":"response","request_id":p["requestId"],"url":p["response"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"status":p["response"]["status"],"mime_type":p["response"]["mimeType"],"security_headers":super::inspection::security_headers(&p["response"]["headers"])}),
             ),
             _ => None,
         };
@@ -239,11 +260,20 @@ impl Cdp {
         match action {
             "open"|"navigate" => {
                 super::validate_url(args["url"].as_str().context("Missing URL")?)?;
+                if args["fresh_document"] == true {
+                    self.call("Page.navigate",json!({"url":"about:blank"}))?;
+                }
                 let result=self.call("Page.navigate",json!({"url":args["url"]}))?;
                 if result.get("errorText").is_some() { anyhow::bail!("Browser navigation failed"); }
-                Ok(json!({"navigating":true,"note":"Use snapshot to inspect the loaded page"}))
+                let loader = result["loaderId"].as_str().map(str::to_owned);
+                let until = Instant::now() + Duration::from_secs(15);
+                while loader.as_ref().is_some_and(|id| !self.loaded_documents.contains(id)) && Instant::now() < until {
+                    self.call("Runtime.evaluate", json!({"expression":"document.readyState","returnByValue":true}))?;
+                    std::thread::sleep(Duration::from_millis(30));
+                }
+                Ok(json!({"navigated":true,"dom_content_loaded":loader.as_ref().is_none_or(|id|self.loaded_documents.contains(id)),"note":"Snapshot reflects the current document; dynamic applications may continue loading."}))
             }
-            "network" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(json!({"entries":self.network,"headers_and_cookies":"not captured"})) }
+            "network" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(json!({"entries":self.network,"headers_and_cookies":"Only selected security headers; cookies and authorization are not captured"})) }
             "console" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(json!({"entries":self.console})) }
             "source" => {
                 let id=args["request_id"].as_str().context("CDP source needs a request_id from network output")?;
@@ -293,7 +323,11 @@ impl Drop for Cdp {
         }
     }
 }
-fn find_browser() -> Option<PathBuf> {
+pub(super) fn find_browser() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("BLUE_DRAGON_BROWSER_BIN") {
+        let path = PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
     for name in [
         "chromium",
         "chromium-browser",

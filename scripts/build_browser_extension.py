@@ -14,7 +14,7 @@ for kind in ['firefox','chromium']:
     for p in shared.iterdir():
         shutil.copyfile(p,folder/p.name)
     manifest={
-        'manifest_version':3,'name':'Blue Dragon Browser Bridge','version':'0.5.0',
+        'manifest_version':3,'name':'Blue Dragon Browser Bridge','version':'0.5.1',
         'description':'Pair a local Blue Dragon agent with a dedicated browser tab.',
         'permissions':['storage','tabs','scripting','webRequest'],
         'host_permissions':['<all_urls>'],

@@ -17,7 +17,7 @@ async function until(fn,timeout=20000){const end=Date.now()+timeout;while(Date.n
 let apiHits=0;
 const server=http.createServer((req,res)=>{
  if(req.url==='/api'){apiHits++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({message:'Hello Browser42'}));}
- else if(req.url==='/app.js'){res.setHeader('Content-Type','application/javascript');res.end(`console.log('BB_BROWSER_TEST');document.querySelector('#send').onclick=async()=>{const r=await fetch('/api');document.querySelector('#out').textContent=(await r.json()).message;};`);}
+ else if(req.url==='/app.js'){res.setHeader('Content-Type','application/javascript');res.end(`console.log('BB_BROWSER_TEST');window.__freshLoad=location.hash;document.querySelector('#send').onclick=async()=>{const r=await fetch('/api');document.querySelector('#out').textContent=(await r.json()).message;};`);}
  else if(req.url==='/unmanaged'){res.end('<h1>UNMANAGED_SECRET</h1>');}
  else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Blue Dragon fixture</title><h1>BB fixture ready</h1><input id="name"><button id="send">Send</button><div id="out"></div><script src="/app.js"></script>');}
 });
@@ -91,6 +91,8 @@ try{
  await action({action:'evaluate',expression:'console.warn("BRIDGE_LATE"); 42'});
  assert((await action({action:'console'})).entries.some(e=>(e.text||'').includes('BRIDGE_LATE')));
  const shot=await action({action:'screenshot'});assert(fs.statSync(shot.path).size>100);assert.equal(fs.readFileSync(shot.path)[0],0xff);
+ await action({action:'navigate',url:site+'#fresh-document-test',fresh_document:true});
+ assert.equal(await action({action:'evaluate',expression:'window.__freshLoad'}),'#fresh-document-test');
  const rotation=(await send('/rotation')).data;assert.equal(rotation.mode,'Blue Free automatic');
  agent.stdin.write('/exit\n');await new Promise(resolve=>agent.once('exit',resolve));
  console.log(`${firefoxMode?'FIREFOX EXTENSION':extensionMode?'CHROMIUM EXTENSION':'CDP'} real browser: open/DOM/fill/click/JS/network/source/console/screenshot, managed-tab isolation and approved CLI roundtrips passed`);

@@ -41,6 +41,11 @@ impl ToolBox {
         }
     }
 
+    pub fn allows_url_inspection(&self) -> bool {
+        !matches!(self.approval, ApprovalMode::ReadOnly)
+            && !self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     fn denied_name(name: &OsStr) -> bool {
         let n = name.to_string_lossy().to_ascii_lowercase();
         n == ".git"

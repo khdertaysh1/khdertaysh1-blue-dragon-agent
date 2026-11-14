@@ -23,16 +23,32 @@ async function readyTab(id) {
   for(let i=0;i<150;i++) {const tab=await api.tabs.get(id);if(tab.status==='complete')return tab;await new Promise(r=>setTimeout(r,100));}
   throw Error('Navigation deadline reached; inspect before retry');
 }
+async function navigateTo(id,url) {
+  let finish,fail;
+  const done=new Promise((resolve,reject)=>{finish=resolve;fail=reject;});
+  done.catch(()=>{});
+  const listener=(tabId,change,tab)=>{
+    if(tabId!==id || change.status!=='complete')return;
+    if(url==='about:blank' ? tab.url==='about:blank' : /^https?:/.test(tab.url||''))finish(tab);
+  };
+  api.tabs.onUpdated.addListener(listener);
+  const timer=setTimeout(()=>fail(Error('Navigation deadline reached; inspect before retry')),15000);
+  try {
+    const tab=await api.tabs.update(id,{url});
+    if(tab.status==='complete' && tab.url===url)finish(tab);
+    return await done;
+  } finally {clearTimeout(timer);api.tabs.onUpdated.removeListener(listener);}
+}
 async function execute(action,args) {
   if(action==='open') {
     const url=httpURL(args.url);
     if(currentTab===null || !managed.has(currentTab)) {const tab=await api.tabs.create({url:'about:blank',active:true});currentTab=tab.id;managed.add(tab.id);}
-    await api.tabs.update(currentTab,{url});await readyTab(currentTab);return {opened:true};
+    await navigateTo(currentTab,url);return {opened:true};
   }
   if(currentTab===null || !managed.has(currentTab))throw Error('No managed tab. Use open first.');
   const tab=await api.tabs.get(currentTab);
   httpURL(tab.url);
-  if(action==='navigate') {await api.tabs.update(currentTab,{url:httpURL(args.url)});await readyTab(currentTab);return {navigated:true};}
+  if(action==='navigate') {const destination=httpURL(args.url);if(args.fresh_document===true)await navigateTo(currentTab,'about:blank');await navigateTo(currentTab,destination);return {navigated:true};}
   if(action==='close') {await api.tabs.remove(currentTab);managed.delete(currentTab);currentTab=null;return {closed:true};}
   if(action==='network')return {entries:traffic.filter(e=>e.tab===currentTab),headers_and_cookies:'not captured',response_bodies:'not captured by extension'};
   if(action==='screenshot') {

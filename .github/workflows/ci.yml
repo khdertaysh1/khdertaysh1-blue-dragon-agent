@@ -145,6 +145,7 @@ jobs:
           node scripts/smoke_browser.mjs
           node scripts/smoke_browser.mjs --extension
           node scripts/smoke_browser.mjs --firefox
+          node scripts/smoke_url_inspection.mjs
       - name: Package unsigned developer extensions
         run: |
           mkdir -p release-payload

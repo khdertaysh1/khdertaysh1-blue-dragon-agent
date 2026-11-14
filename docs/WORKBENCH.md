@@ -63,3 +63,5 @@ Validation includes both SSE protocols, fragmented tool arguments/Unicode, trunc
 ## Browser and Blue Free
 
 Version 0.5 adds the approved `browser` tool and `/browser` setup commands; [BROWSER.md](BROWSER.md) documents platform paths and current limits. `/rotation` displays Blue Free retry/cooldown status. See [FREE_ROTATION.md](FREE_ROTATION.md); completed tools and partial streams are never automatically replayed.
+
+Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or TUI. `blue-dragon inspect URL` and `blue-dragon URL` are equivalent entry points. Browser preparation, form/DOM/JS/network/console collection precede the model call; further mutation approvals are unchanged. See URL_INSPECTION.md.

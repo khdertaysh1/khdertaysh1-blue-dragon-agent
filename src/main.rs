@@ -75,6 +75,10 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Open and review a URL automatically (first-use Termux browser setup included)
+    Inspect { url: String },
+    #[command(external_subcommand)]
+    Url(Vec<String>),
     /// Run the authenticated localhost extension bridge until Ctrl+C
     BrowserBridge {
         #[arg(long, default_value_t = 9269)]
@@ -115,6 +119,14 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Cli::parse();
+    if let Some(Command::Inspect { url }) = &args.command {
+        browser::validate_url(url)?;
+    }
+    if let Some(Command::Url(words)) = &args.command {
+        if words.len() != 1 || browser::inspection::bare_url(&words[0]).is_none() {
+            anyhow::bail!("Unknown command. Use blue-dragon inspect https://example.com or paste a URL in chat/TUI.");
+        }
+    }
     let home = config::app_home()?;
     match &args.command {
         Some(Command::BrowserBridge { port }) => {
@@ -264,6 +276,8 @@ fn run() -> Result<()> {
             );
             match cmd {
                 Some(Command::Run { task }) => agent.turn(&task),
+                Some(Command::Inspect { url }) => agent.turn(&url),
+                Some(Command::Url(words)) => agent.turn(&words[0]),
                 None | Some(Command::Chat) => {
                     println!("Type /help for commands, /exit to quit.");
                     loop {
@@ -415,6 +429,18 @@ fn print_banner() {
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+    #[test]
+    fn accepts_inspect_and_bare_url_commands() {
+        assert!(matches!(
+            Cli::try_parse_from(["blue-dragon", "inspect", "https://example.com"])
+                .unwrap()
+                .command,
+            Some(Command::Inspect { .. })
+        ));
+        assert!(
+            matches!(Cli::try_parse_from(["blue-dragon", "https://example.com"]).unwrap().command, Some(Command::Url(v)) if v == ["https://example.com"])
+        );
+    }
     #[test]
     fn model_selection_positionals_do_not_shadow_global_options() {
         let args = Cli::try_parse_from(["blue-dragon", "model", "free"]).unwrap();
