@@ -1,4 +1,4 @@
-# Blue Dragon workbench — 0.5 alpha
+# Blue Dragon workbench — 0.6 alpha
 
 This revision integrates the formerly experimental terminal into the current core while preserving the visual assets. It is a practical capability upgrade, not AlphaCode parity.
 
@@ -19,7 +19,7 @@ The model can use update_plan to maintain at most 20 steps and one in-progress i
 
 Each task records an action summary in the session: tool names, return success/failure, steps and completion/cancellation. /report shows it. Tool result success means the tool returned successfully; it does not certify a vulnerability or prove the project correct. Results still need inspection and relevant tests.
 
-Tool-call batches are validated before entering the saved history. Denied/cancelled tools receive paired tool results. If a process ended before saving a result, resume inserts an explicitly unknown-status envelope; it never reruns the action or invents success. The user/model must inspect the workspace before proposing a retry. A 1 MB transcript budget stops growth rather than silently deleting context. This revision does not implement intelligent context compaction.
+Tool-call batches are validated before entering the saved history. Denied/cancelled tools receive paired tool results. If a process ended before saving a result, resume inserts an explicitly unknown-status envelope; it never reruns the action or invents success. The user/model must inspect the workspace before proposing a retry. Version 0.6 projects provider requests to a bounded context window without deleting the raw transcript. Older complete tool rounds and large observations can be excerpted, with exact recovery through recall_context. User/system instructions are retained; an explicit stop remains when essential context cannot fit. See AGENT_REASONING.md.
 
 ## MCP (stdio, explicit opt-in)
 Copy examples/mcp.example.json to a private file and configure a trusted local process. The file is loaded only through --mcp-config or BLUE_DRAGON_MCP_CONFIG. Repository files are not auto-executed.
@@ -65,3 +65,5 @@ Validation includes both SSE protocols, fragmented tool arguments/Unicode, trunc
 Version 0.5 adds the approved `browser` tool and `/browser` setup commands; [BROWSER.md](BROWSER.md) documents platform paths and current limits. `/rotation` displays Blue Free retry/cooldown status. See [FREE_ROTATION.md](FREE_ROTATION.md); completed tools and partial streams are never automatically replayed.
 
 Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or TUI. `blue-dragon inspect URL` and `blue-dragon URL` are equivalent entry points. Browser preparation, form/DOM/JS/network/console collection precede the model call; further mutation approvals are unchanged. See URL_INSPECTION.md.
+
+`/context` displays request-budget statistics; `/findings` displays observation references and saved model findings. `--context-tokens N` configures the context window including reply/schema reserves. The runtime blocks repeated denied/uncertain actions and detects repeated unchanged observations; this is not a guarantee of semantic correctness or unlimited memory.

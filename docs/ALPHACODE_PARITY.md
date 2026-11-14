@@ -2,7 +2,7 @@
 
 Blue Dragon is independently written. This is an implementation audit, not a claim of feature parity.
 
-| Capability | Status in v0.5 alpha |
+| Capability | Status in v0.6 alpha |
 |---|---|
 | Rust CLI and cross-platform CI | Implemented |
 | OpenAI-compatible tool calling | Implemented |
@@ -12,7 +12,8 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Git diff and Git status | Implemented |
 | Explicit approval for writes and commands | Implemented |
 | Local user skills | Markdown files; user must activate them |
-| Persistent sessions and resume | Implemented |
+| Persistent sessions and resume | Implemented, with evidence/finding persistence and default migration |
+| Context and task control | Budgeted non-destructive request projection, exact recall, adaptive task guidance, stalled-loop handling and bounded empty/context recovery; no semantic memory graph |
 | Full-screen TUI / streaming UI | Implemented; OpenAI-compatible and Anthropic SSE, local fixture-tested |
 | Chromium/Firefox browser automation | URL-only automatic preparation/initial inspection, official Termux Chromium setup, own CDP client and authenticated extension bridge; managed tab DOM/click/fill/JS/network/console/source/screenshots. Linux real-browser tests; Android physical validation and Firefox signing pending |
 | Desktop control | Not implemented |
@@ -26,3 +27,5 @@ Next milestones: wider MCP and device verification, AST-oriented indexing, isola
 Acceptance gate: complete CI on Windows/Linux/macOS, functional model tests with opted-in credentials, repeated benchmark tasks on identical model settings, no unverified success claims.
 
 Task plans, action summaries, cancellation, directory creation and approved bounded web fetch are implemented. No model-quality parity percentage is claimed. See WORKBENCH.md and third_party/NOTICE.md for limits and attribution.
+
+See [the control/context comparison audit](AGENT_REASONING.md) for the inspected AlphaCode commit, independent implementation, evidence checks and remaining gaps.

@@ -10,6 +10,7 @@ pub struct ProviderFailure {
     pub status: u16,
     pub model_specific: bool,
     pub retry_after: u64,
+    pub context_exceeded: bool,
 }
 impl std::fmt::Display for ProviderFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -17,7 +18,9 @@ impl std::fmt::Display for ProviderFailure {
             f,
             "Provider HTTP {} ({}); retry-after {} seconds",
             self.status,
-            if self.model_specific {
+            if self.context_exceeded {
+                "context window exceeded; no model rotation"
+            } else if self.model_specific {
                 "model-specific"
             } else {
                 "shared or unknown scope; no rotation"
@@ -69,6 +72,11 @@ impl ProviderFailure {
             status,
             model_specific,
             retry_after,
+            context_exceeded: matches!(status, 400 | 413 | 422)
+                && matches!(
+                    code,
+                    "context_length_exceeded" | "context_window_exceeded" | "input_too_long"
+                ),
         }
     }
 }
