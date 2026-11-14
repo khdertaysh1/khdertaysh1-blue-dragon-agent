@@ -69,11 +69,24 @@ try{
    await wd('/execute/sync',{script:`document.querySelector('#token').value=arguments[0].token;document.querySelector('#port').value=arguments[0].port;document.querySelector('#pair').requestSubmit();return true;`,args:[config]});
   }else{
   const worker=await until(async()=>{const list=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json();return list.find(t=>t.type==='service_worker'&&t.url.endsWith('/worker.js'));});
-  inspector=new WebSocket(worker.webSocketDebuggerUrl);
+  const optionsURL=new URL('options.html',worker.url).href;
+  const optionsTab=await(await fetch(`http://127.0.0.1:${port}/json/new?${optionsURL}`,{method:'PUT'})).json();
+  inspector=new WebSocket(optionsTab.webSocketDebuggerUrl);
   await new Promise((resolve,reject)=>{inspector.addEventListener('open',resolve,{once:true});inspector.addEventListener('error',reject,{once:true});});
-  const token=paired.pairing_token,bridgePort=Number(new URL(paired.url).port);
-  const reply=new Promise((resolve,reject)=>{inspector.addEventListener('message',event=>{const d=JSON.parse(event.data);if(d.id===1){if(d.error||d.result?.exceptionDetails)reject(Error(JSON.stringify(d)));else resolve(d);}});});
-  inspector.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:`chrome.storage.local.set(${JSON.stringify({token,port:bridgePort})})`,awaitPromise:true,returnByValue:true}}));await reply;
+  let sequence=0;
+  async function evaluateOptions(expression){
+   const id=++sequence;
+   const reply=new Promise((resolve,reject)=>{
+    const listener=event=>{const data=JSON.parse(event.data);if(data.id!==id)return;inspector.removeEventListener('message',listener);if(data.error||data.result?.exceptionDetails)reject(Error(JSON.stringify(data)));else resolve(data.result.result.value);};
+    inspector.addEventListener('message',listener);
+   });
+   inspector.send(JSON.stringify({id,method:'Runtime.evaluate',params:{expression,awaitPromise:true,returnByValue:true}}));
+   return await reply;
+  }
+  await until(()=>evaluateOptions("document.readyState==='complete' && !!document.querySelector('#pair')"));
+  const config={token:paired.pairing_token,port:Number(new URL(paired.url).port)};
+  await evaluateOptions(`(()=>{const c=${JSON.stringify(config)};document.querySelector('#token').value=c.token;document.querySelector('#port').value=c.port;document.querySelector('#pair').requestSubmit();return true;})()`);
+
   }
   await until(async()=>{await sleep(100);return(await send('/browser status')).data?.ready;});
  }else{assert.equal((await send(`/browser attach ${port}`)).data.ready,true);}

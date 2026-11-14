@@ -268,7 +268,14 @@ impl Browser {
                     .push(json!({"url":script_url,"skipped":"body unavailable or exceeds limit"})),
             }
         }
-        let dom_checks = self.dom_probes(tools, &page, &javascript)?;
+        let original_origin = reqwest::Url::parse(url)?.origin();
+        let dom_checks = if reqwest::Url::parse(page["url"].as_str().unwrap_or(""))
+            .is_ok_and(|u| u.origin() == original_origin)
+        {
+            self.dom_probes(tools, &page, &javascript)?
+        } else {
+            json!({"attempts":[],"skipped":"Page redirected outside the explicit URL origin; no active canaries sent. Request inspection of that origin explicitly if authorized."})
+        };
         let evidence = json!({"untrusted_web_content":true,"requested_url":url,"browser":self.status(),"page":page,"landing_page":related_pages.first(),"network":network,"console":console,"javascript_review":javascript,"dom_checks":dom_checks,"limits":"Initial page plus at most one same-origin registration/login link. Static indicators alone are not vulnerabilities. DOM checks use at most two fixed benign window-property canaries when relevant source indicators are present. No account creation, form submission or privileged page access. Other interactions retain per-action approval."});
         if evidence.to_string().len() > 256_000 {
             anyhow::bail!(
