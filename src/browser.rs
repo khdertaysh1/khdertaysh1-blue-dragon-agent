@@ -5,6 +5,7 @@ pub mod inspection;
 mod setup;
 use crate::tools::ToolBox;
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -22,11 +23,29 @@ pub const CAPABILITIES: &[&str] = &[
     "close",
 ];
 pub const PAGE_CODE: &str = include_str!("../browser-extension/shared/page.js");
+/// Only connection preferences are persisted, never cookies, tabs or grants.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
+enum ConnectionPreference {
+    Launch { headless: bool },
+    Attach { port: u16 },
+    Extension { port: u16 },
+}
+impl ConnectionPreference {
+    fn valid(&self) -> bool {
+        match self {
+            Self::Attach { port } | Self::Extension { port } => *port != 0,
+            Self::Launch { .. } => true,
+        }
+    }
+}
+
 pub struct Browser {
     home: PathBuf,
     bridge: Option<bridge::Bridge>,
     cdp: Option<cdp::Cdp>,
     inspection_grant: bool,
+    preference: Option<ConnectionPreference>,
 }
 impl Browser {
     pub fn new(home: &Path) -> Self {
@@ -35,13 +54,73 @@ impl Browser {
             bridge: None,
             cdp: None,
             inspection_grant: false,
+            preference: Self::load_preference(home),
         }
+    }
+    fn load_preference(home: &Path) -> Option<ConnectionPreference> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(home.join("browser-connection.json"))
+            .ok()?
+            .take(1025)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        if bytes.len() > 1024 {
+            return None;
+        }
+        serde_json::from_slice::<ConnectionPreference>(&bytes)
+            .ok()
+            .filter(ConnectionPreference::valid)
     }
     pub fn status(&self) -> Value {
         if let Some(cdp) = &self.cdp {
             return cdp.status();
         }
-        self.bridge.as_ref().map(|b| b.status()).unwrap_or(json!({"ready":false,"backend":"none","setup":"Use /browser start for Firefox extension, /browser launch for desktop Chromium, or /browser attach PORT for Android/forwarded Chrome."}))
+        self.bridge.as_ref().map(|b| b.status()).unwrap_or(json!({"ready":false,"backend":"none","saved_connection":self.preference,"reconnect_pending":self.preference.is_some(),"setup":"An approved open/navigate prepares a dedicated browser automatically. Saved connection settings are reused; no previous page or login is restored. Use /browser start, launch or attach PORT to choose another backend."}))
+    }
+    fn remember(&mut self, preference: ConnectionPreference) -> Result<()> {
+        std::fs::create_dir_all(&self.home)?;
+        let mut file = tempfile::NamedTempFile::new_in(&self.home)?;
+        use std::io::Write;
+        file.write_all(&serde_json::to_vec(&preference)?)?;
+        file.persist(self.home.join("browser-connection.json"))?;
+        self.preference = Some(preference);
+        Ok(())
+    }
+    /// Only run after action approval. Never replay a failed browser action.
+    fn prepare(&mut self, tools: &ToolBox) -> Result<()> {
+        if self.status()["ready"] == true {
+            return Ok(());
+        }
+        if let Some(bridge) = &self.bridge {
+            if bridge.status()["ready"] != true {
+                anyhow::bail!("Browser extension is not connected. Open the paired extension and retry when /browser status shows ready; the action was not sent.");
+            }
+        }
+        match self.preference.clone() {
+            Some(ConnectionPreference::Attach { port }) => {
+                self.cdp = Some(cdp::Cdp::attach(port).with_context(|| format!("Saved CDP port {port} is unavailable. Restore the local debugger or use /browser launch. The requested action was not sent."))?);
+            }
+            Some(ConnectionPreference::Extension { port }) => {
+                self.bridge = Some(bridge::Bridge::start(&self.home, port)?);
+                self.cdp = None;
+                anyhow::bail!("Saved extension bridge restarted. Wait for the paired extension to reconnect, then retry; the requested action was not sent.");
+            }
+            preference => {
+                if cdp::find_browser().is_none() {
+                    setup::install(&self.home, tools)?;
+                }
+                let headless = match preference {
+                    Some(ConnectionPreference::Launch { headless }) => {
+                        headless || setup::headless()
+                    }
+                    _ => setup::headless(),
+                };
+                self.cdp = Some(cdp::Cdp::launch(headless, None)?);
+                self.remember(ConnectionPreference::Launch { headless })?;
+            }
+        }
+        Ok(())
     }
     /// Manual user commands only; pairing secret never enters tool definitions/results.
     pub fn command(&mut self, command: &str) -> Result<Value> {
@@ -51,7 +130,14 @@ impl Browser {
             ["stop"] => {
                 self.cdp = None;
                 self.bridge = None;
-                Ok(json!({"stopped":true}))
+                self.inspection_grant = false;
+                match std::fs::remove_file(self.home.join("browser-connection.json")) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
+                self.preference = None;
+                Ok(json!({"stopped":true,"saved_connection_cleared":true}))
             }
             ["start"] | ["start", _] => {
                 let port = parts.get(1).map(|p| p.parse()).transpose()?.unwrap_or(9269);
@@ -59,6 +145,10 @@ impl Browser {
                     self.bridge = Some(bridge::Bridge::start(&self.home, port)?);
                 }
                 self.cdp = None;
+                let port = self.bridge.as_ref().unwrap().status()["port"]
+                    .as_u64()
+                    .unwrap() as u16;
+                self.remember(ConnectionPreference::Extension { port })?;
                 Ok(self.bridge.as_ref().unwrap().pairing())
             }
             ["pair"] => self
@@ -67,15 +157,23 @@ impl Browser {
                 .map(|b| b.pairing())
                 .context("Start the bridge first: /browser start"),
             ["attach", port] => {
-                self.cdp = Some(cdp::Cdp::attach(port.parse()?)?);
+                let port = port.parse()?;
+                self.cdp = Some(cdp::Cdp::attach(port)?);
+                self.bridge = None;
+                self.remember(ConnectionPreference::Attach { port })?;
                 Ok(self.status())
             }
             ["launch"] => {
-                self.cdp = Some(cdp::Cdp::launch(false, None)?);
+                let headless = setup::headless();
+                self.cdp = Some(cdp::Cdp::launch(headless, None)?);
+                self.bridge = None;
+                self.remember(ConnectionPreference::Launch { headless })?;
                 Ok(self.status())
             }
             ["launch", "headless"] => {
                 self.cdp = Some(cdp::Cdp::launch(true, None)?);
+                self.bridge = None;
+                self.remember(ConnectionPreference::Launch { headless: true })?;
                 Ok(self.status())
             }
             _ => anyhow::bail!(
@@ -161,12 +259,7 @@ impl Browser {
                 "URL inspection requires browser access; read-only/cancelled mode denies it"
             );
         }
-        if self.status()["ready"] != true {
-            if cdp::find_browser().is_none() {
-                setup::install(&self.home, tools)?;
-            }
-            self.cdp = Some(cdp::Cdp::launch(setup::headless(), None)?);
-        }
+        self.prepare(tools)?;
         self.inspection_grant = true;
         self.raw("open", &json!({"url":url}))?;
         let first_page = self.raw("snapshot", &json!({}))?;
@@ -285,6 +378,15 @@ impl Browser {
         Ok(evidence)
     }
 
+    fn preparation_failure(error: anyhow::Error) -> Result<Value> {
+        if error.is::<setup::InstallationDenied>() {
+            return Ok(
+                json!({"ok":false,"denied":true,"execution_status":"not_executed","error":error.to_string()}),
+            );
+        }
+        Err(error)
+    }
+
     pub fn invoke(&mut self, tools: &ToolBox, args: &Value) -> Result<Value> {
         let action = args["action"].as_str().context("Missing browser action")?;
         if action == "status" {
@@ -329,6 +431,11 @@ impl Browser {
             )?
         {
             return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
+        }
+        if self.status()["ready"] != true && matches!(action, "open" | "navigate") {
+            if let Err(error) = self.prepare(tools) {
+                return Self::preparation_failure(error);
+            }
         }
         let mut value = if let Some(cdp) = &mut self.cdp {
             cdp.action(action, args)?
@@ -384,6 +491,68 @@ pub fn definition() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn declined_install_is_structured_and_blocks_repeated_action() {
+        let result = Browser::preparation_failure(setup::InstallationDenied.into()).unwrap();
+        assert_eq!(result["denied"], true);
+        assert_eq!(result["execution_status"], "not_executed");
+        let args = json!({"action":"open","url":"https://example.com"});
+        let mut guard = crate::reasoning::loops::Guard::default();
+        guard.after("browser", &args, &result);
+        assert!(guard.before("browser", &args).is_some());
+        assert!(Browser::preparation_failure(anyhow::anyhow!("unrelated failure")).is_err());
+    }
+
+    #[test]
+    fn remembers_connection_without_claiming_ready_or_restoring_grant() {
+        let root = tempfile::tempdir().unwrap();
+        let mut browser = Browser::new(root.path());
+        browser
+            .remember(ConnectionPreference::Attach { port: 9222 })
+            .unwrap();
+        let mut restored = Browser::new(root.path());
+        assert_eq!(
+            restored.preference,
+            Some(ConnectionPreference::Attach { port: 9222 })
+        );
+        assert_eq!(restored.status()["ready"], false);
+        assert_eq!(restored.status()["reconnect_pending"], true);
+        assert!(!restored.inspection_grant);
+        restored.command("stop").unwrap();
+        assert!(Browser::new(root.path()).preference.is_none());
+    }
+    #[test]
+    fn ignores_invalid_connection_settings() {
+        let root = tempfile::tempdir().unwrap();
+        for value in [
+            r#"{"backend":"attach","port":0}"#,
+            r#"{"backend":"attach","port":9222,"host":"evil.example"}"#,
+            "not json",
+        ] {
+            std::fs::write(root.path().join("browser-connection.json"), value).unwrap();
+            assert!(Browser::new(root.path()).preference.is_none());
+        }
+    }
+    #[test]
+    fn readonly_does_not_restore_or_launch_browser() {
+        let root = tempfile::tempdir().unwrap();
+        let mut browser = Browser::new(root.path());
+        browser
+            .remember(ConnectionPreference::Attach { port: 9222 })
+            .unwrap();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::ReadOnly);
+        assert_eq!(
+            browser
+                .invoke(
+                    &tools,
+                    &json!({"action":"open","url":"https://example.com"})
+                )
+                .unwrap()["execution_status"],
+            "not_executed"
+        );
+        assert!(browser.cdp.is_none());
+        assert!(browser.bridge.is_none());
+    }
     #[test]
     fn refuses_privileged_urls_and_readonly_actions() {
         for url in [
