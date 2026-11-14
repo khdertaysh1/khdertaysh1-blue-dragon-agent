@@ -14,7 +14,8 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
+    text::Line,
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
 };
 use std::{
@@ -31,6 +32,8 @@ use crate::{
 };
 
 const BLUE: Color = Color::Rgb(25, 170, 232);
+const SURFACE: Color = Color::Rgb(9, 20, 34);
+const GREEN: Color = Color::Rgb(111, 218, 178);
 const MUTED: Color = Color::Rgb(139, 170, 191);
 const MAX_INPUT_CHARS: usize = 4096;
 const MAX_LOG_LINES: usize = 600;
@@ -536,26 +539,80 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
     Ok(())
 }
 
+fn panel(title: &str) -> Block<'_> {
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Rgb(43, 72, 96)))
+}
+
+fn transcript_style(line: &str) -> Style {
+    let color = if line.starts_with("You:") {
+        BLUE
+    } else if line.starts_with("Dragon:") {
+        GREEN
+    } else if line.starts_with("Error:") || line.starts_with("Partial:") {
+        Color::Yellow
+    } else if line.starts_with("Tool:") || line.starts_with("System:") {
+        MUTED
+    } else {
+        Color::White
+    };
+    Style::default().fg(color)
+}
+
+fn transcript_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+    text.lines()
+        .flat_map(|line| {
+            let style = transcript_style(line);
+            let wrapped = if line.is_empty() {
+                vec![String::new()]
+            } else {
+                wrap_text(line, width)
+            };
+            wrapped
+                .into_iter()
+                .map(move |part| Line::styled(part, style))
+        })
+        .collect()
+}
+
 fn draw(frame: &mut Frame<'_>, app: &Screen) {
+    let compact = frame.area().width < 70 || frame.area().height < 22;
+    frame.render_widget(
+        Block::default().style(Style::default().bg(SURFACE)),
+        frame.area(),
+    );
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
-            Constraint::Min(5),
-            Constraint::Length(3),
+            Constraint::Length(if compact { 1 } else { 3 }),
+            Constraint::Min(1),
+            Constraint::Length(if compact { 2 } else { 4 }),
             Constraint::Length(3),
         ])
         .split(frame.area());
-
+    let state = if app.approval.is_some() {
+        "APPROVAL"
+    } else if app.busy {
+        "WORKING"
+    } else {
+        "READY"
+    };
+    let title = if compact {
+        format!(" BLUE DRAGON  /  {state}")
+    } else {
+        format!(" BLUE DRAGON  ◆  AI CODING WORKBENCH  /  {state} ")
+    };
+    let header =
+        Paragraph::new(title).style(Style::default().fg(BLUE).add_modifier(Modifier::BOLD));
     frame.render_widget(
-        Paragraph::new(" BLUE DRAGON  ◆  AI CODING AGENT ")
-            .style(Style::default().fg(BLUE).add_modifier(Modifier::BOLD))
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(BLUE)),
-            ),
+        if compact {
+            header
+        } else {
+            header.alignment(Alignment::Center).block(panel(""))
+        },
         outer[0],
     );
 
@@ -576,42 +633,56 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         frame.render_widget(
             Paragraph::new(app.plan.clone())
                 .wrap(Wrap { trim: false })
-                .block(Block::default().title(" Task plan ").borders(Borders::ALL))
+                .block(panel(" Task plan "))
                 .style(Style::default().fg(MUTED)),
             columns[1],
         );
     }
-    let visual = wrap_text(
-        &text,
-        usize::from(columns[0].width.saturating_sub(2)).max(1),
-    );
+    let width = usize::from(columns[0].width.saturating_sub(2)).max(1);
+    let visual = transcript_lines(&text, width);
     let visible_lines = columns[0].height.saturating_sub(2) as usize;
     let start = visual
         .len()
         .saturating_sub(visible_lines)
         .saturating_sub(app.scroll_up);
-    let scroll = u16::try_from(start).unwrap_or(u16::MAX);
+    let conversation_title = if app.scroll_up > 0 {
+        " Conversation · history (PgDn) "
+    } else {
+        " Conversation · live "
+    };
     frame.render_widget(
-        Paragraph::new(visual.join("\n"))
-            .style(Style::default().fg(Color::White))
-            .block(
-                Block::default()
-                    .title(" Conversation ")
-                    .borders(Borders::ALL),
-            )
-            .scroll((scroll, 0)),
+        Paragraph::new(
+            visual
+                .into_iter()
+                .skip(start)
+                .take(visible_lines)
+                .collect::<Vec<_>>(),
+        )
+        .block(panel(conversation_title)),
         columns[0],
     );
-
-    let status = format!(" {}  |  {}  |  {} ", app.status, app.model, app.workspace);
+    let status = if compact {
+        format!(" {}\n {}", app.status, app.model)
+    } else {
+        format!(" {}  |  {}\n {}", app.status, app.model, app.workspace)
+    };
+    let status_widget = Paragraph::new(status).style(Style::default().fg(MUTED));
     frame.render_widget(
-        Paragraph::new(status)
-            .style(Style::default().fg(MUTED))
-            .block(Block::default().title(" Status ").borders(Borders::ALL)),
+        if compact {
+            status_widget
+        } else {
+            status_widget.block(panel(" Session "))
+        },
         outer[2],
     );
 
-    let prompt = if app.busy { " Busy" } else { " Prompt" };
+    let prompt = if app.busy {
+        " Draft · Ctrl+C cancel "
+    } else if compact {
+        " Enter send · /help "
+    } else {
+        " Enter send · /models · PgUp history · Esc exit "
+    };
     frame.render_widget(
         Paragraph::new(visible_input(
             &app.input,
@@ -619,12 +690,7 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
             usize::from(outer[3].width.saturating_sub(6)).max(1),
         ))
         .style(Style::default().fg(Color::White))
-        .block(
-            Block::default()
-                .title(prompt)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(BLUE)),
-        ),
+        .block(panel(prompt).border_style(Style::default().fg(BLUE))),
         outer[3],
     );
 
@@ -655,8 +721,15 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
             .iter()
             .map(|c| ListItem::new(format!("{}\n{}", c.name, c.id)))
             .collect();
+        let empty = items.is_empty();
+        let items = if empty {
+            vec![ListItem::new("No matching models. Clear the filter.")
+                .style(Style::default().fg(MUTED))]
+        } else {
+            items
+        };
         let mut state = ListState::default();
-        if !items.is_empty() {
+        if !empty {
             state.select(Some(picker.selected.min(items.len() - 1)));
         }
         frame.render_stateful_widget(
@@ -686,24 +759,37 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     }
 
     if let Some(request) = &app.approval {
-        let popup = center(frame.area(), 86, 54);
+        let popup = center(frame.area(), 96, 90);
         frame.render_widget(Clear, popup);
-        let message = format!(
-            "{}\n\n{}\n\n[Y] approve exactly this action    [N] deny    [Esc] deny",
-            request.action, request.detail
+        let shell = panel(" APPROVAL REQUIRED ")
+            .border_style(Style::default().fg(Color::Yellow))
+            .style(Style::default().bg(SURFACE));
+        let inner = shell.inner(popup);
+        frame.render_widget(shell, popup);
+        let regions = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(2)])
+            .split(inner);
+        let message = format!("{}\n\n{}", request.action, request.detail);
+        let wrapped = wrap_text(&message, usize::from(regions[0].width).max(1));
+        let max_scroll = wrapped.len().saturating_sub(usize::from(regions[0].height));
+        let start = usize::from(app.approval_scroll).min(max_scroll);
+        frame.render_widget(
+            Paragraph::new(
+                wrapped
+                    .into_iter()
+                    .skip(start)
+                    .take(usize::from(regions[0].height))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .style(Style::default().fg(Color::White)),
+            regions[0],
         );
         frame.render_widget(
-            Paragraph::new(message)
-                .style(Style::default().fg(Color::White))
-                .block(
-                    Block::default()
-                        .title(" APPROVAL REQUIRED ")
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Yellow)),
-                )
-                .wrap(Wrap { trim: false })
-                .scroll((app.approval_scroll, 0)),
-            popup,
+            Paragraph::new("[Y] approve one · [N/Esc] deny\nUp/Down scroll details")
+                .style(Style::default().fg(Color::Yellow)),
+            regions[1],
         );
     }
 }
@@ -868,6 +954,87 @@ mod tests {
         }
         assert!(visible_input("1234567890末尾", 12, 7).ends_with('▌'));
         assert_eq!(wrap_text("abcdefgh", 3), vec!["abc", "def", "gh"]);
+    }
+
+    fn rendered_text(terminal: &Terminal<ratatui::backend::TestBackend>) -> String {
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn transcript_preserves_blank_lines_between_paragraphs_and_code() {
+        let lines = transcript_lines("Dragon: intro\n\nfirst()\n\nsecond()", 40);
+        assert_eq!(lines.len(), 5);
+        assert_eq!(lines[1].to_string(), "");
+        assert_eq!(lines[3].to_string(), "");
+        assert_eq!(lines[4].to_string(), "second()");
+    }
+
+    #[test]
+    fn compact_layout_keeps_status_model_and_prompt_visible() {
+        let mut app = Screen::new("fixture-model".into(), "/long/workspace/path".into());
+        app.status = "Ready".into();
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = rendered_text(&terminal);
+        assert!(text.contains("fixture-model"));
+        assert!(text.contains("Enter send"));
+        assert!(text.contains("Conversation"));
+    }
+
+    #[test]
+    fn approval_controls_stay_visible_when_details_scroll() {
+        let mut app = Screen::new("fixture".into(), ".".into());
+        let (tx, rx) = mpsc::channel();
+        app.approval = Some(ApprovalRequest {
+            action: "Write file".into(),
+            detail: "Long change details\n".repeat(100),
+            respond_to: tx,
+        });
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
+        for scroll in [0, 30, u16::MAX] {
+            app.approval_scroll = scroll;
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            let text = rendered_text(&terminal);
+            assert!(text.contains("[Y] approve one"));
+            assert!(text.contains("[N/Esc] deny"));
+            assert!(text.contains("Long change details"));
+        }
+        app.approve(false);
+        assert!(!rx.recv().unwrap());
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(!rendered_text(&terminal).contains("APPROVAL REQUIRED"));
+    }
+
+    #[test]
+    fn model_picker_shows_empty_result_and_closes_cleanly() {
+        let mut app = Screen::new("fixture".into(), ".".into());
+        app.picker = Some(ModelPicker {
+            choices: vec![],
+            query: "missing".into(),
+            selected: 0,
+            source: "Fixture".into(),
+        });
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(rendered_text(&terminal).contains("No matching models"));
+        app.picker = None;
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(!rendered_text(&terminal).contains("No matching models"));
+    }
+
+    #[test]
+    fn tiny_terminal_layout_does_not_panic() {
+        let app = Screen::new("fixture".into(), ".".into());
+        for (w, h) in [(1, 1), (20, 6), (40, 10)] {
+            let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
+            terminal.draw(|f| draw(f, &app)).unwrap();
+        }
     }
 
     #[test]
