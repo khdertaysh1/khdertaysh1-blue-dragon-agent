@@ -20,6 +20,9 @@ with tempfile.TemporaryDirectory() as temp:
     for os_name, arch in [("Linux", "X64"), ("Windows", "X64"), ("macOS", "ARM64"), ("Android", "ARM64")]:
         subprocess.run(["python", str(repo / "scripts/package_binary.py"), str(binary), os_name, arch],
                        cwd=root, check=True, capture_output=True)
+    subprocess.run(["python", str(repo / "scripts/build_browser_extension.py")], check=True, capture_output=True)
+    for name in ["blue-dragon-browser-firefox.xpi", "blue-dragon-browser-chromium.zip"]:
+        shutil.copyfile(repo / "target/browser-extensions" / name, root / "release-payload" / name)
     output = root / "github-output"
     env = dict(os.environ, GITHUB_OUTPUT=str(output), GITHUB_SHA="f" * 40)
     subprocess.run(["python", str(repo / "scripts/prepare_release.py")], cwd=root, env=env,

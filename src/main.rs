@@ -1,5 +1,6 @@
 mod agent;
 mod anthropic;
+mod browser;
 mod config;
 mod mcp;
 mod mcp_protocol;
@@ -7,6 +8,7 @@ mod models;
 mod plan;
 mod project;
 mod provider;
+mod rotation;
 mod session;
 mod skills;
 mod streaming;
@@ -59,6 +61,12 @@ struct Cli {
         help = "Use non-streaming model responses for older compatible servers"
     )]
     no_stream: bool,
+    #[arg(
+        long,
+        global = true,
+        help = "Disable automatic Blue Free model rotation"
+    )]
+    no_rotation: bool,
     #[arg(long, global=true, default_value_t=24, value_parser=clap::value_parser!(u16).range(1..=100))]
     max_steps: u16,
     #[command(subcommand)]
@@ -67,6 +75,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run the authenticated localhost extension bridge until Ctrl+C
+    BrowserBridge {
+        #[arg(long, default_value_t = 9269)]
+        port: u16,
+    },
     /// List keyless free models; --refresh updates the live Kilo catalog
     Models {
         #[arg(long)]
@@ -104,6 +117,17 @@ fn run() -> Result<()> {
     let args = Cli::parse();
     let home = config::app_home()?;
     match &args.command {
+        Some(Command::BrowserBridge { port }) => {
+            let mut browser = browser::Browser::new(&home);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&browser.command(&format!("start {port}"))?)?
+            );
+            io::stdout().flush()?;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+        }
         Some(Command::Models { refresh }) => {
             println!("{}", models::menu());
             println!("{}", models::kilo_listing(&home, *refresh)?);
@@ -178,6 +202,7 @@ fn run() -> Result<()> {
     }
     settings.mcp_config = args.mcp_config;
     settings.stream = !args.no_stream;
+    settings.free_rotation = !args.no_rotation;
     settings.max_steps = usize::from(args.max_steps);
     match args.command {
         Some(Command::Doctor) => {
@@ -252,7 +277,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -276,6 +301,29 @@ fn run() -> Result<()> {
                                 match agent.select_model(line.trim_start_matches("/model ")) {
                                     Ok(text) => println!("{text}"),
                                     Err(e) => eprintln!("Model: {e:#}"),
+                                }
+                                continue;
+                            }
+                            "/rotation" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.rotation_status())?
+                                );
+                                continue;
+                            }
+                            "/browser" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(
+                                        &agent.browser_command("status")?
+                                    )?
+                                );
+                                continue;
+                            }
+                            line if line.starts_with("/browser ") => {
+                                match agent.browser_command(line.trim_start_matches("/browser ")) {
+                                    Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
+                                    Err(e) => eprintln!("Browser: {e:#}"),
                                 }
                                 continue;
                             }

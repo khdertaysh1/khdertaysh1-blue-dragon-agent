@@ -1,4 +1,4 @@
-# Ready-to-use free models — v0.4.0-alpha.3
+# Ready-to-use free models — v0.5.0-alpha.1
 
 ## Start and choose without keys
 
@@ -20,7 +20,7 @@ These zero-priced tool-capable rows were returned by Kilo:
 
 | Model | Exact ID |
 |---|---|
-| Auto Free (gateway chooses) | `kilo-auto/free` |
+| Blue Free (automatic free rotation) | `kilo-auto/free` |
 | Baidu ERNIE 5.5 Flash Preview | `baidu/ernie-5.5-flash-preview:free` |
 | Cohere North Mini Code | `cohere/north-mini-code:free` |
 | Dots3 Note Preview | `dots-studio/dots-3-note-preview:free` |
@@ -36,13 +36,13 @@ This is a historical snapshot, not a permanent lineup. Runtime filtering require
 
 ## Cache, selection and compatibility
 
-Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. HTTP 429/402 stop a task; choose another model manually. No automatic retry, paid fallback, purchase or cross-provider switch occurs.
+Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. Blue Free now adds bounded client rotation for explicit model-scoped failures; unknown/shared HTTP429 and HTTP402 still stop. Individual selections remain pinned. No paid fallback, purchase or cross-provider switch occurs. Use `/rotation` for status and see [FREE_ROTATION.md](FREE_ROTATION.md) for the complete retry/cooldown policy.
 
 Selections are stored as provider/model names in `model.json`, never from repository config. Fresh installs use Kilo unless explicit legacy endpoint/model/key settings exist. Previously saved `{"provider":"free","model":"auto/free"}` migrates to **JarvisClaw** without silently changing its destination; `/model free` explicitly switches to Kilo.
 
 | Preset | Models | Key |
 |---|---|---|
-| `free` / `kilo` | Auto Free or discovered eligible `:free` IDs | None |
+| `free` / `blue-free` / `kilo` | Blue Free or discovered eligible `:free` IDs | None |
 | `jarvis` | `auto/free` | None |
 | `openrouter` | `openrouter/free` or `:free` IDs | `OPENROUTER_API_KEY` |
 | `ollama` | Installed model with tools | None; local server required |

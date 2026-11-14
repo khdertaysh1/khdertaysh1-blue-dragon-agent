@@ -50,6 +50,9 @@ impl Provider {
         })
     }
 
+    pub fn model(&self) -> &str {
+        &self.model
+    }
     pub fn complete(&self, messages: &[Value], tools: Value) -> Result<Value> {
         self.request(messages, tools, false, |_| {}, || false)
     }
@@ -102,16 +105,25 @@ impl Provider {
         }
         let response = req.send().context("Provider request failed")?;
         let code = response.status();
-        if code.as_u16() == 429 {
-            let seconds = response
+        if !code.is_success() {
+            let retry_after = response
                 .headers()
                 .get(reqwest::header::RETRY_AFTER)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<u64>().ok());
-            anyhow::bail!("Provider rate limit reached (HTTP 429){}. No automatic retry or provider switch; wait and retry manually", seconds.map(|s| format!("; retry after {s} seconds")).unwrap_or_default());
-        }
-        if code.as_u16() == 402 {
-            anyhow::bail!("Provider requires payment (HTTP 402); stopped. No payment or paid fallback was attempted");
+            let mut bytes = Vec::new();
+            response.take(16_385).read_to_end(&mut bytes)?;
+            let body = if bytes.len() <= 16_384 {
+                String::from_utf8_lossy(&bytes).into_owned()
+            } else {
+                String::new()
+            };
+            return Err(crate::rotation::ProviderFailure::from_response(
+                code.as_u16(),
+                retry_after,
+                &body,
+            )
+            .into());
         }
         if code.is_success() && stream {
             if !response
@@ -133,15 +145,6 @@ impl Provider {
         if bytes.len() > 4_000_000 {
             anyhow::bail!("Provider response exceeded size limit");
         }
-        if !code.is_success() {
-            let body = String::from_utf8_lossy(&bytes);
-            // Never print entire error payload; providers can return echoed credentials or request bodies.
-            anyhow::bail!(
-                "Provider returned HTTP {}: {}",
-                code.as_u16(),
-                redact_error(&body)
-            );
-        }
         let value: Value = serde_json::from_slice(&bytes).context("Invalid provider JSON")?;
         if self.anthropic {
             crate::anthropic::decode_response(&value)
@@ -151,15 +154,6 @@ impl Provider {
                 .cloned()
                 .context("Response missing choices[0].message")
         }
-    }
-}
-
-fn redact_error(text: &str) -> String {
-    let clean = text.chars().take(200).collect::<String>();
-    if clean.to_ascii_lowercase().contains("sk-") || clean.to_ascii_lowercase().contains("bearer") {
-        "provider rejected request (details suppressed)".to_string()
-    } else {
-        "provider rejected request (response payload suppressed)".to_owned()
     }
 }
 

@@ -143,7 +143,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -289,6 +289,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                     app.status =
                         "Choose free model: arrows, type to filter, Enter select, Esc close".into();
                 }
+                AgentEvent::Notice(text) => app.log("System:", &text),
                 AgentEvent::Model(text) => app.model = text,
                 AgentEvent::Plan(text) => app.plan = text,
                 AgentEvent::ToolStart(name) => {
@@ -496,6 +497,11 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/model ") => {
             agent.select_model(line.trim_start_matches("/model "))?
         }
+        "/browser" => serde_json::to_string_pretty(&agent.browser_command("status")?)?,
+        _ if line.starts_with("/browser ") => serde_json::to_string_pretty(
+            &agent.browser_command(line.trim_start_matches("/browser "))?,
+        )?,
+        "/rotation" => serde_json::to_string_pretty(&agent.rotation_status())?,
         "/plan" => agent.plan_text(),
         "/report" => agent.report_text(),
         "/mcp" => serde_json::to_string_pretty(&agent.mcp_list())?,

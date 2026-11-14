@@ -31,7 +31,7 @@ impl Selection {
         // the destination of an existing user's conversation.
         let provider = match (provider, model) {
             ("free", Some(FREE_MODEL)) => "jarvis",
-            ("free", _) => "kilo",
+            ("free" | "blue-free", _) => "kilo",
             (p, _) => p,
         };
         let default = match provider {
@@ -127,7 +127,7 @@ pub fn save(home: &Path, selection: &Selection) -> Result<()> {
 }
 
 pub fn menu() -> &'static str {
-    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/kilo   kilo-auto/free  Kilo anonymous free models; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. No silent fallback."
+    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free automatic free-model rotation; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. Automatic Blue Free switches stay inside the verified Kilo free pool; /rotation shows them. Pinned selections do not switch."
 }
 
 fn zero(value: Option<&Value>) -> bool {
@@ -237,7 +237,11 @@ pub fn kilo_choices(value: &Value) -> Vec<ModelChoice> {
             .collect();
         choices.push(ModelChoice {
             id: id.into(),
-            name,
+            name: if id == KILO_MODEL {
+                "Blue Free (automatic rotation)".into()
+            } else {
+                name
+            },
             context_length: row["context_length"].as_u64().unwrap_or(0),
         });
     }

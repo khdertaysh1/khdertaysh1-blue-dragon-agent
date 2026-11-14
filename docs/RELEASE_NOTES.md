@@ -1,9 +1,10 @@
-Blue Dragon 0.4.0-alpha.4 adds a binary installer and verified public release assets.
+Blue Dragon 0.5.0-alpha.1 adds real browser control and Blue Free automatic free-model rotation.
 
-- Termux ARM64 users can install/update without Git, Cargo or compiling dependencies.
-- The installer detects the target platform, checks SHA256 and executes a version preflight before replacing the current binary. A failed download/check leaves the installed binary intact. A previous binary is retained for rollback.
-- Sessions, API settings, workspaces and source checkouts are preserved. The legacy source updater backs up generated untracked Cargo.lock files and refuses tracked local changes.
-- Releases publish only after desktop tests/builds, Android ARM64 cross-build and installer/upgrade regression checks pass. Assets include checksums, version metadata and third-party licenses.
-- Existing features include the keyless Kilo free-model picker, approved workspace tools, streamed responses, plans, sessions and opt-in stdio MCP.
+- Independently written local CDP client for installed Chrome/Chromium/Edge, with a dedicated tab and temporary profile when launched.
+- Independently written Firefox/Chromium WebExtension and authenticated localhost bridge. Supports DOM snapshots, click/fill, page JavaScript, bounded network metadata, console, script source and local screenshots. Pairing secrets stay out of the model tool.
+- Android Chrome connection through explicitly authorized ADB forwarding; no root required. Firefox Android regular installation still needs a signed compatible extension. Physical Android testing remains pending.
+- Blue Free selects only validated zero-priced tool-capable Kilo models. Explicit model failures trigger at most three visible switches per turn with cooldowns. Shared/IP/unknown quota failures stop; paid/auth errors, interrupted streams and completed tools are not replayed. Concrete model choices remain pinned.
+- `/browser`, `/rotation`, `/model blue-free` and `--no-rotation` expose setup and control in both CLI and TUI. Existing binary installer and sessions are preserved.
+- Release assets include all four platform binaries and unsigned developer extension archives, with checksums and notices. Browser and routing code in this release is independently implemented; the pre-existing small MIT protocol attribution remains unchanged.
 
-This is still an alpha release. Android binaries target ARM64/API26+ and have not been tested on a physical phone. Linux binaries are built on Ubuntu's current runner and may need a recent glibc. macOS is Apple Silicon; Windows is x64. Free model access is subject to service availability/data handling documented in docs/MODELS.md. Browser automation, smart context compaction and multi-agent worktrees are not implemented.
+This is an alpha release. Android ARM64/API26+ is cross-built, not physically tested; Windows x64/macOS ARM64 builds are CI-tested, real browser tests run on Linux. A browser is not bundled. Firefox extension archives are unsigned and not store-approved. Extension source reads are fresh unauthenticated copies; CDP can read observed response bodies. Screenshots are local files, not model vision inputs. Iframes, desktop control, smart context compaction and multi-agent worktrees are not implemented. Free availability and quotas remain service-controlled. See docs/BROWSER.md and docs/FREE_ROTATION.md.

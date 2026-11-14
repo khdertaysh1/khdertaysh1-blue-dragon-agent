@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Developer preview: `v0.4.0-alpha.2`.** Blue Dragon has a working, testable agent core, but is **not** feature-equivalent to AlphaCode, Codex CLI or Claude Code. This workbench revision adds a full-screen TUI, streamed model responses, task plans, action reports and opt-in stdio MCP tools. Browser/desktop automation and multi-agent orchestration are not implemented yet. See [workbench setup and limits](docs/WORKBENCH.md).
+> **Developer preview: `v0.5.0-alpha.1`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Browser setup is explicit; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
@@ -53,15 +53,17 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **MCP** | Opt-in stdio servers, approved launch/discovery/tool calls; no auto-execution of repository config |
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
+| **Real browser** | Local CDP or own paired Firefox/Chromium extension: page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
+| **Blue Free** | Keyless verified free pool, visible bounded automatic rotation; concrete model choices stay pinned |
 
 <details>
-<summary><b>See all 14 built-in agent tools</b></summary>
+<summary><b>See all 15 built-in agent tools</b></summary>
 
 ```text
 list_files     read_file      read_lines    search_files
 project_map    git_status     git_diff      edit_file
 write_file     run_command    update_plan   create_directory
-file_info      web_fetch
+file_info      web_fetch      browser
 ```
 
 Every write or command requires a per-action approval. Tool availability depends on the local environment.
@@ -92,6 +94,10 @@ The demo is deliberately illustrative. Commands and results are sample text; the
 
 </details>
 
+## Browser and automatic free models
+
+After installation, launch `blue-dragon --provider free tui`. Use `/model blue-free` for automatic free-model rotation and `/rotation` for its status. On desktop use `/browser launch`; for Firefox use `/browser start` and pair the extension. Android Chrome uses authorized ADB forwarding and `/browser attach 9222`; a browser is not embedded in the executable. See [platform-specific instructions](docs/BROWSER.md) and [free routing policy](docs/FREE_ROTATION.md).
+
 ## Quick Start
 
 **Termux / Android ARM64: install a ready-made binary. No Rust, Git clone or compilation required.**
@@ -112,13 +118,14 @@ Run the **same installer command to update**. It selects a published release for
 
 See [installation, supported systems, rollback and developer source builds](docs/INSTALL.md). [Published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases) contain persistent downloads and checksums; Actions artifacts are temporary developer outputs.
 
-This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects Kilo Auto Free. Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
+This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects **Blue Free** (Kilo automatic free route with bounded client rotation). Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
 
 Select and save a provider from the terminal:
 
 ```text
 /models
-/model free
+/model blue-free
+/rotation
 /model kilo cohere/north-mini-code:free
 /model jarvis
 /model ollama YOUR_INSTALLED_MODEL
@@ -252,7 +259,9 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 <details>
 <summary><b>Planned — Beyond the terminal</b></summary>
 
-- [ ] Browser/desktop automation, remote MCP transports and isolated worktrees
+- [x] Browser CDP/extension transport and bounded automatic free-model rotation
+- [ ] Physical Android browser verification and signed Firefox distribution
+- [ ] Desktop automation, remote MCP transports and isolated worktrees
 - [ ] Parallel agents, evidence-driven verification and security analysis modules
 - [ ] Optional native desktop interface and reproducible performance benchmarks
 

@@ -29,7 +29,11 @@ Session (JSON, app-data directory) records dialogue and tool results after each 
 
 ## Future design (not yet implemented)
 
-Independent policy daemon, remote MCP transports, browser instrumentation, distributed workers, project indexing, permission-scoped resource graph, and evidence-gated multi-agent execution.
+Independent policy daemon, remote MCP transports, richer browser instrumentation, distributed workers, project indexing, permission-scoped resource graph, and evidence-gated multi-agent execution.
 
 ## Workbench modules
 TUI rendering and input run separately from the model worker. A bounded ordered event queue carries deltas, tools, plans and task completion; approval replies use a separate one-shot response. Cooperative cancellation is shared with command polling, SSE parsing and MCP RPC waits. Session plan/report fields are serde-defaulted to preserve old session compatibility. stdio MCP is explicit opt-in and never auto-launches repository config. See WORKBENCH.md for transport and cancellation limits.
+
+## Browser and model routing
+
+`browser.rs` owns explicit browser setup and approval. `browser/cdp.rs` speaks local CDP on a newly created tab; `browser/bridge.rs` authenticates the independently written WebExtension over localhost WebSocket. Page evaluation runs in MAIN world, isolated from extension APIs. Results are bounded and marked untrusted. Pairing tokens never enter the model tool. `rotation.rs` classifies pre-stream provider errors and selects only validated Kilo free candidates under a per-turn budget and per-process cooldowns. Retries reuse current history without replaying tools. See BROWSER.md and FREE_ROTATION.md for boundaries.
