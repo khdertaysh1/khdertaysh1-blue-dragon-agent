@@ -437,6 +437,17 @@ impl ToolBox {
         )
     }
     pub fn run_command(&self, program: &str, args: &[String]) -> Result<Value> {
+        self.run_command_with_timeout(program, args, 30)
+    }
+    pub fn run_command_with_timeout(
+        &self,
+        program: &str,
+        args: &[String],
+        timeout_seconds: u64,
+    ) -> Result<Value> {
+        if !(1..=300).contains(&timeout_seconds) {
+            anyhow::bail!("Command timeout must be between 1 and 300 seconds");
+        }
         if program.is_empty()
             || program.len() > 200
             || args.len() > 30
@@ -444,7 +455,12 @@ impl ToolBox {
         {
             anyhow::bail!("Command exceeds limits");
         }
-        let command_preview = format!("{} {}", program, args.join(" "));
+        let command_preview = format!(
+            "{} {}\nTimeout: {} seconds",
+            program,
+            args.join(" "),
+            timeout_seconds
+        );
         if !self.approve("Execute workspace command", &command_preview)? {
             return Ok(json!({"ok":false,"status":"denied by user"}));
         }
@@ -488,10 +504,10 @@ impl ToolBox {
                 child.wait().ok();
                 anyhow::bail!("Command cancelled");
             }
-            if start.elapsed() > Duration::from_secs(30) {
+            if start.elapsed() > Duration::from_secs(timeout_seconds) {
                 child.kill().ok();
                 child.wait().ok();
-                anyhow::bail!("Command timed out after 30 seconds");
+                anyhow::bail!("Command timed out after {} seconds; it may have changed files before stopping. Inspect state before retrying.", timeout_seconds);
             }
             thread::sleep(Duration::from_millis(40));
         };
@@ -525,7 +541,7 @@ pub fn definitions() -> Value {
         {"type":"function","function":{"name":"edit_file","description":"Replace exactly one expected text occurrence in an existing file. Refuses ambiguous changes and requires a diff approval.","parameters":{"type":"object","properties":{"path":{"type":"string"},"find":{"type":"string"},"replace":{"type":"string"}},"required":["path","find","replace"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"git_diff","description":"Show unstaged Git diff. Read-only.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
         {"type":"function","function":{"name":"write_file","description":"Replace or create a UTF-8 file relative to workspace. User approval is mandatory and a diff is shown.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}},
-        {"type":"function","function":{"name":"run_command","description":"Execute a program with arguments in workspace (no shell expansion); requires user approval. 30-second timeout.","parameters":{"type":"object","properties":{"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["program","args"],"additionalProperties":false}}}
+        {"type":"function","function":{"name":"run_command","description":"Execute a program with arguments in workspace (no shell expansion); requires user approval. Default timeout 30 seconds; request up to 300 seconds for longer builds. Cancellation remains available. Not a background job.","parameters":{"type":"object","properties":{"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"timeout_seconds":{"type":"integer","minimum":1,"maximum":300}},"required":["program","args"],"additionalProperties":false}}}
     ])
 }
 
@@ -579,7 +595,16 @@ pub fn invoke(boxes: &ToolBox, name: &str, args: &Value) -> Value {
                         .context("Invalid command argument")
                 })
                 .collect();
-            boxes.run_command(program, &values?)
+            match args.get("timeout_seconds") {
+                None => boxes.run_command(program, &values?),
+                Some(value) => boxes.run_command_with_timeout(
+                    program,
+                    &values?,
+                    value
+                        .as_u64()
+                        .context("timeout_seconds must be an integer")?,
+                ),
+            }
         })(),
         _ => Err(anyhow::anyhow!("Unknown tool: {name}")),
     };
@@ -601,6 +626,29 @@ mod tests {
         .unwrap();
         let tools = ToolBox::new(tmp.path().canonicalize().unwrap(), ApprovalMode::ReadOnly);
         (tmp, tools)
+    }
+    #[test]
+    fn command_timeout_bounds_are_enforced_before_approval() {
+        let (_tmp, tools) = setup();
+        for timeout in [0, 301, u64::MAX] {
+            assert!(tools
+                .run_command_with_timeout("echo", &[], timeout)
+                .unwrap_err()
+                .to_string()
+                .contains("between 1 and 300"));
+        }
+        assert_eq!(
+            tools.run_command_with_timeout("echo", &[], 300).unwrap()["ok"],
+            false
+        );
+        assert_eq!(
+            invoke(
+                &tools,
+                "run_command",
+                &json!({"program":"echo","args":[],"timeout_seconds":1.5})
+            )["ok"],
+            false
+        );
     }
     #[test]
     fn reads_and_searches_real_files() {
@@ -696,6 +744,29 @@ mod tests {
         assert!(denied.create_directory("../escape").is_err());
     }
 
+    #[test]
+    fn requested_command_timeout_is_visible_and_enforced() {
+        let root = tempfile::tempdir().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
+        let approver = std::thread::spawn(move || {
+            let request = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(request.detail.contains("Timeout: 1 seconds"));
+            request.respond_to.send(true).unwrap();
+        });
+        let tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let start = Instant::now();
+        let result = tools.run_command_with_timeout(
+            "python",
+            &["-c".into(), "import time; time.sleep(60)".into()],
+            1,
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("timed out after 1"));
+        assert!(start.elapsed() < Duration::from_secs(5));
+        approver.join().unwrap();
+    }
     #[test]
     fn cancellation_kills_a_direct_running_process() {
         let root = tempfile::tempdir().unwrap();
