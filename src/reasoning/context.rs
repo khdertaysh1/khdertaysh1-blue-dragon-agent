@@ -70,7 +70,13 @@ fn project(
     let mut result = Vec::new();
     let mut archived = 0;
     let mut i = 0;
-    let recent = history.len().saturating_sub(18);
+    // In the last projection tier archive even recent completed tool rounds.
+    // Huge write_file arguments otherwise survive all output-only compaction.
+    let recent = if level >= 4 {
+        history.len()
+    } else {
+        history.len().saturating_sub(18)
+    };
     while i < history.len() {
         let message = &history[i];
         if level >= 2
@@ -158,7 +164,7 @@ pub fn build(
         .iter()
         .map(|m| estimate(&m.to_string()))
         .sum::<usize>();
-    for level in 0..=3 {
+    for level in 0..=4 {
         let (mut view, archived) = if level == 0 {
             (history.to_vec(), 0)
         } else {
@@ -323,6 +329,34 @@ mod tests {
             true
         );
         assert_eq!(history[2]["content"], content);
+    }
+    #[test]
+    fn huge_recent_arguments_are_archived_as_complete_rounds() {
+        let arguments = json!({"path":"large.txt", "content":"source ".repeat(50000)}).to_string();
+        let history = vec![
+            json!({"role":"system","content":"Keep every approval boundary"}),
+            json!({"role":"user","content":"Fix only large.txt; do not publish"}),
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"big","function":{"name":"write_file","arguments":arguments}}]}),
+            json!({"role":"tool","tool_call_id":"big","content":"{\"ok\":true}"}),
+        ];
+        let original = history.clone();
+        let (view, stats) = build(&history, &json!([]), 32768, "Scope", &Value::Null).unwrap();
+        assert_eq!(stats["projection_level"], 4);
+        assert_eq!(history, original);
+        assert!(view
+            .iter()
+            .any(|m| m["content"] == "Fix only large.txt; do not publish"));
+        assert!(!view.iter().any(|m| m["role"] == "tool"));
+        assert!(view.iter().any(|m| m["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("archived_tool_round")));
+        assert!(
+            recall(&history, &json!({"message_index":2})).unwrap()["excerpt"]
+                .as_str()
+                .unwrap()
+                .contains("source source")
+        );
     }
     #[test]
     fn never_silently_discards_large_user_instructions() {
