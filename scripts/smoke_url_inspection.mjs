@@ -70,10 +70,13 @@ try{
  const browserPath=path.join(fakeBin,'installed-chromium');const calls=path.join(temp,'pkg-calls');
  fs.writeFileSync(path.join(fakeBin,'pkg'),'#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_PKG_CALLS"\nif [ "$3" = chromium ]; then cp "$TEST_BROWSER_WRAPPER" "$BLUE_DRAGON_BROWSER_BIN"; chmod 700 "$BLUE_DRAGON_BROWSER_BIN"; fi\n',{mode:0o700});
  const termuxEnv={...env,TERMUX_VERSION:'fixture',PATH:fakeBin+path.delimiter+baseEnv.PATH,BLUE_DRAGON_BROWSER_BIN:browserPath,TEST_BROWSER_WRAPPER:wrapper,TEST_PKG_CALLS:calls};
- result=await run(['inspect',site],termuxEnv);assert.equal(result.code,0,result.stderr);
+ result=await run(['inspect',site],termuxEnv,'n\n');assert.notEqual(result.code,0,'Declining must not install packages');
+ assert(!fs.existsSync(calls),'Declined setup must not execute pkg');
+ result=await run(['inspect',site],termuxEnv,'y\n');assert.equal(result.code,0,result.stderr);
+ assert(result.stdout.includes('Install official Termux browser packages'));
  assert.deepEqual(fs.readFileSync(calls,'utf8').trim().split('\n'),['install -y x11-repo','install -y chromium']);
  result=await run(['inspect',site],termuxEnv);assert.equal(result.code,0,result.stderr);
  assert.equal(fs.readFileSync(calls,'utf8').trim().split('\n').length,2,'Installed browser must be reused');
  assert.equal(submissions,0);
- console.log('URL-only CLI/chat: automatic real browser, loaded DOM/forms, JS source hints, network/console, no approval prompts, benign DOM canary positive/negative fixtures, no form submission, scoped grant expiry, read-only refusal; simulated Termux package setup/reuse passed');
+ console.log('URL-only CLI/chat: automatic real browser, loaded DOM/forms, JS source hints, network/console, no navigation approval prompts with installed browser, explicit package consent, benign DOM canary positive/negative fixtures, no form submission, scoped grant expiry, read-only refusal; simulated Termux package setup/reuse passed');
 }finally{children.forEach(p=>p.kill('SIGKILL'));await new Promise(r=>server.close(r));fs.rmSync(temp,{recursive:true,force:true});}
