@@ -2,6 +2,7 @@ mod agent;
 mod anthropic;
 mod browser;
 mod config;
+mod intelligence;
 mod mcp;
 mod mcp_protocol;
 mod models;
@@ -72,6 +73,12 @@ struct Cli {
     max_steps: u16,
     #[arg(long, global=true, default_value_t=32768, value_parser=clap::value_parser!(u32).range(8192..=1048576), help="Context window budget including tools and reply reserve; match the selected model")]
     context_tokens: u32,
+    #[arg(
+        long,
+        global = true,
+        help = "Disable cross-session project-note retrieval and storage"
+    )]
+    no_project_memory: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -220,6 +227,7 @@ fn run() -> Result<()> {
     settings.free_rotation = !args.no_rotation;
     settings.max_steps = usize::from(args.max_steps);
     settings.context_tokens = args.context_tokens as usize;
+    settings.project_memory = !args.no_project_memory;
     match args.command {
         Some(Command::Doctor) => {
             println!("Blue Dragon v{} | Diagnostic", env!("CARGO_PKG_VERSION"));
@@ -295,7 +303,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -320,6 +328,27 @@ fn run() -> Result<()> {
                                     Ok(text) => println!("{text}"),
                                     Err(e) => eprintln!("Model: {e:#}"),
                                 }
+                                continue;
+                            }
+                            "/checks" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.check_status())?
+                                );
+                                continue;
+                            }
+                            "/memory" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.memory_command("")?)?
+                                );
+                                continue;
+                            }
+                            line if line.starts_with("/memory ") => {
+                                match agent.memory_command(line.trim_start_matches("/memory ")) {
+                                    Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
+                                    Err(e) => eprintln!("Memory: {e:#}"),
+                                };
                                 continue;
                             }
                             "/context" => {

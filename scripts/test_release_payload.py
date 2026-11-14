@@ -11,10 +11,11 @@ import tomllib
 repo = Path.cwd()
 with tempfile.TemporaryDirectory() as temp:
     root = Path(temp)
-    for name in ["LICENSE", "Cargo.toml", "third_party/NOTICE.md", "third_party/AlphaCode-LICENSE"]:
+    for name in ["LICENSE", "Cargo.toml"]:
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(repo / name, target)
+    shutil.copytree(repo / "third_party", root / "third_party")
     binary = root / "fixture-binary"
     binary.write_bytes(b"fixture" * 20_000)
     for os_name, arch in [("Linux", "X64"), ("Windows", "X64"), ("macOS", "ARM64"), ("Android", "ARM64")]:
@@ -34,6 +35,8 @@ with tempfile.TemporaryDirectory() as temp:
     assert output.read_text().strip() == f"tag=v{version}"
     assert metadata["physical_android_tested"] is False
     assert "Copyright" in (folder / "LICENSES.txt").read_text()
+    for notice in (repo / "third_party").glob("*-LICENSE"):
+        assert notice.read_text() in (folder / "LICENSES.txt").read_text()
     for line in (folder / "SHA256SUMS.txt").read_text().splitlines():
         digest, name = line.split()
         assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest

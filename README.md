@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Developer preview: `v0.6.0-alpha.1`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Pasting a URL now prepares a local browser and collects an initial review automatically; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
+> **Developer preview: `v0.7.0-alpha.1`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Pasting a URL now prepares a local browser and collects an initial review automatically; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
@@ -42,22 +42,22 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | Area | What is currently available |
 |:--|:--|
 | **AI providers** | Keyless free gateway, saved provider/model selection, OpenRouter free catalog, local Ollama, OpenAI-compatible and native Anthropic |
-| **Workspace intelligence** | Bounded project map, file listing, file reading, line-range reads and string search |
+| **Workspace intelligence** | Tree-sitter symbols/imports/syntactic references for Rust, Python, JS and TS/TSX; bounded ranked local code search and exact file reads |
 | **Code changes** | Targeted exact-match edit and full text-file write, both behind diff approval |
 | **Git inspection** | Working-tree status and unstaged diff |
 | **Execution** | Commands with explicit approval, timeout and bounded output |
-| **Memory & context** | Original sessions preserved, budgeted request projection, exact history recall, saved evidence-linked findings |
+| **Memory & context** | Original sessions, budgeted request projection, exact recall, scoped historical project notes and evidence-linked findings |
 | **Skills** | Opt-in local Markdown workflows, without running bundled scripts |
 | **Safety controls** | `--read-only`, protected-path checks and deny-by-default noninteractive approvals |
 | **Terminal** | Full-screen `tui`, streamed responses, approval overlay, cancellation, plan pane; CLI `chat`, `run` and diagnostics |
 | **MCP** | Opt-in stdio servers, approved launch/discovery/tool calls; no auto-execution of repository config |
-| **Planning & evidence** | Saved task steps, bounded tool-action report, resume |
+| **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
 | **Real browser** | Local CDP or own paired Firefox/Chromium extension: page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
 | **Blue Free** | Keyless verified free pool, visible bounded automatic rotation; concrete model choices stay pinned |
 
 <details>
-<summary><b>See all 17 built-in agent tools</b></summary>
+<summary><b>See all 20 built-in agent tools</b></summary>
 
 ```text
 list_files     read_file      read_lines    search_files
@@ -65,6 +65,7 @@ project_map    git_status     git_diff      edit_file
 write_file     run_command    update_plan   create_directory
 file_info      web_fetch      browser
 recall_context record_finding
+code_search    project_memory set_task_checks
 ```
 
 Every write or command requires a per-action approval. Tool availability depends on the local environment.
@@ -98,6 +99,8 @@ The demo is deliberately illustrative. Commands and results are sample text; the
 ## Agent control and evidence
 
 Version 0.6 adds task-specific guidance, context budgeting without deleting the original transcript, stalled-loop recovery and evidence-linked findings. `/context` shows model-request usage; `/findings` shows observations and hypothesis/supported/blocked findings. The model can retrieve exact older details with `recall_context`. A successful citation does not guarantee a finding is correct. See [runtime behavior and comparison audit](docs/AGENT_REASONING.md).
+
+Version 0.7 adds local structural code search, historical notes scoped to the canonical project path and explicit website target, and acceptance checks tied to exact native tool results. `/memory [query]` searches notes, `/memory forget ID` removes one, `/checks` shows missing or stale checks. `--no-project-memory` disables note retrieval/saving for the process. Notes may be included in requests to the selected model provider; they remain historical data and cannot authorize actions or prove current results. See [the implementation audit and limits](docs/PROJECT_INTELLIGENCE.md).
 
 ## Browser and automatic free models
 
@@ -259,7 +262,7 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 - [x] Integrated full-screen TUI, streaming, task plans and opt-in stdio MCP
 - [ ] Physical-device terminal testing and wider MCP compatibility
 - [x] Budgeted context projection, exact recall, stalled-loop handling and evidence references
-- [ ] Better patch-oriented edits, semantic memory/indexing and richer code navigation
+- [ ] Patch-oriented edits, semantic embeddings/resolved cross-file graph and isolated worktrees
 - [ ] Reliable release packaging and Termux-specific verification
 
 </details>

@@ -143,7 +143,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -500,6 +500,11 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         "/browser" => serde_json::to_string_pretty(&agent.browser_command("status")?)?,
         _ if line.starts_with("/browser ") => serde_json::to_string_pretty(
             &agent.browser_command(line.trim_start_matches("/browser "))?,
+        )?,
+        "/checks" => serde_json::to_string_pretty(&agent.check_status())?,
+        "/memory" => serde_json::to_string_pretty(&agent.memory_command("")?)?,
+        _ if line.starts_with("/memory ") => serde_json::to_string_pretty(
+            &agent.memory_command(line.trim_start_matches("/memory "))?,
         )?,
         "/context" => serde_json::to_string_pretty(&agent.context_status())?,
         "/findings" => agent.findings_text()?,

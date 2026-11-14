@@ -1,4 +1,4 @@
-# Blue Dragon v0.1 architecture
+# Blue Dragon core architecture
 
 ```text
 CLI (clap) --> Agent loop --> OpenAI-compatible provider (reqwest)
@@ -19,7 +19,7 @@ Session (JSON, app-data directory) records dialogue and tool results after each 
 ## Interfaces
 
 - `provider.rs`: blocking HTTP transport with explicit timeouts and no redirects.
-- `agent.rs`: model-agnostic loop capped at 12 tool rounds; persisted after each step.
+- `agent.rs`: model-agnostic loop capped by --max-steps (default 24); persisted after each step.
 - `tools.rs`: constrained file and subprocess tool boundary with human approvals.
 - `session.rs`: resumable, JSON-backed local conversations.
 - `config.rs`: provider selection, key lookup from environment, workspace settings.
@@ -29,7 +29,7 @@ Session (JSON, app-data directory) records dialogue and tool results after each 
 
 ## Future design (not yet implemented)
 
-Independent policy daemon, remote MCP transports, richer browser instrumentation, distributed workers, project indexing, permission-scoped resource graph, and evidence-gated multi-agent execution.
+Independent policy daemon, remote MCP transports, richer browser instrumentation, distributed workers, resolved semantic project graph, permission-scoped resource graph, and evidence-gated multi-agent execution.
 
 ## Workbench modules
 TUI rendering and input run separately from the model worker. A bounded ordered event queue carries deltas, tools, plans and task completion; approval replies use a separate one-shot response. Cooperative cancellation is shared with command polling, SSE parsing and MCP RPC waits. Session plan/report fields are serde-defaulted to preserve old session compatibility. stdio MCP is explicit opt-in and never auto-launches repository config. See WORKBENCH.md for transport and cancellation limits.
@@ -41,3 +41,8 @@ TUI rendering and input run separately from the model worker. A bounded ordered 
 ## Request-time task control
 
 `reasoning/context.rs` constructs a bounded provider view without altering the original transcript, keeping complete recent tool envelopes and exact recall indexes. `reasoning/loops.rs` tracks canonical calls and unchanged/denied results without serving a cache as fresh observation. `reasoning/mod.rs` supplies fixed task-specific guidance and validates evidence-linked finding records. Engine observation IDs refer to actual persisted transcript positions; supported citations are not semantic verification. See AGENT_REASONING.md.
+
+## Local project intelligence
+`intelligence/code.rs` walks eligible source/text with ignore rules, hashes contents on refresh and reuses parsed metadata only for unchanged hashes. Tree-sitter supplies syntax structures for five language variants; lexical search covers other eligible text. Resource/depth/parser limits are returned explicitly; references are syntactic candidates.
+
+`intelligence/memory.rs` persists bounded per-workspace historical notes under app data, with target-origin scoping, source session IDs, a bounded cross-process file lock and atomic replacement. Notes are untrusted model-authored data and never fresh verification. `intelligence/checks.rs` records declared exact built-in tool/input/native-field contracts; the agent invalidates evidence on observed source mutation and checks a fresh bounded workspace fingerprint before finalization. Tool approvals remain in ToolBox. Missing/stale checks get one review and then an explicit unverified task status; neither criteria nor fingerprints establish semantic correctness. See PROJECT_INTELLIGENCE.md.
