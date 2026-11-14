@@ -19,6 +19,24 @@ pub fn headless() -> bool {
         && std::env::var_os("DISPLAY").is_none()
         && std::env::var_os("WAYLAND_DISPLAY").is_none()
 }
+#[derive(Debug)]
+pub(super) struct InstallationDenied;
+impl std::fmt::Display for InstallationDenied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Browser package installation declined; no packages installed and no browser action sent")
+    }
+}
+impl std::error::Error for InstallationDenied {}
+
+fn approve_install(tools: &ToolBox) -> Result<()> {
+    if !tools.approve(
+        "Install official Termux browser packages",
+        "No local Chromium browser was found. Run `pkg install -y x11-repo` and `pkg install -y chromium`? This enables the official Termux X11 repository and downloads Chromium plus dependencies, using mobile data and device storage. Nothing will be installed if you decline. Installed packages remain after the browser closes.",
+    )? {
+        return Err(InstallationDenied.into());
+    }
+    Ok(())
+}
 pub fn install(home: &Path, tools: &ToolBox) -> Result<()> {
     if !termux() {
         anyhow::bail!("Install Chrome, Chromium or Edge first, then paste the URL again. No ADB is needed for a locally installed desktop browser.");
@@ -26,6 +44,7 @@ pub fn install(home: &Path, tools: &ToolBox) -> Result<()> {
     if !tools.allows_url_inspection() {
         anyhow::bail!("Browser preparation denied by read-only mode or cancellation");
     }
+    approve_install(tools)?;
     std::fs::create_dir_all(home)?;
     let log_path = home.join("browser-install.log");
     let log = std::fs::File::create(&log_path)?;
@@ -59,4 +78,34 @@ pub fn install(home: &Path, tools: &ToolBox) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_setup_requires_separate_explicit_consent() {
+        let root = tempfile::tempdir().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::Tui(tx));
+        let approval = std::thread::spawn(move || {
+            let request = rx.recv().unwrap();
+            assert!(request.action.contains("Install"));
+            assert!(request.detail.contains("pkg install -y x11-repo"));
+            assert!(request.detail.contains("pkg install -y chromium"));
+            request.respond_to.send(false).unwrap();
+        });
+        assert!(approve_install(&tools)
+            .unwrap_err()
+            .is::<InstallationDenied>());
+        approval.join().unwrap();
+    }
+
+    #[test]
+    fn readonly_denies_package_setup() {
+        let root = tempfile::tempdir().unwrap();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::ReadOnly);
+        assert!(approve_install(&tools).is_err());
+    }
 }
