@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Developer preview: `v0.5.0-alpha.2`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Pasting a URL now prepares a local browser and collects an initial review automatically; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
+> **Developer preview: `v0.6.0-alpha.1`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Pasting a URL now prepares a local browser and collects an initial review automatically; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
@@ -46,7 +46,7 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **Code changes** | Targeted exact-match edit and full text-file write, both behind diff approval |
 | **Git inspection** | Working-tree status and unstaged diff |
 | **Execution** | Commands with explicit approval, timeout and bounded output |
-| **Memory** | Locally saved JSON sessions, resume by ID or latest |
+| **Memory & context** | Original sessions preserved, budgeted request projection, exact history recall, saved evidence-linked findings |
 | **Skills** | Opt-in local Markdown workflows, without running bundled scripts |
 | **Safety controls** | `--read-only`, protected-path checks and deny-by-default noninteractive approvals |
 | **Terminal** | Full-screen `tui`, streamed responses, approval overlay, cancellation, plan pane; CLI `chat`, `run` and diagnostics |
@@ -57,13 +57,14 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **Blue Free** | Keyless verified free pool, visible bounded automatic rotation; concrete model choices stay pinned |
 
 <details>
-<summary><b>See all 15 built-in agent tools</b></summary>
+<summary><b>See all 17 built-in agent tools</b></summary>
 
 ```text
 list_files     read_file      read_lines    search_files
 project_map    git_status     git_diff      edit_file
 write_file     run_command    update_plan   create_directory
 file_info      web_fetch      browser
+recall_context record_finding
 ```
 
 Every write or command requires a per-action approval. Tool availability depends on the local environment.
@@ -93,6 +94,10 @@ Run the actual terminal with `blue-dragon tui`. It includes a conversation, live
 The demo is deliberately illustrative. Commands and results are sample text; they are **not** captured execution evidence. The agent's real, tested capabilities are listed in the table above. See the [visual identity and motion notes](docs/VISUAL_IDENTITY.md) for the editable asset inventory.
 
 </details>
+
+## Agent control and evidence
+
+Version 0.6 adds task-specific guidance, context budgeting without deleting the original transcript, stalled-loop recovery and evidence-linked findings. `/context` shows model-request usage; `/findings` shows observations and hypothesis/supported/blocked findings. The model can retrieve exact older details with `recall_context`. A successful citation does not guarantee a finding is correct. See [runtime behavior and comparison audit](docs/AGENT_REASONING.md).
 
 ## Browser and automatic free models
 
@@ -253,7 +258,8 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 
 - [x] Integrated full-screen TUI, streaming, task plans and opt-in stdio MCP
 - [ ] Physical-device terminal testing and wider MCP compatibility
-- [ ] Better patch-oriented edits, context compaction and richer code navigation
+- [x] Budgeted context projection, exact recall, stalled-loop handling and evidence references
+- [ ] Better patch-oriented edits, semantic memory/indexing and richer code navigation
 - [ ] Reliable release packaging and Termux-specific verification
 
 </details>

@@ -37,3 +37,7 @@ TUI rendering and input run separately from the model worker. A bounded ordered 
 ## Browser and model routing
 
 `browser.rs` owns explicit browser setup and approval. `browser/cdp.rs` speaks local CDP on a newly created tab; `browser/bridge.rs` authenticates the independently written WebExtension over localhost WebSocket. Page evaluation runs in MAIN world, isolated from extension APIs. Results are bounded and marked untrusted. Pairing tokens never enter the model tool. `rotation.rs` classifies pre-stream provider errors and selects only validated Kilo free candidates under a per-turn budget and per-process cooldowns. Retries reuse current history without replaying tools. See BROWSER.md and FREE_ROTATION.md for boundaries.
+
+## Request-time task control
+
+`reasoning/context.rs` constructs a bounded provider view without altering the original transcript, keeping complete recent tool envelopes and exact recall indexes. `reasoning/loops.rs` tracks canonical calls and unchanged/denied results without serving a cache as fresh observation. `reasoning/mod.rs` supplies fixed task-specific guidance and validates evidence-linked finding records. Engine observation IDs refer to actual persisted transcript positions; supported citations are not semantic verification. See AGENT_REASONING.md.

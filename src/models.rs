@@ -279,6 +279,15 @@ fn read_cache(home: &Path) -> Result<Option<CachedCatalog>> {
     }
     Ok(Some(cached))
 }
+pub fn cached_context_limit(home: &Path, model: &str) -> Option<usize> {
+    let cached = read_cache(home).ok().flatten()?;
+    cached
+        .choices
+        .iter()
+        .find(|c| c.id == model)
+        .and_then(|c| usize::try_from(c.context_length).ok())
+        .filter(|limit| *limit >= 8192)
+}
 fn write_cache(home: &Path, choices: &[ModelChoice]) -> Result<()> {
     std::fs::create_dir_all(home)?;
     let mut file = tempfile::NamedTempFile::new_in(home)?;

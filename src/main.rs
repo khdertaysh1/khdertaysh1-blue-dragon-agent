@@ -8,6 +8,7 @@ mod models;
 mod plan;
 mod project;
 mod provider;
+mod reasoning;
 mod rotation;
 mod session;
 mod skills;
@@ -69,6 +70,8 @@ struct Cli {
     no_rotation: bool,
     #[arg(long, global=true, default_value_t=24, value_parser=clap::value_parser!(u16).range(1..=100))]
     max_steps: u16,
+    #[arg(long, global=true, default_value_t=32768, value_parser=clap::value_parser!(u32).range(8192..=1048576), help="Context window budget including tools and reply reserve; match the selected model")]
+    context_tokens: u32,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -216,6 +219,7 @@ fn run() -> Result<()> {
     settings.stream = !args.no_stream;
     settings.free_rotation = !args.no_rotation;
     settings.max_steps = usize::from(args.max_steps);
+    settings.context_tokens = args.context_tokens as usize;
     match args.command {
         Some(Command::Doctor) => {
             println!("Blue Dragon v{} | Diagnostic", env!("CARGO_PKG_VERSION"));
@@ -291,7 +295,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -316,6 +320,17 @@ fn run() -> Result<()> {
                                     Ok(text) => println!("{text}"),
                                     Err(e) => eprintln!("Model: {e:#}"),
                                 }
+                                continue;
+                            }
+                            "/context" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.context_status())?
+                                );
+                                continue;
+                            }
+                            "/findings" => {
+                                println!("{}", agent.findings_text()?);
                                 continue;
                             }
                             "/rotation" => {

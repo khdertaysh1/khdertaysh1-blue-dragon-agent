@@ -23,7 +23,7 @@ Run the same installer to update. It selects the newest compatible **published**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/main/scripts/install.sh |
-  bash -s -- --version v0.5.0-alpha.2
+  bash -s -- --version v0.6.0-alpha.1
 ```
 
 The installer detects OS/CPU, downloads a raw executable plus license notices, checks SHA256, and runs `--version` before replacing an existing binary. The final move stays on the same filesystem. A failed network request, missing release, checksum/version mismatch, unsupported CPU or non-executable storage leaves the installed binary intact. This is integrity verification using GitHub HTTPS/checksums, not an independent code-signing system.

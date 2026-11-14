@@ -143,7 +143,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -501,6 +501,8 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/browser ") => serde_json::to_string_pretty(
             &agent.browser_command(line.trim_start_matches("/browser "))?,
         )?,
+        "/context" => serde_json::to_string_pretty(&agent.context_status())?,
+        "/findings" => agent.findings_text()?,
         "/rotation" => serde_json::to_string_pretty(&agent.rotation_status())?,
         "/plan" => agent.plan_text(),
         "/report" => agent.report_text(),

@@ -11,6 +11,7 @@ pub struct Settings {
     pub stream: bool,
     pub free_rotation: bool,
     pub max_steps: usize,
+    pub context_tokens: usize,
 }
 
 impl Settings {
@@ -57,6 +58,7 @@ impl Settings {
             stream: true,
             free_rotation: true,
             max_steps: 24,
+            context_tokens: 32768,
         })
     }
 

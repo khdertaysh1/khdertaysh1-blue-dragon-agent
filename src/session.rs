@@ -16,6 +16,10 @@ pub struct Session {
     pub plan: crate::plan::Plan,
     #[serde(default)]
     pub last_report: Value,
+    #[serde(default)]
+    pub observations: Vec<crate::reasoning::Observation>,
+    #[serde(default)]
+    pub findings: Vec<crate::reasoning::Finding>,
 }
 
 #[derive(Debug)]
@@ -41,6 +45,8 @@ pub fn new(root: &Path, model: &str) -> Session {
         messages: Vec::new(),
         plan: crate::plan::Plan::default(),
         last_report: Value::Null,
+        observations: Vec::new(),
+        findings: Vec::new(),
     }
 }
 
