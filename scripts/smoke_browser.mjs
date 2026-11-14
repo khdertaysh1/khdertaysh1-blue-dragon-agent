@@ -108,6 +108,27 @@ try{
  assert.equal(await action({action:'evaluate',expression:'window.__freshLoad'}),'#fresh-document-test');
  const rotation=(await send('/rotation')).data;assert.equal(rotation.mode,'Blue Free automatic');
  agent.stdin.write('/exit\n');await new Promise(resolve=>agent.once('exit',resolve));
+ if(!extensionMode){
+  // A fresh agent process must reconnect from the saved explicit port, not
+  // claim the previous tab is ready or replay any old click/fill operation.
+  output='';errors='';
+  agent=spawn(binary,['--root',temp,'--provider','free','chat'],{env,stdio:['pipe','pipe','pipe']});
+  agent.stdout.on('data',b=>output+=b.toString());agent.stderr.on('data',b=>errors+=b.toString());
+  await until(()=>output.includes('blue-dragon> '));
+  const pending=(await send('/browser status')).data;
+  assert.equal(pending.ready,false);assert.equal(pending.reconnect_pending,true);
+  assert.equal(pending.saved_connection.backend,'attach');
+  const hitsBefore=apiHits;
+  await action({action:'open',url:site});
+  assert.equal((await action({action:'snapshot'})).title,'Blue Dragon fixture');
+  assert.equal(await action({action:'evaluate',expression:'document.querySelector("#name").value'}),'');
+  assert.equal(apiHits,hitsBefore,'reconnect must not replay a click');
+  const tabs=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  assert(tabs.some(tab=>tab.url===site+'/unmanaged'),'personal/unmanaged tab survives restart');
+  assert.equal((await send('/browser stop')).data.saved_connection_cleared,true);
+  assert(!fs.existsSync(path.join(env.BLUE_DRAGON_HOME,'browser-connection.json')));
+  agent.stdin.write('/exit\n');await new Promise(resolve=>agent.once('exit',resolve));
+ }
  console.log(`${firefoxMode?'FIREFOX EXTENSION':extensionMode?'CHROMIUM EXTENSION':'CDP'} real browser: open/DOM/fill/click/JS/network/source/console/screenshot, managed-tab isolation and approved CLI roundtrips passed`);
 }catch(error){console.error(error);process.exitCode=1;}
 finally{if(webdriverSession){await fetch(driverURL+'/session/'+webdriverSession,{method:'DELETE'}).catch(()=>{});}inspector?.close();agent?.kill('SIGKILL');browser?.kill('SIGKILL');await new Promise(r=>server.close(r));fs.rmSync(temp,{recursive:true,force:true});}
