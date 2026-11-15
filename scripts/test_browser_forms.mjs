@@ -51,3 +51,18 @@ assert.equal(snapshot.elements.at(-1).options.length,0);
 assert.equal(snapshot.elements.at(-1).options_omitted,100);
 assert(JSON.stringify(snapshot).length<40000);
 console.log('Snapshot option budget tests passed');
+
+const readyDoc={readyState:'complete',location:{href:'https://example.test/app'},querySelectorAll:()=>[{innerText:'Loaded',getClientRects:()=>[{}]}]};
+const readyContext=vm.createContext({window:{__bbStudioConsole:[]},document:readyDoc,console,setTimeout,Date});
+vm.runInContext(readFileSync('browser-extension/shared/page.js','utf8'),readyContext);
+const ready=await readyContext.blueDragonPage('wait_for',{selector:'#ready',text:'Loaded',timeout_ms:1000});
+assert.equal(ready.matched,true);assert.equal(ready.react_complete_proven,false);
+const absent=await readyContext.blueDragonPage('wait_for',{selector:'#ready',text:'Absent',timeout_ms:100});
+assert.equal(absent.matched,false);
+readyDoc.querySelectorAll=()=>[{tagName:'IFRAME',contentDocument:null}];
+assert.throws(()=>readyContext.blueDragonPage('click',{selector:'#submit',frame_selector:'#private'}),/Cross-origin/);
+const child={readyState:'complete',location:{href:'https://example.test/child'},querySelectorAll:()=>[{innerText:'Child ready',getClientRects:()=>[{}]}]};
+readyDoc.querySelectorAll=()=>[{tagName:'IFRAME',contentDocument:child}];
+const framed=await readyContext.blueDragonPage('wait_for',{frame_selector:'#child',selector:'#ready',text:'Child ready',timeout_ms:1000});
+assert.equal(framed.matched,true);assert.equal(framed.url,'https://example.test/child');
+console.log('Bounded readiness and same-origin/cross-origin frame contract tests passed');

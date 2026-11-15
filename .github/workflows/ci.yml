@@ -28,9 +28,25 @@ jobs:
       - run: cargo build --locked --release
       - name: Offline provider selection smoke test
         run: python scripts/smoke_models.py
+      - name: Deterministic runtime regression benchmark
+        shell: bash
+        run: |
+          binary=target/release/blue-dragon
+          if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
+          python scripts/benchmark_runtime.py --candidate "$binary" --repeats 1 --output runtime-benchmark.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-benchmark-${{ runner.os }}
+          path: runtime-benchmark.json
+          if-no-files-found: error
       - name: Real terminal smoke test
         if: runner.os != 'Windows'
-        run: python scripts/smoke_tui.py
+        run: |
+          python scripts/test_pty_shutdown.py
+          python scripts/smoke_tui.py
+      - name: Active job shutdown in terminal
+        if: runner.os == 'Linux'
+        run: python scripts/smoke_job_shutdown.py
       - name: Package release binary
         shell: bash
         run: |
@@ -122,6 +138,7 @@ jobs:
         with:
           python-version: "3.x"
       - run: cargo build --locked --release
+      - run: node scripts/test_browser_forms.mjs
       - run: python scripts/build_browser_extension.py
       - name: Extension validation
         run: npx --yes web-ext@10.8.0 lint --source-dir target/browser-extensions/firefox

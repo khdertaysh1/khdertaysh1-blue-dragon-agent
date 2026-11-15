@@ -83,3 +83,14 @@ writes nothing. Existing Unix mode bits are preserved; ownership, ACLs and
 Windows security attributes are not guaranteed to be retained. This is not a multi-file
 transaction or protection against a malicious concurrent filesystem writer;
 the last content check and rename are not a filesystem compare-and-swap.
+
+## Reliability review and explicit vision
+
+See [the reproducible review](PROFESSIONAL_REVIEW.md) for baseline/candidate
+results and platform limits, and [vision consent and privacy](VISION.md) for
+one-shot screenshot interpretation. Sessions now hold an OS lock while active;
+close the original process before resuming that same session elsewhere. Failed
+oversized checkpoints preserve the last resumable version. Session locks are
+released on process exit; leftover `.lock` files need not be deleted.
+
+The [scoped audit workflow](SCOPE_AND_AUDIT.md) documents large-source caching, explicit scope, readiness/frames, coverage, hypotheses, controlled comparisons and reproduction limits.

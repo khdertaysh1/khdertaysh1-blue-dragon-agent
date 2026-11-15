@@ -80,6 +80,7 @@ impl Guard {
         old.denied = result["denied"] == true
             || status.contains("denied")
             || result["execution_status"] == "unknown"
+            || error.contains("scope denied")
             || error.contains("outcome unknown")
             || error.contains("outcome may be unknown")
             || error.contains("timed out")

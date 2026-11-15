@@ -197,7 +197,15 @@ pub fn build(
                 if let Some(rows) = memory.get_mut(field).and_then(Value::as_array_mut) {
                     rows.truncate(if level >= 3 { 4 } else { 8 });
                     for row in rows {
-                        for key in ["summary", "limitation", "excerpt"] {
+                        for key in [
+                            "summary",
+                            "limitation",
+                            "excerpt",
+                            "rationale",
+                            "next_test",
+                            "confirms",
+                            "refutes",
+                        ] {
                             if let Some(text) = row.get(key).and_then(Value::as_str) {
                                 row[key] = json!(clip(text, if level >= 3 { 160 } else { 400 }));
                             }

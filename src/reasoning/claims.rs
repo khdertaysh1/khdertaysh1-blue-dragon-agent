@@ -38,7 +38,7 @@ pub fn extract(tool: &str, result: &Value) -> NativeFacts {
     }
     match tool {
         "run_command" => facts.command_exit_code = result["exit_code"].as_i64(),
-        "web_fetch" => {
+        "web_fetch" | "source_artifact" => {
             facts.http_status = result["status"]
                 .as_u64()
                 .filter(|v| (100..=599).contains(v))

@@ -1,11 +1,24 @@
 function blueDragonPage(action, args) {
+  const outerDocument = globalThis.document;
+  let document = outerDocument;
+  if (args.frame_selector !== undefined) {
+    if (typeof args.frame_selector !== 'string' || args.frame_selector.length > 500) throw new Error('Invalid frame selector');
+    if (!['snapshot','wait_for','click','fill','select','set_checked'].includes(action)) throw new Error('Action does not support frame targeting');
+    const frames = outerDocument.querySelectorAll(args.frame_selector);
+    if (frames.length !== 1 || frames[0].tagName !== 'IFRAME') throw new Error('Frame selector must match exactly one iframe');
+    try { document = frames[0].contentDocument; if (!document || !document.location.href) throw new Error('inaccessible'); }
+    catch { throw new Error('Cross-origin or unavailable iframe; no action performed'); }
+  }
+  const window = document.defaultView || globalThis.window;
+  const location = document.location || globalThis.location;
   const clip = (value, max = 40000) => String(value ?? '').slice(0, max);
   if (!window.__bbStudioConsole) {
     const rows = [];
     Object.defineProperty(window, '__bbStudioConsole', { value: rows, configurable: true });
     for (const level of ['log', 'info', 'warn', 'error']) {
-      const original = console[level];
-      console[level] = function (...values) {
+      const pageConsole = window.console || globalThis.console;
+      const original = pageConsole[level];
+      pageConsole[level] = function (...values) {
         rows.push({level, text: values.map(x => { try { return typeof x === 'string' ? x : JSON.stringify(x); } catch { return String(x); } }).join(' ').slice(0, 4000)});
         if (rows.length > 200) rows.shift();
         return original.apply(this, values);
@@ -39,9 +52,29 @@ function blueDragonPage(action, args) {
     return {options, options_omitted: Math.max(0, el.options.length - options.length),
       option_value_note: 'Truncated values are previews, not usable exact selection values.'};
   };
+  if (action === 'wait_for') {
+    if (typeof args.selector !== 'string' || !args.selector || args.selector.length > 500) throw new Error('Readiness requires a bounded selector');
+    const timeout = args.timeout_ms === undefined ? 5000 : args.timeout_ms;
+    if (!Number.isInteger(timeout) || timeout < 100 || timeout > 10000) throw new Error('Readiness timeout must be 100..10000ms');
+    if (args.text !== undefined && (typeof args.text !== 'string' || args.text.length > 500)) throw new Error('Invalid expected text');
+    return (async () => {
+      const started = Date.now(); let stable = 0, previous;
+      while (Date.now() - started < timeout) {
+        const nodes = document.querySelectorAll(args.selector);
+        const el = nodes.length === 1 ? nodes[0] : null;
+        const text = clip(el?.innerText || el?.textContent, 4000);
+        const matched = document.readyState !== 'loading' && el && el.getClientRects().length && (args.text === undefined || text.includes(args.text));
+        stable = matched ? (text === previous ? stable + 1 : 1) : 0; previous = text;
+        if (stable >= 3) return {matched:true, url:location.href, criterion:'one visible selector, optional expected text, three equal 100ms samples after DOM loading', elapsed_ms:Date.now()-started, react_complete_proven:false};
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return {matched:false, url:location.href, elapsed_ms:Date.now()-started, react_complete_proven:false, note:'Readiness criterion not observed before deadline; no framework completion or absence claim.'};
+    })();
+  }
   if (action === 'snapshot') {
     return {untrusted_web_content: true, url: location.href, title: document.title, ready: document.readyState,
       text: clip(document.body?.innerText),
+      frames: [...document.querySelectorAll('iframe')].slice(0,20).map(f => ({selector:selectorFor(f),url:f.src||'',same_origin_accessible:(()=>{try{return !!f.contentDocument;}catch{return false;}})()})),
       forms: [...document.forms].slice(0, 20).map(f => ({action: f.action, method: f.method,
         fields: [...f.elements].slice(0, 60).map(e => ({tag: e.tagName.toLowerCase(), type: e.type || '', name: clip(e.name, 100), selector: selectorFor(e), required: !!e.required, minlength: e.minLength, maxlength: e.maxLength, pattern: clip(e.pattern, 100), autocomplete: clip(e.autocomplete, 100)}))})),
       inline_scripts: [...document.scripts].filter(e => !e.src).slice(0, 6).map(e => clip(e.textContent, 4000)),
