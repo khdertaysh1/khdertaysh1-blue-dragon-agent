@@ -318,7 +318,7 @@ impl Cdp {
             }
             "screenshot" => self.call("Page.captureScreenshot",json!({"format":"jpeg","quality":60,"captureBeyondViewport":false})),
             "close" => { self.call("Page.close",json!({}))?; self.alive=false; Ok(json!({"closed":true})) }
-            "snapshot"|"wait_for"|"click"|"fill"|"select"|"set_checked"|"evaluate" => {
+            "snapshot"|"wait_for"|"click"|"fill"|"select"|"set_checked"|"scroll"|"evaluate" => {
                 self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,args))
             }
             _ => anyhow::bail!("Unsupported CDP action"),

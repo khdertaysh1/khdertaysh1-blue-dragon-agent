@@ -32,7 +32,8 @@ with tempfile.TemporaryDirectory() as temp:
     metadata = json.loads((folder / "release.json").read_text())
     version = tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
     assert metadata["version"] == version
-    assert output.read_text().strip() == f"tag=v{version}"
+    assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
+        "tag": f"v{version}", "prerelease": str("-" in version).lower()}
     assert metadata["physical_android_tested"] is False
     assert "Copyright" in (folder / "LICENSES.txt").read_text()
     for notice in (repo / "third_party").glob("*-LICENSE"):

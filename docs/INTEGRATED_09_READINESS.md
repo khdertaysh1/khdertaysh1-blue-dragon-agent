@@ -1,0 +1,13 @@
+> Superseded locally by the [assembled follow-up candidate](INTEGRATED_09_ASSEMBLED.md). The results below remain historical evidence for their exact source and binary.
+
+# Integrated 0.9.0-alpha.1 local readiness
+
+The integrated source candidate is `8a9c0fc8c6ea2ea6ec04a7865cc8f62bbb898894` on `improve/integrated-professional`, based on merged `02d187c`. This record describes local Linux validation, not a published release. The earlier `validation/candidate-readiness.json` and `CANDIDATE_READINESS.md` describe historical 0.8 work only.
+
+The release binary SHA256 is `8876dc9beceee062431d13eb1caa3e75f2fbc99a91444ee921e214751966ff30` (17,956,080 bytes). All 253 Rust tests passed; formatting, strict Clippy and offline locked release build passed. Third-party dependency lock entries are unchanged. All 23 qualification groups passed against that same binary from a clean source checkout; every retained group log hash was verified. The source tree hash, harness hashes, lab revision, binary identity, individual group results and runtime samples are in [the machine-readable record](../validation/integrated09-readiness.json). Full local logs remain in `/tmp/blue-dragon-integrated09-qualification`.
+
+The deterministic runtime comparison passed 24/24 samples for this candidate and 24/24 for the retained 0.8 binary (eight cases, three runs each). This is regression evidence, not an Alpha benchmark or a model-quality/performance superiority claim.
+
+The new integrated fixtures prove independent concurrent model loops with distinct sessions/evidence, parent/peer messages, denied writes and scope escape, large-file windows/search, retained contradictory summaries, cancellation without subsequent tools, and process-kill recovery as interrupted without replay. Coverage fixtures exercise native GET evidence, account/scenario binding, report/restart and revoked scope without extra requests. Existing browser policy/forms checks are synthetic; they do not prove live graphical browser behavior.
+
+No candidate push, CI run, merge, tag or publication has occurred. Windows/macOS, Android cross-build, a physical Termux device, live provider and real graphical browser remain untested for this candidate. Process kill was tested on Linux, not Android. Child agents intentionally have read-only local tools; write worktrees, automatic patch merging, task DAGs, semantic memory graph and broad external integrations remain absent. See [the source comparison and gaps](INTEGRATED_ALPHA_COMPARISON.md). Review and platform CI are still required before treating this package as a distributable release.

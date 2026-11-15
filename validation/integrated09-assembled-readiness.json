@@ -1,0 +1,495 @@
+{
+  "version": "0.9.0-alpha.1",
+  "status": "assembled_locally_qualified_pending_scroll_review_and_platform_CI",
+  "branch": "candidate/integrated09-reviewed",
+  "tested_source_commit": "cec4c047e9f91ea8a0ba8a996319bc0883b8d6b8",
+  "tested_src_tree": "a0bc32b39a5f0e746c071f193ab3fbbd4774e33f",
+  "frozen_base": "51650ba5d087c3496a1da076a6b09a60a2eab53d",
+  "original_changes": [
+    "13c6de6",
+    "acf94a1",
+    "5345d4d"
+  ],
+  "rust_tests": {
+    "passed": 263,
+    "failed": 0
+  },
+  "checks": [
+    "cargo fmt --all -- --check",
+    "cargo test --offline --locked --all-targets",
+    "cargo clippy --offline --locked --all-targets -- -D warnings",
+    "cargo build --offline --locked --release",
+    "git diff --check"
+  ],
+  "qualification": {
+    "schema": 1,
+    "source_commit": "cec4c047e9f91ea8a0ba8a996319bc0883b8d6b8",
+    "source_dirty_at_start": false,
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "python": "3.12.14",
+    "lab_commit": "c396c90f2e7ed080f71368ce9edb5cd630098b09",
+    "binary_sha256": "e0af32028589e908690be1eaf338eeb54a6c5601b70fc156e4b3882205095c97",
+    "groups": [
+      {
+        "name": "smoke_continuity",
+        "harness_sha256": "7b6500f769f49da6135c83acc47da66c0afe6b5cc3ce89952075535b3ec1a40b",
+        "status": "passed",
+        "log": "smoke_continuity.log",
+        "exit_code": 0,
+        "seconds": 0.615,
+        "log_sha256": "17165d01d21133e65dc53a678e705de91b4e91066c53b2b97aae5a7739935cf5"
+      },
+      {
+        "name": "smoke_coverage",
+        "harness_sha256": "96c5779e0007ad51123933c06606ea364d5c2aa989fcded7c3b4806a984815f4",
+        "status": "passed",
+        "log": "smoke_coverage.log",
+        "exit_code": 0,
+        "seconds": 0.615,
+        "log_sha256": "7ad2622fdc435ecbc9e323e82352911b36e1c87b650a0a1e82a97dbddad652c6"
+      },
+      {
+        "name": "smoke_test_coverage",
+        "harness_sha256": "1539f56d097800eae5455165055a1f105cba67feb3415eb0db15b410628a1730",
+        "status": "passed",
+        "log": "smoke_test_coverage.log",
+        "exit_code": 0,
+        "seconds": 0.67,
+        "log_sha256": "c19fc2b05e40322bab7fd848a8bf1f07e90a1209d8381c0e6a8a297a45963dd1"
+      },
+      {
+        "name": "smoke_delegates",
+        "harness_sha256": "b1c86b5fa760a7493913d520e984c84583a6decddde2fcb966d621b2cc8be51b",
+        "status": "passed",
+        "log": "smoke_delegates.log",
+        "exit_code": 0,
+        "seconds": 0.766,
+        "log_sha256": "7707826c2645820b16f8de2593bdf992c7a56815341a61c0aa324879775afeb5"
+      },
+      {
+        "name": "smoke_source_refresh",
+        "harness_sha256": "0e5193cbed08015dac52af2367b3037eabfc1963c55d91a356085f89d58d2e23",
+        "status": "passed",
+        "log": "smoke_source_refresh.log",
+        "exit_code": 0,
+        "seconds": 0.615,
+        "log_sha256": "7c00d850285d158b22fdd9115db8c595755ff85a627aa28ad0189f3226191097"
+      },
+      {
+        "name": "smoke_source_chain",
+        "harness_sha256": "12875a979264f69652cb912e9f86f0098898b20cbd8ee9c1a86082899d07e981",
+        "status": "passed",
+        "log": "smoke_source_chain.log",
+        "exit_code": 0,
+        "seconds": 1.171,
+        "log_sha256": "7375f1f141b829937d5e57b3a5e887a0904e49052aa2da7ceddc3232a5986b17"
+      },
+      {
+        "name": "smoke_review_engines",
+        "harness_sha256": "b497724e3ba63cb64de7c93f7a2bbdecd6f1af7f0692529782584244f148505e",
+        "status": "passed",
+        "log": "smoke_review_engines.log",
+        "exit_code": 0,
+        "seconds": 8.274,
+        "log_sha256": "f1d7c207dd45e0ecd14862cc223dcfb793b9df4c701cea6cf30c31f8607444f0"
+      },
+      {
+        "name": "lab_matrix",
+        "harness_sha256": "84631bb345d4f5a68e8d814605bef94f9d4cadbb7c7639d573fe4a63e11c9af2",
+        "status": "passed",
+        "log": "lab_matrix.log",
+        "exit_code": 0,
+        "seconds": 4.198,
+        "log_sha256": "eafaa04807b4377baefb23906423f93785f93ce26b64df3955fac3721219480d"
+      },
+      {
+        "name": "smoke_lab_runner",
+        "harness_sha256": "2c0e209b30fdc4f58dc112afe0c88f9878454000d223b3d1b2e43fe9a4daf9d8",
+        "status": "passed",
+        "log": "smoke_lab_runner.log",
+        "exit_code": 0,
+        "seconds": 12.845,
+        "log_sha256": "7abba2a41dea530e2a0c9c276d7e47fc8fb1b1212f7a794e892408fcdec0fbd2"
+      },
+      {
+        "name": "smoke_source_discovery",
+        "harness_sha256": "1fc1dacb71cb55240264e8bb793860788cbef5b946e28a1c11d6ff68bfd9958a",
+        "status": "passed",
+        "log": "smoke_source_discovery.log",
+        "exit_code": 0,
+        "seconds": 3.227,
+        "log_sha256": "e31f2be2534f8c874dbb9b8c7c8bf37cfc0a3ab64d11800fd05d77608a55b8a9"
+      },
+      {
+        "name": "smoke_dynamic_discovery",
+        "harness_sha256": "e4d84540a743952c39e90ad015bacfdec3c810490e8b468d9cd54c445f176acb",
+        "status": "passed",
+        "log": "smoke_dynamic_discovery.log",
+        "exit_code": 0,
+        "seconds": 3.329,
+        "log_sha256": "774d9f7d436114971ba1754683db5f551ca13184417aad52a2d06c8a00a19dd4"
+      },
+      {
+        "name": "smoke_scoped_flow",
+        "harness_sha256": "56ba555bd06f9fb633e9ac0f6149928f34c4f29ad5586e7959aaf764d2dfbc5e",
+        "status": "passed",
+        "log": "smoke_scoped_flow.log",
+        "exit_code": 0,
+        "seconds": 3.225,
+        "log_sha256": "4ee25c10fe21fc2af7f0dbad3b090f186e34b42a3416c52b9f42c25776d9241e"
+      },
+      {
+        "name": "smoke_call_bridge",
+        "harness_sha256": "a9fe9fab40cc05b3fda7728dd76ef4690de4a1a4a99f64b6df5601c537c1008a",
+        "status": "passed",
+        "log": "smoke_call_bridge.log",
+        "exit_code": 0,
+        "seconds": 6.435,
+        "log_sha256": "877340074fbf9cef78cfe26018da3a902a32653a58d14516493730049a14cecb"
+      },
+      {
+        "name": "models_offline",
+        "harness_sha256": "f507cce3d236a4afb965c50ad543232c4fe2ad3681865188d53916074fcb45f2",
+        "status": "passed",
+        "log": "models_offline.log",
+        "exit_code": 0,
+        "seconds": 0.064,
+        "log_sha256": "7e3556cee145961195aa41deb54494a1b4e232ac89f04109781d94ba82cbd599"
+      },
+      {
+        "name": "smoke_tui",
+        "harness_sha256": "d6c6549e3a29e271caee02f8b69dfc1ed77a9497e94544832163ba16cf98aa40",
+        "status": "passed",
+        "log": "smoke_tui.log",
+        "exit_code": 0,
+        "seconds": 0.265,
+        "log_sha256": "9da5cfc0ef7a9db48bf2dd175128dde283a7fd3855e3b9c0f5c980ae6a1e8478"
+      },
+      {
+        "name": "smoke_job_shutdown",
+        "harness_sha256": "e6ff9f8121804353ae6f790f66311c357ea66201f2db6d144d258b6c163e2fcb",
+        "status": "passed",
+        "log": "smoke_job_shutdown.log",
+        "exit_code": 0,
+        "seconds": 2.675,
+        "log_sha256": "0ce757a49abeacdea134a54c07612ec68da84d8b4829c4006e3cee8ae04f83ee"
+      },
+      {
+        "name": "test_pty_shutdown",
+        "harness_sha256": "f4ea21b03ef0d3b5bd46e8c9d4a9aba6aec02499db08170d7626f69d9a48075a",
+        "status": "passed",
+        "log": "test_pty_shutdown.log",
+        "exit_code": 0,
+        "seconds": 0.215,
+        "log_sha256": "b572c73cb6a2bfc83cf84d6f28224c8f69ee26d46c3493ceb55e5621dfca55d5"
+      },
+      {
+        "name": "test_installer",
+        "harness_sha256": "533392b4c5facc49b09891594ef24afdd8b801c4164007417404a8c07098134f",
+        "status": "passed",
+        "log": "test_installer.log",
+        "exit_code": 0,
+        "seconds": 1.069,
+        "log_sha256": "5527bdca4dde183f3a1e39202eef1822b917afb66afa5d906813b3de599fb5fd"
+      },
+      {
+        "name": "test_source_upgrade",
+        "harness_sha256": "8f00c49a04861197a00102c7d2c2d2f88c449160a672eaa5fd36e62a76668599",
+        "status": "passed",
+        "log": "test_source_upgrade.log",
+        "exit_code": 0,
+        "seconds": 0.115,
+        "log_sha256": "b83ab93d2994cb255cb80d3b3281c0dbae5af7d18d6323e76091d1d8d61ee493"
+      },
+      {
+        "name": "test_release_payload",
+        "harness_sha256": "3032acfb3b08ac6bd8d83f1f997aa0af3ce8e0a0f0b5f0faacc06bed2c612da9",
+        "status": "passed",
+        "log": "test_release_payload.log",
+        "exit_code": 0,
+        "seconds": 0.264,
+        "log_sha256": "181fed1bdaf9cfd7efb02485105fee07f1a50a64d12e7cae82b2695247325e3a"
+      },
+      {
+        "name": "test_browser_forms",
+        "harness_sha256": "23eaafab8fb368ee7b58749c1943e3dac5b51551446ed79eb879b36e717fbc54",
+        "status": "passed",
+        "log": "test_browser_forms.log",
+        "exit_code": 0,
+        "seconds": 0.616,
+        "log_sha256": "7900b19287e7f054de30656f7d56066dabcb14261ba29e0601dbbc63c9c1f1a7"
+      },
+      {
+        "name": "test_browser_policy",
+        "harness_sha256": "e703ebaf7cc6f8271db37bf40a96b7f4190e70d36473a6fa5711a2ed9f242092",
+        "status": "passed",
+        "log": "test_browser_policy.log",
+        "exit_code": 0,
+        "seconds": 0.064,
+        "log_sha256": "930f5de07788e944f850b5bfe1889f4e9eeb9f215bf6c3697be54a54f3231f03"
+      },
+      {
+        "name": "runtime_benchmark",
+        "harness_sha256": "8818b29c152fd3bf49c487c99b6269880cb49ce5c4d33ce70e32625777327236",
+        "status": "passed",
+        "log": "runtime_benchmark.log",
+        "exit_code": 0,
+        "seconds": 12.917,
+        "log_sha256": "d5eca9a7e2cdd8fafc6fe65ef6888de125b4e2469d7eed76201007460f8a8d30"
+      }
+    ],
+    "limits": [
+      "Synthetic/offline fixtures and reviewed loopback lab only; no OS network isolation claim.",
+      "No real browser, physical Termux, Windows/macOS execution or live provider qualification.",
+      "No Alpha runtime comparison; deterministic runtime tests do not measure model quality.",
+      "POSIX process groups are terminated on timeout; Windows only terminates the immediate process.",
+      "Group pass means its assertions and exit code passed; no count or coverage equivalence across groups."
+    ],
+    "binary_unchanged": true,
+    "status": "passed"
+  },
+  "log_hashes_rechecked": 23,
+  "runtime": {
+    "schema": 1,
+    "scope": "Blue Dragon deterministic runtime; not model quality or Alpha parity",
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "fixture_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+    "harness_sha256": "8818b29c152fd3bf49c487c99b6269880cb49ce5c4d33ce70e32625777327236",
+    "candidate": {
+      "binary": "/workspace/scratch/58a10643c600/candidate-builds/blue-dragon-0.9.0-reviewed-linux-x64",
+      "binary_sha256": "e0af32028589e908690be1eaf338eeb54a6c5601b70fc156e4b3882205095c97",
+      "binary_bytes": 18138320,
+      "cases": [
+        {
+          "case": "atomic_edit",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 16.882,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 11.773,
+              "provider_requests": 3,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 42.857,
+              "provider_requests": 3,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 16.882,
+              "provider_requests": 3,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "atomic_rejection",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 14.734,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 10.568,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 14.734,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 20.775,
+              "provider_requests": 2,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "denied_write",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 11.607,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 15.721,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 11.607,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 9.5,
+              "provider_requests": 2,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "native_exit",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 53.534,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 64.058,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 53.534,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 52.24,
+              "provider_requests": 2,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "cached_symbols",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 19.934,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 19.934,
+              "provider_requests": 3,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 32.631,
+              "provider_requests": 3,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 18.002,
+              "provider_requests": 3,
+              "tool_results": 2
+            }
+          ]
+        },
+        {
+          "case": "interrupted_resume",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 22.94,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 22.94,
+              "provider_requests": 1,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 15.945,
+              "provider_requests": 1,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 33.886,
+              "provider_requests": 1,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "archived_arguments",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 22.832,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 37.017,
+              "provider_requests": 2,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 22.832,
+              "provider_requests": 2,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 22.1,
+              "provider_requests": 2,
+              "tool_results": 2
+            }
+          ]
+        },
+        {
+          "case": "session_identity",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 15.492,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 24.935,
+              "provider_requests": 0,
+              "tool_results": 0
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 15.492,
+              "provider_requests": 0,
+              "tool_results": 0
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 12.628,
+              "provider_requests": 0,
+              "tool_results": 0
+            }
+          ]
+        }
+      ]
+    },
+    "alpha": {
+      "status": "not_run",
+      "reason": "No validated Alpha adapter/executable supplied"
+    }
+  },
+  "browser_execution": {
+    "status": "blocked_before_startup",
+    "attempted": "Chromium CLI smoke on isolated loopback fixture",
+    "reason": "socket() failed: Operation not permitted",
+    "not_claimed": [
+      "real Chromium/Firefox validation for scroll",
+      "physical Termux",
+      "Windows/macOS for assembled candidate",
+      "live provider quality",
+      "Alpha runtime parity"
+    ]
+  },
+  "remote_actions": {
+    "pushed": false,
+    "merged": false,
+    "published": false
+  }
+}

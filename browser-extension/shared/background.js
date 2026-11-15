@@ -95,18 +95,26 @@ async function execute(action,args) {
     const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
     return {body:new TextDecoder().decode(bytes),status:response.status,note:'Fresh unauthenticated copy, not the original browser response body'};
   }
-  if(!['snapshot','wait_for','click','fill','select','set_checked','evaluate','console'].includes(action))throw Error('Unsupported action');
+  if(!['snapshot','wait_for','click','fill','select','set_checked','scroll','evaluate','console'].includes(action))throw Error('Unsupported action');
   await readyTab(currentTab);
-  const results=await api.scripting.executeScript({target:{tabId:currentTab},world:'MAIN',func:blueDragonPage,args:[action,args]});
-  if(results[0]?.error)throw Error('Page execution failed');
-  return results[0]?.result ?? null;
+  const results=await api.scripting.executeScript({target:{tabId:currentTab},world:'MAIN',func:blueDragonPage,args:[action,args,true]});
+  if(!Array.isArray(results) || results.length !== 1 || results[0]?.frameId !== 0 || results[0]?.error)throw Error('Page execution failed or returned no main-frame result');
+  const envelope=results[0].result;
+  if(!envelope || typeof envelope !== 'object' || Array.isArray(envelope) || envelope.blueDragonPageEnvelope !== 1 || typeof envelope.ok !== 'boolean')throw Error('Missing or invalid page execution envelope; inspect before retry');
+  const keys=Object.keys(envelope).sort().join(',');
+  if(envelope.ok) {
+    if(keys !== 'blueDragonPageEnvelope,ok,value' || envelope.value === undefined)throw Error('Invalid successful page execution envelope');
+    return envelope.value;
+  }
+  if(keys !== 'blueDragonPageEnvelope,error,ok' || typeof envelope.error !== 'string')throw Error('Invalid failed page execution envelope');
+  throw Error(envelope.error.slice(0,300) || 'Page execution failed');
 }
 async function connect() {
   clearTimeout(reconnect);if(socket){socket.onclose=null;socket.close();}paired=false;
   const config=await api.storage.local.get(['token','port']);
   if(!/^[a-f0-9]{64}$/.test(config.token||'') || !Number.isInteger(config.port) || config.port<1 || config.port>65535)return;
   const ws=new WebSocket(`ws://127.0.0.1:${config.port}/bridge`);socket=ws;
-  ws.onopen=()=>ws.send(JSON.stringify({type:'hello',version:1,token:config.token,capabilities:['open','navigate','snapshot','wait_for','click','fill','select','set_checked','evaluate','network','console','source','screenshot','close']}));
+  ws.onopen=()=>ws.send(JSON.stringify({type:'hello',version:1,token:config.token,capabilities:['open','navigate','snapshot','wait_for','click','fill','select','set_checked','scroll','evaluate','network','console','source','screenshot','close']}));
   ws.onmessage=event=> {
     if(typeof event.data!=='string'||event.data.length>24000)return;
     let packet;try{packet=JSON.parse(event.data);}catch{return;}

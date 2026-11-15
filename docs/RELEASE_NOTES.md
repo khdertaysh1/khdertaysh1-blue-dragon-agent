@@ -1,13 +1,17 @@
-Blue Dragon 0.8.0-alpha.1 — integrated professional preview (unpublished candidate).
+Blue Dragon 0.9.0-alpha.1 — integrated package candidate (unpublished).
 
-- Fetch bounded JavaScript once, search/read precise UTF-8 ranges, preserve old versions, and compare source versions locally. Discover static and literal dynamic module references, selecting each dependency under current scope and approval.
-- Inspect bounded same-function uses and cached named import/re-export call candidates, with explicit rejection of unsupported exports, reassigned bindings, competing writes and incomplete collection. This is syntax analysis, not semantic taint proof.
-- Enforce explicit read/interact/change scope; keep coverage, hypotheses and paired native evidence. Select passive form, response-policy, reflection and redirect reviews individually instead of running a blanket scan.
-- Run approved fixed harmless baseline/variant/control experiments on the supported loopback lab. Durable run IDs prevent automatic replay after interruption. Export canonical recipes, partial outcomes and recomputed observations without further requests.
-- Export redacted evidence, historical source discovery/investigation and local-lab records; reject changed/reused evidence. No HTTP status, reflection or successful tool call alone establishes a vulnerability.
-- Preserve task continuity, bounded recall and unknown outcomes; expose browser collection omissions and connection generations. Installer downloads now show progress and stop stalled transfers while preserving verification and rollback.
-- Add opt-in screenshot interpretation with explicit destination-specific consent and one-shot transmission; image-derived history remains destination locked. Free gateways and unknown vision adapters are unsupported.
+- Read large local UTF-8 files with bounded byte windows and streaming search, including long lines and safe continuation offsets. Preserve the existing small-file editing contract and remote source cache.
+- Track explicitly planned path/method/account/scenario test cells with pinned evidence versions and derived not-tested/blocked/inconclusive/tested states. No coverage percentages or implied vulnerability/authentication proof.
+- Link existing hypotheses to checked case evidence, preserve earlier observations after inconclusive retests, and reconstruct bounded retest recipes without automatic execution.
+- Recover research context, scope changes and evidence references after restart; preserve the parent browser's sole mutable ownership and distinguish current connection state from historical page evidence.
+- Run real independent read-only model agents with separate sessions/evidence, parent and peer messages, two-child concurrency, durable shared request/tool/output quotas, short waits, cancellation and collected results. No child shell, writes, external fetch, browser, MCP or self-approval. Contradictory summaries remain reviewable, not automatically resolved.
+- Restore interrupted child activity as unknown after process death; never replay uncertain requests. Existing background shell jobs remain separate from delegation.
 
-Qualification: 21 local integration groups plus the Rust suite, deterministic runtime cases and actual pinned-lab weak/fixed/adverse controls. Current candidate CI must run after authorized upload. The previous Draft PR's green checks do not qualify this candidate.
+See INTEGRATED_ALPHA_COMPARISON.md, DELEGATED_AGENTS.md, TEST_COVERAGE_LEDGER.md and LOCAL_FILE_WINDOWS.md for evidence boundaries. This is not Alpha parity, a live-provider benchmark, or physical Android verification. Platform CI and actual device trials must cover the final candidate before making those claims.
 
-Limits: alpha software; no full Alpha parity claim. Current candidate has not been run on physical Termux, Windows/macOS, a graphical browser or a live vision/model provider. Android ARM64 CI cross-build and real browser CI remain required. Windows background jobs are unsupported. Browser scope is not an OS network firewall. Saved source/analysis is historical; control equality does not prove stable server/session state. Unsigned browser extensions require developer installation. No publication has occurred.
+- Inspect bounded child evidence with mandatory result pins, revalidate reports and memory sources without replay, and distinguish historical captures from current truth.
+- Use approved stdio MCP tools and exact catalog resource URIs; resource text remains untrusted and is not automatically secret-redacted.
+- Navigate local syntactic outlines and bounded browser scrolling with explicit scope and visibility checks.
+- Obtain a separate CI device-trial kit with deterministic loopback fixtures and per-binary evidence. This does not replace real browser CI or actual Android trials.
+
+See [the candidate and trial plan](CANDIDATE_TRIAL_PLAN.md) for remaining gaps and publication gates. `0.9.0-alpha.1` is a naming decision, not a benchmark result or guarantee.

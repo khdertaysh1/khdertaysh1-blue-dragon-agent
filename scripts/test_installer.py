@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 installer = Path("scripts/install.sh").resolve()
-tag = "v0.4.0-alpha.4"
+tag = os.environ.get("TEST_RELEASE_TAG", "v0.9.0-alpha.1")
 repo = "khdertaysh1/khdertaysh1-blue-dragon-agent"
 
 
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory() as temp:
     checkout.mkdir()
     (checkout / "Cargo.lock").write_text("user generated lock; preserve me")
     asset = "blue-dragon-android-arm64"
-    binary = "#!/bin/sh\nprintf 'blue-dragon 0.4.0-alpha.4\\n'\n"
+    binary = f"#!/bin/sh\nprintf 'blue-dragon {tag[1:]}\\n'\n"
     executable(fixtures / asset, binary)
     (fixtures / "LICENSES.txt").write_text("Fixture license notices\n")
 
@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory() as temp:
             for name in [asset, "LICENSES.txt"]))
 
     manifest()
-    release = {"tag_name": tag, "draft": False, "prerelease": True, "assets": [
+    release = {"tag_name": tag, "draft": False, "prerelease": "-" in tag, "assets": [
         {"name": name, "browser_download_url": f"https://github.com/{repo}/releases/download/{tag}/{name}"}
         for name in [asset, "SHA256SUMS.txt", "LICENSES.txt"]]}
     (fixtures / "releases.json").write_text(json.dumps([release]))
@@ -77,7 +77,7 @@ esac
         return result.stdout + result.stderr
 
     output = run()
-    assert "Installed blue-dragon 0.4.0-alpha.4" in output
+    assert f"Installed blue-dragon {tag[1:]}" in output
     for phase in ["downloading", "downloaded", "verifying SHA256", "checking binary compatibility"]:
         assert phase in output, output
     target = bindir / "blue-dragon"

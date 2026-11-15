@@ -46,6 +46,31 @@ impl Policy {
             json!({"scope":self,"account_verification":"Labels are user-declared, not automatic authentication identity verification. Reconfigure scope when changing login.","limits":"Enforces requested URLs and observed page location before direct actions. Not a network firewall: redirects, page scripts, links and subresources can contact other origins. Arbitrary commands/MCP are outside this browser scope and still require approval."}),
         )
     }
+    pub(crate) fn declared_account(&self, raw: &str, level: &str) -> Option<String> {
+        if !self.enabled || self.check(raw, level).is_err() {
+            return None;
+        }
+        let u = reqwest::Url::parse(raw).ok()?;
+        let labels = self
+            .grants
+            .iter()
+            .filter(|g| {
+                g.origin == u.origin().ascii_serialization()
+                    && (u.path() == g.prefix
+                        || u.path()
+                            .strip_prefix(&g.prefix)
+                            .is_some_and(|s| s.starts_with('/')))
+                    && rank(&g.level).zip(rank(level)).is_some_and(|(a, b)| a >= b)
+            })
+            .map(|g| g.account_label.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        if labels.len() == 1 {
+            labels.into_iter().next()
+        } else {
+            None
+        }
+    }
+
     pub fn check(&self, raw: &str, level: &str) -> Result<()> {
         if !self.enabled {
             return Ok(());

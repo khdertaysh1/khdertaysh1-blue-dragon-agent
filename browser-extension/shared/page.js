@@ -1,9 +1,10 @@
-function blueDragonPage(action, args) {
+function blueDragonPage(action, args, transportEnvelope = false) {
+  const run = () => {
   const outerDocument = globalThis.document;
   let document = outerDocument;
   if (args.frame_selector !== undefined) {
     if (typeof args.frame_selector !== 'string' || args.frame_selector.length > 500) throw new Error('Invalid frame selector');
-    if (!['snapshot','wait_for','click','fill','select','set_checked'].includes(action)) throw new Error('Action does not support frame targeting');
+    if (!['snapshot','wait_for','click','fill','select','set_checked','scroll'].includes(action)) throw new Error('Action does not support frame targeting');
     const frames = outerDocument.querySelectorAll(args.frame_selector);
     if (frames.length !== 1 || frames[0].tagName !== 'IFRAME') throw new Error('Frame selector must match exactly one iframe');
     try { document = frames[0].contentDocument; if (!document || !document.location.href) throw new Error('inaccessible'); }
@@ -71,6 +72,29 @@ function blueDragonPage(action, args) {
       return {matched:false, url:location.href, elapsed_ms:Date.now()-started, react_complete_proven:false, note:'Readiness criterion not observed before deadline; no framework completion or absence claim.'};
     })();
   }
+  if (action === 'scroll') {
+    const dx = args.delta_x === undefined ? 0 : args.delta_x;
+    const dy = args.delta_y === undefined ? 0 : args.delta_y;
+    if (![dx,dy].every(n => Number.isInteger(n) && Math.abs(n) <= 2000) || (dx === 0 && dy === 0)) throw new Error('Scroll requires nonzero integer deltas within -2000..2000 CSS pixels');
+    let el = document.scrollingElement;
+    if (args.selector !== undefined) {
+      if (typeof args.selector !== 'string' || !args.selector || args.selector.length > 500) throw new Error('Invalid scroll selector');
+      const nodes = document.querySelectorAll(args.selector);
+      if (nodes.length !== 1) throw new Error('Scroll selector must match exactly one element');
+      el = nodes[0];
+    }
+    if (!el || !el.getClientRects().length || typeof el.scrollTo !== 'function') throw new Error('Scroll target unavailable or hidden');
+    const style = window.getComputedStyle(el);
+    if (style.visibility === 'hidden' || style.visibility === 'collapse' || style.display === 'none') throw new Error('Scroll target is not CSS-visible');
+    const before = {x:el.scrollLeft,y:el.scrollTop};
+    // Exactly one scroll operation; no scrollIntoView (which could move ancestors).
+    el.scrollTo({left:before.x+dx,top:before.y+dy,behavior:'instant'});
+    const after = {x:el.scrollLeft,y:el.scrollTop};
+    return {url:location.href,target:args.selector === undefined ? 'document' : 'selector',before,after,
+      requested_delta:{x:dx,y:dy},observed_delta:{x:after.x-before.x,y:after.y-before.y},
+      movement_observed:before.x!==after.x || before.y!==after.y,loading_complete_proven:false,
+      automatic_retry:false,note:'Current offsets only; clamping, scroll snapping or page handlers may alter movement. Inspect a fresh snapshot/readiness condition; no completion or end-of-content claim.'};
+  }
   if (action === 'snapshot') {
     return {untrusted_web_content: true, url: location.href, title: document.title, ready: document.readyState,
       text: clip(document.body?.innerText),
@@ -125,4 +149,13 @@ function blueDragonPage(action, args) {
     return {filled: true};
   }
   throw new Error('Unsupported page action');
+  };
+  // Chrome can omit both InjectionResult.result and .error for a thrown page
+  // function. Catch inside the injected function, including Promise rejection.
+  // Keep the raw synchronous CDP/unit-test contract unless explicitly requested.
+  if (!transportEnvelope) return run();
+  return Promise.resolve().then(run).then(
+    value => ({blueDragonPageEnvelope:1,ok:true,value:value === undefined ? null : value}),
+    error => ({blueDragonPageEnvelope:1,ok:false,error:String(error?.message || error).slice(0,300)})
+  );
 }

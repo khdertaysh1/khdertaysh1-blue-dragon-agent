@@ -1,0 +1,372 @@
+{
+  "tested_fix_commit": "266237b8d1c080f526efaa68dfef127a19d67b38",
+  "status": "corrected_oracle_passed_pending_independent_review",
+  "negative_control_tests_passed": 8,
+  "status_matrix": "13 failed/denied/unknown/stale flags x 3 successful-read cases x 2 adapters, plus missing-error and transport controls",
+  "prior_false_positives_reproduced": [
+    "denied native result containing fixture content",
+    "generic Tool permission denied accepted as missing file"
+  ],
+  "comparison": {
+    "schema": 1,
+    "scope": "Four deterministic read contracts, not model quality or overall parity",
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "harness_sha256": "1c71f8da8b197a9c962157f36db2a8c1b38a4f0d1013113294796d1bf72fb31f",
+    "fixtures_sha256": "6038e8b47ed1ac29b20ddf2815b15f94e0549a7f8dc9e7d9f329862d18d90a75",
+    "limits": [
+      "Byte versus line coordinates are adapted explicitly.",
+      "Startup-inclusive elapsed times include different builds/configurations and are not a speed ranking.",
+      "Synthetic model and fresh homes only; no live providers, browser or device checks.",
+      "Failure may reflect the adapter; inspect native evidence before attributing product defects."
+    ],
+    "blue": {
+      "binary_sha256": "ab3de1d8436189f4a6aa3217b85839e037fb4c6a5c59caf8551e5a9228ea47aa",
+      "binary_bytes": 18304784,
+      "cases": [
+        {
+          "case": "small",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 24.723,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "96b4e0399d202839f8db72d9df0271b4aa819e959b3855ed7d2aef6008891833"
+        },
+        {
+          "case": "small",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 19.297,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "96b4e0399d202839f8db72d9df0271b4aa819e959b3855ed7d2aef6008891833"
+        },
+        {
+          "case": "small",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 12.186,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "96b4e0399d202839f8db72d9df0271b4aa819e959b3855ed7d2aef6008891833"
+        },
+        {
+          "case": "utf8",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 22.396,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "be9d7c540da807505303cf7a24b563bf9079a5990ad7afde75ed0fc86eebb6de"
+        },
+        {
+          "case": "utf8",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 10.621,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "be9d7c540da807505303cf7a24b563bf9079a5990ad7afde75ed0fc86eebb6de"
+        },
+        {
+          "case": "utf8",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 12.945,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "be9d7c540da807505303cf7a24b563bf9079a5990ad7afde75ed0fc86eebb6de"
+        },
+        {
+          "case": "range",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 16.572,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 16,
+            "byte_count": 18
+          },
+          "tool_result_sha256": "5f9bf2e42fd8fd295f141e505cba71ad50706089634f171f476d1fcc92112439"
+        },
+        {
+          "case": "range",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 28.233,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 16,
+            "byte_count": 18
+          },
+          "tool_result_sha256": "5f9bf2e42fd8fd295f141e505cba71ad50706089634f171f476d1fcc92112439"
+        },
+        {
+          "case": "range",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 17.368,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "fixture.txt",
+            "byte_offset": 16,
+            "byte_count": 18
+          },
+          "tool_result_sha256": "5f9bf2e42fd8fd295f141e505cba71ad50706089634f171f476d1fcc92112439"
+        },
+        {
+          "case": "missing",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 17.848,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "missing.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "b3accc7662b9db35aba8505e4e3e77220dbcca8e3759bbb4f257fa510a8c10fe"
+        },
+        {
+          "case": "missing",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 11.791,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "missing.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "b3accc7662b9db35aba8505e4e3e77220dbcca8e3759bbb4f257fa510a8c10fe"
+        },
+        {
+          "case": "missing",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 16.849,
+          "provider_requests": 2,
+          "tool": "read_file_window",
+          "arguments": {
+            "path": "missing.txt",
+            "byte_offset": 0,
+            "byte_count": 512
+          },
+          "tool_result_sha256": "b3accc7662b9db35aba8505e4e3e77220dbcca8e3759bbb4f257fa510a8c10fe"
+        }
+      ]
+    },
+    "alpha": {
+      "binary_sha256": "7bdc7d6268e5b21f5480eb7b72eba5e1da5ffd3f1549d148bf6de4f16278fbca",
+      "binary_bytes": 306480528,
+      "cases": [
+        {
+          "case": "small",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 73.252,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "95ca7e6cb1a71048d97dd578e26e05b8e6d0f33b892da4f7ace77d6d6da54442"
+        },
+        {
+          "case": "small",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 72.48,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "f28ae8a0ba8ae8c391b0a0f586f428d80c1a7d0deebdbccad2370be38a6c7497"
+        },
+        {
+          "case": "small",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 71.76,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "ad0d9f6bb11b57f645cf96b2415f6fbd13a9142a1af0a8fe5306a12b8534fd7c"
+        },
+        {
+          "case": "utf8",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 87.02,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "f05e741a6d4655113ff0393d70418ff8d41b52c2faedf40cd8acabbcda3b80ca"
+        },
+        {
+          "case": "utf8",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 138.944,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "ef165e45d25a543be052d0b20cd8912057b71f6c1f4d771c88a2fc570555a1ec"
+        },
+        {
+          "case": "utf8",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 80.143,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "ef3890e18dbd9bcc2a30d1c369eb7933e02b4c16f60e2ac1db202e3efd660278"
+        },
+        {
+          "case": "range",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 82.145,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 1,
+            "limit": 1
+          },
+          "tool_result_sha256": "a9b89aedce0c4002d16e635489ee1a2d7efaf341edf6adee602ca683ebae8416"
+        },
+        {
+          "case": "range",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 199.907,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 1,
+            "limit": 1
+          },
+          "tool_result_sha256": "4f6e7d9bcf859eda093db775900a9c448929f51adcea28bf54aab9916224ce28"
+        },
+        {
+          "case": "range",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 95.465,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "fixture.txt",
+            "offset": 1,
+            "limit": 1
+          },
+          "tool_result_sha256": "5ec6f93315c5918a6f9be7d2c6fe9548e9ae232ba9f865fe9de970d6c07b6715"
+        },
+        {
+          "case": "missing",
+          "repetition": 1,
+          "status": "passed",
+          "elapsed_ms": 74.517,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "missing.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "da8647bbf8c9e8e8564ee5e16120179d6978840d61375c1e8061ead7eeee0b0b"
+        },
+        {
+          "case": "missing",
+          "repetition": 2,
+          "status": "passed",
+          "elapsed_ms": 78.577,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "missing.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "dd8b9f2c961b4fc778dc36d17313e76fdb7e224a5b42da9abc387b92e6922866"
+        },
+        {
+          "case": "missing",
+          "repetition": 3,
+          "status": "passed",
+          "elapsed_ms": 121.174,
+          "provider_requests": 2,
+          "tool": "read",
+          "arguments": {
+            "file_path": "missing.txt",
+            "offset": 0,
+            "limit": 10
+          },
+          "tool_result_sha256": "348f6a9c572394f0050ab37348ac859b44d2319372c6fbd1ce79515c5e26c15c"
+        }
+      ]
+    }
+  },
+  "validation_scope": "Affected Python harness controls and both actual CLIs rerun; Rust runtime unchanged, no new full qualification or Rust rerun claimed."
+}

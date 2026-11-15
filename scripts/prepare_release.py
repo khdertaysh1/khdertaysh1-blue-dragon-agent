@@ -38,3 +38,4 @@ checksums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
 (folder / "SHA256SUMS.txt").write_text(checksums)
 with open(os.environ["GITHUB_OUTPUT"], "a") as out:
     print(f"tag=v{version}", file=out)
+    print(f"prerelease={str('-' in version).lower()}", file=out)

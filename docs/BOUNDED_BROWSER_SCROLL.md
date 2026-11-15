@@ -1,0 +1,15 @@
+# Bounded browser scrolling
+
+Alpha's browser tool exposes scroll; Blue previously required arbitrary evaluate code to do it. The new `browser` action `scroll` supplies a small explicit contract shared by CDP and the extension. It reuses existing dedicated-tab ownership, scope checks, approvals, frame guards, connection-epoch checks and uncertain-result handling.
+
+Arguments: integer `delta_x` and/or `delta_y`, each -2000..2000 CSS pixels, at least one nonzero. Optional `selector` must match one visible element; without it, the document scrolling element is used. Optional `frame_selector` selects one accessible same-origin iframe under the existing scope checks. The action calls scrollTo once with instant behavior, never scrollIntoView, never loops and never retries. Parent containers are not deliberately moved.
+
+Returned offsets are observations immediately before/after dispatch, including actual delta and movement_observed. A clamp or no movement is valid; neither proves the end of all content. Scroll snapping and handlers may alter movement or trigger network traffic. loading_complete_proven and automatic_retry are always false. Inspect fresh snapshot/readiness evidence before further actions. This is DOM scrolling, not a trusted physical wheel event, React completion, or authentication evidence.
+
+Scrolling requires mutation scope when scope is enabled and separate approval; it never borrows the automatic read grant. Connection loss leaves an unknown outcome and blocks identical retry within the current agent turn. Existing post-action scope checks withhold results when the document cannot be verified. This is the existing in-process browser boundary, not OS isolation.
+
+Extension package version is 0.5.2. Its scroll capability is required during pairing, so users upgrading the CLI must also update the bundled extension; old bridges fail closed rather than silently accepting an unsupported operation.
+
+Validation: Rust tests cover numeric/selector bounds, scope denial before dispatch, approval despite a read grant, and interrupted dispatch without automatic retry. Shared JavaScript contract tests cover positive movement, clamping, stationary boundaries, invalid input, ambiguous selector and inaccessible frame. The real-browser smoke suite now tests page/container/frame scrolling, ancestor isolation and measured clamping via the CLI. Local Chromium execution was attempted but stopped before startup because the environment denied its internal socket creation (`socket() failed: Operation not permitted`). Real Chromium/Firefox execution and physical Termux remain unverified here; run the existing browser CI on this source before claiming them.
+
+Follow-up review correction: a scroll target must have layout rectangles and computed CSS visibility other than hidden/collapse, with display other than none. This is CSS/layout visibility, not a claim that the element is unobscured, inside the viewport or opaque. Negative contract tests prove hidden/collapsed targets are rejected before scrollTo; the real-browser fixture includes a hidden target check but still awaits a runnable browser environment/CI.
