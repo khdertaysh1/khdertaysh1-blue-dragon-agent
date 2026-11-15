@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Blue Dragon 0.9.0-alpha.3 — release candidate, pending review and CI.** The integrated package includes provider diagnostics and shared cooldowns, bounded file research, independent agents with parent-approved edit proposals, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
+> **[Blue Dragon 0.9.0-alpha.3 — published developer preview](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.3).** [Release CI passed](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/43715146909); physical Termux testing remains unverified. The integrated package includes provider diagnostics and shared cooldowns, bounded file research, independent agents with parent-approved edit proposals, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
