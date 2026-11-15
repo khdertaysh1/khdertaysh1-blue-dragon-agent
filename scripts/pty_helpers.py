@@ -2,6 +2,7 @@
 import errno
 import os
 import platform
+import re
 import select
 import time
 
@@ -31,3 +32,16 @@ def wait_exit(process, master, captured, seconds=5):
     while drain(.01):
         pass
     return process.returncode, elapsed
+
+
+_SGR = re.compile(rb"\x1b\[[0-9;:]*m")
+
+
+def contains_styled_text(captured, text):
+    """Match contiguous text across SGR styling only, not cursor movement.
+
+    The accumulated capture may end halfway through an SGR sequence. Keeping
+    incomplete/non-SGR control sequences prevents false matches; the next read
+    supplies remaining bytes. This is a text-emission oracle, not an emulator.
+    """
+    return text in _SGR.sub(b"", bytes(captured))

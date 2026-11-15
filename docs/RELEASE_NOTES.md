@@ -1,3 +1,13 @@
+Blue Dragon 0.9.0-alpha.2 — Abyss identity candidate (unpublished).
+
+- Integrate the selected full-wing geometric dragon into README as a genuine GIF, with a static SVG alternative and reproducible rendering script.
+- Keep the banner static with cyan BLUE and white DRAGON; apply the same palette and split wordmark in the terminal.
+- Offer opt-in decorative terminal energy using BLUE_DRAGON_MOTION=1; suppress it for approval prompts, compact layouts, NO_COLOR and reduced-motion preference. Ordinary Termux text terminals do not display the README bitmap mascot.
+- Make the PTY title oracle SGR-aware without removing cursor controls, retaining the required BLUE DRAGON title assertion and adding ANSI/chunk-boundary regression cases.
+- This is a new release candidate, not a replacement of the 0.9.0-alpha.1 tag. No model/tool/approval-policy behavior changes. Physical Android validation remains separate.
+
+---
+
 Blue Dragon 0.9.0-alpha.1 — integrated package candidate (unpublished).
 
 - Read large local UTF-8 files with bounded byte windows and streaming search, including long lines and safe continuation offsets. Preserve the existing small-file editing contract and remote source cache.

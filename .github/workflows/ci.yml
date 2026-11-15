@@ -72,6 +72,7 @@ jobs:
       - name: Real terminal smoke test
         if: runner.os != 'Windows'
         run: |
+          python scripts/test_pty_text.py
           python scripts/test_pty_shutdown.py
           python scripts/smoke_tui.py
       - name: Active job shutdown in terminal

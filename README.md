@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/blue-dragon-hero.webp" alt="Blue Dragon — an intact electric-blue dragon with cyber lighting" width="100%" />
+  <img src="assets/abyss-banner.svg" alt="Blue Dragon — Abyss banner with cyan BLUE, white DRAGON and the chosen geometric emblem" width="100%" />
 </p>
 
 <h1 align="center">BLUE DRAGON</h1>
@@ -26,14 +26,16 @@
 </p>
 
 > [!IMPORTANT]
-> **Blue Dragon 0.9.0-alpha.1 — unpublished candidate.** The integrated package includes bounded file research, independent read-only agents, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
+> **Blue Dragon 0.9.0-alpha.2 — unpublished candidate.** The integrated package includes bounded file research, independent read-only agents, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
 <div align="center">
-  <img src="assets/dragon-mind.svg" alt="Illustrated neural workflow: goal, project map, tools, user approval, verification and evidence" width="100%" />
-  <sub>Animated neural workflow: travelling signals, rotating orbit and neural pulses. Motion is decorative; the agent runs in Rust.</sub>
+  <img src="assets/abyss-dragon.gif" alt="Abyss: the approved full-wing geometric dragon with energy rings; decorative animation" width="100%" />
+  <sub>Abyss identity: the chosen full-wing dragon and energy rings. Decorative GIF, not live activity.</sub>
 </div>
+
+[View the still image (no motion)](assets/abyss-dragon.svg) · [Terminal adaptation and motion controls](docs/ABYSS_IDENTITY.md)
 
 Blue Dragon is designed around a simple engineering loop: **understand → act with approval → verify → explain**. Unlike an opaque "autopilot", writes and subprocess commands are presented for explicit user approval. The project is independently developed; a small adapted MIT protocol component is credited in [third-party notices](third_party/NOTICE.md).
 

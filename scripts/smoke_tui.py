@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import termios
 import time
-from pty_helpers import wait_exit
+from pty_helpers import wait_exit, contains_styled_text
 
 master, slave = pty.openpty()
 process = None
@@ -31,7 +31,7 @@ try:
         def wait_for(text, seconds=5):
             until = time.monotonic() + seconds
             while time.monotonic() < until:
-                if text in captured:
+                if contains_styled_text(captured, text):
                     return
                 if select.select([master], [], [], 0.05)[0]:
                     captured.extend(os.read(master, 65536))

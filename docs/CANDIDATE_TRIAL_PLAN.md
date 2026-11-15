@@ -1,9 +1,18 @@
-# Blue Dragon 0.9.0-alpha.1 candidate and trial plan
+# Blue Dragon 0.9.0-alpha.2 candidate and trial plan
 
-The package version is `0.9.0-alpha.1`, the prospective tag is `v0.9.0-alpha.1`, and the display
-name is **Blue Dragon 0.9.0-alpha.1**. This candidate is unpublished. The version is a
+The package version is `0.9.0-alpha.2`, the prospective tag is `v0.9.0-alpha.2`, and the display
+name is **Blue Dragon 0.9.0-alpha.2**. This candidate is unpublished. The version is a
 product naming decision, not evidence of equivalence, stability or device tests.
 Existing published releases must not be changed or deleted.
+
+## Scope of this identity candidate
+
+This plan follows the **alpha.2** package version in `Cargo.toml`. It carries the
+integrated capabilities below plus the approved Abyss README assets, terminal
+palette/wordmark, opt-in decorative motion and SGR-aware PTY smoke checks.
+It does not replace or republish the earlier alpha.1 release. The
+[identity integration notes](ABYSS_IDENTITY.md) distinguish the real README GIF
+from the text-only Termux adaptation and document reduced-motion controls.
 
 ## Implemented capability and remaining gaps
 
@@ -53,6 +62,10 @@ the tool count.
    detects inconsistent transport, not malicious replacement of the whole kit.
    Keep the downloaded CI artifact provenance. Review logs before sharing.
 5. Record actual device/model/Android/Termux versions and user-observed results.
+   For alpha.2, also check the cyan BLUE/white DRAGON wordmark at narrow phone
+   widths; run the TUI with `BLUE_DRAGON_MOTION=1`, then with
+   `BLUE_DRAGON_REDUCED_MOTION=1`, and verify approval controls stay readable.
+   The animated README dragon is not expected to render inside a text terminal.
    Separately exercise browser pairing, approval denial/scope withdrawal, and
    system termination during an action. Restart must show interrupted/unknown
    and must not replay an uncertain action. The kit alone does not prove these
@@ -60,9 +73,9 @@ the tool count.
 6. Resolve CI/device failures and repeat the affected checks on the final commit.
    Coordinate publication only after reviewing those results: **a push/merge to
    main automatically publishes after all required jobs pass**. The workflow
-   packages the complete platform/extension set and creates `v0.9.0-alpha.1`. A published
+   packages the complete platform/extension set and creates `v0.9.0-alpha.2`. A published
    same-tag release is immutable; later fixes need a new version.
-7. After publication, the existing installer accepts `--version v0.9.0-alpha.1`, verifies
+7. After publication, the existing installer accepts `--version v0.9.0-alpha.2`, verifies
    SHA256 and executable version and keeps the previous binary for rollback.
    Do not invoke that tag before it exists. There has been no release from this
    local preparation work.
