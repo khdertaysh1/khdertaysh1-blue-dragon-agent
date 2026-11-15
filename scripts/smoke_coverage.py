@@ -57,8 +57,6 @@ def main(binary):
                 session['observations'].append({'id':f'E{position:06}', 'message_index':position, 'tool':tool, 'ok':True, 'excerpt':'Fixture',
                                                 **({'result_sha256':'0'*64} if index==2 else {})})
                 session['messages'].append({'role':'tool','tool_call_id':ident,'content':json.dumps(result)})
-            path = sessions / 'coverage-fixture.json'
-            path.write_text(json.dumps(session))
             env = {k: v for k, v in os.environ.items() if k.upper() in
                    {'PATH', 'SYSTEMROOT', 'WINDIR', 'TMP', 'TEMP', 'COMSPEC', 'PATHEXT'}}
             env.update(HOME=str(root), USERPROFILE=str(root), BLUE_DRAGON_HOME=str(app),
@@ -67,6 +65,20 @@ def main(binary):
             command = [str(binary), '--root', str(workspace), '--base-url', f'http://127.0.0.1:{server.server_port}/v1',
                        '--model', 'fixture', '--no-stream', '--no-rotation', '--resume', 'coverage-fixture',
                        'run', 'Review saved coverage only; do not fetch or replay anything.']
+            # Use the CLI's persisted identity: Rust canonical paths on Windows
+            # include a verbatim prefix that Python Path.resolve() does not keep.
+            resume_index = command.index('--resume')
+            seeded = subprocess.run(command[:resume_index] + ['chat'], env=env, cwd=workspace,
+                                    input='/exit\n', text=True, capture_output=True, timeout=30)
+            assert seeded.returncode == 0, seeded.stderr[-3000:]
+            paths = list(sessions.glob('*.json'))
+            assert len(paths) == 1, paths
+            path = paths[0]
+            identity = json.loads(path.read_text())
+            session.update(id=identity['id'], workspace=identity['workspace'])
+            path.write_text(json.dumps(session))
+            command[resume_index + 1] = session['id']
+            assert not packets, 'Creating the checkpoint contacted the model'
             completed = subprocess.run(command, env=env, cwd=workspace, input='', text=True,
                                        capture_output=True, timeout=30)
             assert completed.returncode == 0, completed.stderr[-3000:]

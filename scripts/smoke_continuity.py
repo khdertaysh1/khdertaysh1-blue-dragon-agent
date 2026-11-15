@@ -55,8 +55,6 @@ def main(binary):
                        'observations': [{'id': 'E000003', 'message_index': 3, 'tool': 'start_job', 'ok': True, 'excerpt': 'Historical fixture'}],
                        'plan': {'steps': [{'title': 'Inspect uncertain outcome', 'status': 'in_progress'}]},
                        'last_report': {'finished': True}}
-            path = sessions / 'continuity-fixture.json'
-            path.write_text(json.dumps(session))
             env = {k: v for k, v in os.environ.items() if k.upper() in
                    {'PATH', 'SYSTEMROOT', 'WINDIR', 'TMP', 'TEMP', 'COMSPEC', 'PATHEXT'}}
             env.update(HOME=str(root), USERPROFILE=str(root), BLUE_DRAGON_HOME=str(app),
@@ -65,6 +63,31 @@ def main(binary):
             command = [str(binary), '--root', str(workspace), '--base-url', f'http://127.0.0.1:{server.server_port}/v1',
                        '--model', 'fixture', '--no-stream', '--no-rotation', '--resume', 'continuity-fixture',
                        'run', 'Inspect task continuity only. Do not execute old operations.']
+            # Use the CLI's persisted identity: Rust canonical paths on Windows
+            # include a verbatim prefix that Python Path.resolve() does not keep.
+            resume_index = command.index('--resume')
+            seeded = subprocess.run(command[:resume_index] + ['chat'], env=env, cwd=workspace,
+                                    input='/exit\n', text=True, capture_output=True, timeout=30)
+            assert seeded.returncode == 0, seeded.stderr[-3000:]
+            paths = list(sessions.glob('*.json'))
+            assert len(paths) == 1, paths
+            path = paths[0]
+            identity = json.loads(path.read_text())
+            session.update(id=identity['id'], workspace=identity['workspace'])
+            path.write_text(json.dumps(session))
+            command[resume_index + 1] = session['id']
+            assert not packets, 'Creating the checkpoint contacted the model'
+            # Keep the workspace boundary enforced before any provider request.
+            other_workspace = root / 'other-workspace'
+            other_workspace.mkdir()
+            wrong_workspace = command.copy()
+            wrong_workspace[wrong_workspace.index('--root') + 1] = str(other_workspace)
+            rejected = subprocess.run(wrong_workspace, env=env, cwd=other_workspace, input='',
+                                      text=True, capture_output=True, timeout=30)
+            assert rejected.returncode != 0
+            assert 'Session belongs to another workspace' in rejected.stderr, rejected.stderr
+            assert not packets, 'Wrong-workspace resume contacted the model'
+            assert json.loads(path.read_text()) == session, 'Rejected resume changed the checkpoint'
             completed = subprocess.run(command, env=env, cwd=workspace, input='', text=True,
                                        capture_output=True, timeout=30)
             assert completed.returncode == 0, completed.stderr[-3000:]
