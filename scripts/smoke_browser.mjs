@@ -93,6 +93,12 @@ try{
  }else{assert.equal((await send(`/browser attach ${port}`)).data.ready,true);}
  async function action(args){const result=(await send('/browser do '+JSON.stringify(args),true)).data;assert.equal(result?.ok,true,JSON.stringify(result));return result.result;}
  await action({action:'open',url:site});
+ for(const expression of ['null','undefined','Promise.resolve(null)'])assert.equal(await action({action:'evaluate',expression}),null);
+ assert.equal(await action({action:'evaluate',expression:'Promise.resolve(42)'}),42);
+ for(const expression of ['(()=>{throw Error("transport sync fixture")})()','Promise.reject(Error("transport async fixture"))']) {
+  const failure=(await send('/browser do '+JSON.stringify({action:'evaluate',expression}),true)).data;
+  assert.equal(failure.ok,false);assert.equal(failure.automatic_retry,false);
+ }
  const snapshot=await action({action:'snapshot'});assert.equal(snapshot.title,'Blue Dragon fixture');assert(snapshot.elements.some(e=>e.selector==='#send'));assert(!snapshot.text.includes('UNMANAGED_SECRET'));
  assert(snapshot.elements.find(e=>e.selector==='#choice').options.some(o=>o.value==='b'));
  await action({action:'evaluate',expression:'document.querySelector("#scrollbox").style.visibility="hidden"'});

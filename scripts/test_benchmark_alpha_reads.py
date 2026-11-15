@@ -75,6 +75,36 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             bench.validate_result('Error: permission denied\n'+bench.FIXTURES['small'],'alpha','small',bench.FIXTURES['small'])
 
+    def test_windows_missing_is_specific_and_not_content_or_denial(self):
+        error = 'Cannot access missing.txt: The system cannot find the file specified. (os error 2)'
+        bench.validate_result(json.dumps({'ok':False,'error':error}), 'blue', 'missing', '')
+        for value in [
+                {'ok':True,'error':error}, {'error':error},
+                {'ok':False,'content':error,'error':'Tool failed'},
+                {'ok':False,'error':'The system cannot find the path specified. (os error 3)'},
+                {'ok':False,'error':'Access is denied. (os error 5)'},
+                {'ok':False,'error':'The system cannot find the file specified. (os error 5)'},
+                {'ok':False,'error':'Unrelated failure (os error 2)'},
+                {'ok':False,'error':'Permission denied: '+error},
+                *[{'ok':False,'error':error,**flag} for flag in [
+                    {'denied':True},{'stale':True},{'execution_status':'unknown'},{'fresh_evidence':False}]]]:
+            with self.subTest(value=value):
+                with self.assertRaises(AssertionError): bench.validate_result(json.dumps(value),'blue','missing','')
+        self.call_id='fixture_read'; self.result=json.dumps({'ok':False,'error':error})
+        with patch.object(bench.subprocess, 'run', side_effect=self.drive):
+            self.assertEqual(bench.run_case(Path('/unused'),'blue','missing')['status'],'passed')
+
+    def test_failed_case_preserves_native_diagnostic_evidence(self):
+        self.call_id='fixture_read'; self.result=json.dumps({'ok':False,'error':'Access is denied. (os error 5)'})
+        with patch.object(bench.subprocess, 'run', side_effect=self.drive):
+            with self.assertRaises(bench.CaseFailure) as failure:
+                bench.run_case(Path('/unused'),'blue','missing')
+        evidence=failure.exception.evidence
+        self.assertEqual(evidence['native_result_excerpt'],self.result)
+        self.assertEqual(evidence['native_result_sha256'],bench.hashlib.sha256(self.result.encode()).hexdigest())
+        self.assertEqual(evidence['cli_exit_code'],0)
+        self.assertEqual(evidence['provider_requests'],2)
+
     def test_denied_content_rejected_through_provider_transport(self):
         self.call_id='fixture_read'; self.result=json.dumps({'ok':False,'denied':True,'content':bench.FIXTURES['small']})
         with patch.object(bench.subprocess, 'run', side_effect=self.drive):

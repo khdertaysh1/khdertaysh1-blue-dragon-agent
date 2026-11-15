@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import tempfile
 import threading
@@ -44,7 +45,8 @@ def validate_result(text, engine, case, content):
             error = str(native.get('error', '')) if isinstance(native, dict) else text
         lower = error.lower()
         assert not any(word in lower for word in ('permission', 'denied', 'unknown', 'cached', 'stale')), 'Unrelated failure is not missing-file evidence'
-        assert 'not found' in lower or 'no such file' in lower, 'Missing-file error was not established'
+        windows_missing = re.search(r'(?:^|: )the system cannot find the file specified\. \(os error 2\)$', lower) is not None
+        assert 'not found' in lower or 'no such file' in lower or windows_missing, 'Missing-file error was not established'
         return
     visible = native.get('content', text) if isinstance(native, dict) else text
     assert isinstance(visible, str), 'Read result content must be text'
@@ -56,6 +58,12 @@ def validate_result(text, engine, case, content):
             found = visible.find(line, cursor)
             assert found >= 0, text
             cursor = found + len(line)
+
+
+class CaseFailure(AssertionError):
+    def __init__(self, message, evidence):
+        super().__init__(message)
+        self.evidence = evidence
 
 
 def run_case(binary, engine, case):
@@ -123,6 +131,7 @@ def run_case(binary, engine, case):
             command = [str(binary), '--root', str(workspace), '--base-url', endpoint, '--model', 'fixture',
                        '--no-stream', '--no-rotation', '--max-steps', '4', 'run', prompt]
         started = time.perf_counter()
+        run = None
         try:
             run = subprocess.run(command, input='', text=True, capture_output=True, env=env, cwd=workspace, timeout=45)
             if run.returncode: raise AssertionError(f'CLI exit {run.returncode}: {run.stderr[-1500:]}')
@@ -135,6 +144,17 @@ def run_case(binary, engine, case):
             return {'status': 'passed', 'elapsed_ms': round((time.perf_counter()-started)*1000, 3),
                     'provider_requests': len(requests), 'tool': tool, 'arguments': arguments,
                     'tool_result_sha256': hashlib.sha256(text.encode()).hexdigest()}
+        except Exception as exc:
+            native = results[-1] if results else None
+            text = native if isinstance(native, str) else json.dumps(native, ensure_ascii=False) if native is not None else ''
+            raise CaseFailure(str(exc), {
+                'tool': tool, 'arguments': arguments, 'provider_requests': len(requests),
+                'native_result_excerpt': text[:2000], 'native_result_excerpt_truncated': len(text) > 2000,
+                'native_result_sha256': hashlib.sha256(text.encode()).hexdigest() if text else None,
+                'cli_exit_code': run.returncode if run is not None else None,
+                'cli_stderr_tail': run.stderr[-1500:] if run is not None else '',
+                'evidence_scope': 'Synthetic fixture only; no raw provider requests or credentials retained'
+            }) from exc
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=3)
 
@@ -145,7 +165,9 @@ def measure(binary, engine, repeats):
     for case in CASES:
         for repetition in range(repeats):
             try: sample = run_case(binary, engine, case)
-            except Exception as exc: sample = {'status': 'failed_or_adapter_blocked', 'reason': str(exc)[:2000]}
+            except Exception as exc:
+                sample = {'status': 'failed_or_adapter_blocked', 'reason': str(exc)[:2000], **getattr(exc, 'evidence', {})}
+                print(f'{engine}/{case} repetition {repetition + 1}: {sample["reason"]}', flush=True)
             record['cases'].append({'case': case, 'repetition': repetition + 1, **sample})
     return record
 

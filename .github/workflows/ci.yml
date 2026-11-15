@@ -55,6 +55,15 @@ jobs:
           python scripts/smoke_integrated_research.py "$binary"
           python scripts/smoke_mcp_resources.py "$binary"
           python scripts/smoke_memory_sources.py "$binary"
+      - name: Preserve comparison diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: comparison-diagnostics-${{ runner.os }}
+          path: |
+            common-read-blue.json
+            edit-workflow-blue.json
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: runtime-benchmark-${{ runner.os }}
@@ -172,6 +181,7 @@ jobs:
       - run: cargo build --locked --release
       - run: node scripts/test_browser_forms.mjs
       - run: node scripts/test_browser_policy.mjs
+      - run: node scripts/test_browser_transport.mjs
       - run: python scripts/build_browser_extension.py
       - name: Extension validation
         run: npx --yes web-ext@10.8.0 lint --source-dir target/browser-extensions/firefox

@@ -1,4 +1,5 @@
-function blueDragonPage(action, args) {
+function blueDragonPage(action, args, transportEnvelope = false) {
+  const run = () => {
   const outerDocument = globalThis.document;
   let document = outerDocument;
   if (args.frame_selector !== undefined) {
@@ -148,4 +149,13 @@ function blueDragonPage(action, args) {
     return {filled: true};
   }
   throw new Error('Unsupported page action');
+  };
+  // Chrome can omit both InjectionResult.result and .error for a thrown page
+  // function. Catch inside the injected function, including Promise rejection.
+  // Keep the raw synchronous CDP/unit-test contract unless explicitly requested.
+  if (!transportEnvelope) return run();
+  return Promise.resolve().then(run).then(
+    value => ({blueDragonPageEnvelope:1,ok:true,value:value === undefined ? null : value}),
+    error => ({blueDragonPageEnvelope:1,ok:false,error:String(error?.message || error).slice(0,300)})
+  );
 }

@@ -97,9 +97,17 @@ async function execute(action,args) {
   }
   if(!['snapshot','wait_for','click','fill','select','set_checked','scroll','evaluate','console'].includes(action))throw Error('Unsupported action');
   await readyTab(currentTab);
-  const results=await api.scripting.executeScript({target:{tabId:currentTab},world:'MAIN',func:blueDragonPage,args:[action,args]});
-  if(results[0]?.error)throw Error('Page execution failed');
-  return results[0]?.result ?? null;
+  const results=await api.scripting.executeScript({target:{tabId:currentTab},world:'MAIN',func:blueDragonPage,args:[action,args,true]});
+  if(!Array.isArray(results) || results.length !== 1 || results[0]?.frameId !== 0 || results[0]?.error)throw Error('Page execution failed or returned no main-frame result');
+  const envelope=results[0].result;
+  if(!envelope || typeof envelope !== 'object' || Array.isArray(envelope) || envelope.blueDragonPageEnvelope !== 1 || typeof envelope.ok !== 'boolean')throw Error('Missing or invalid page execution envelope; inspect before retry');
+  const keys=Object.keys(envelope).sort().join(',');
+  if(envelope.ok) {
+    if(keys !== 'blueDragonPageEnvelope,ok,value' || envelope.value === undefined)throw Error('Invalid successful page execution envelope');
+    return envelope.value;
+  }
+  if(keys !== 'blueDragonPageEnvelope,error,ok' || typeof envelope.error !== 'string')throw Error('Invalid failed page execution envelope');
+  throw Error(envelope.error.slice(0,300) || 'Page execution failed');
 }
 async function connect() {
   clearTimeout(reconnect);if(socket){socket.onclose=null;socket.close();}paired=false;
