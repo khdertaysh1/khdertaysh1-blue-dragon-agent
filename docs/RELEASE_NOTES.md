@@ -1,4 +1,18 @@
-Blue Dragon 0.9.0-alpha.5 — release candidate, pending independent review, final CI and coordinated publication.
+Blue Dragon 0.9.0-alpha.6 — release candidate, pending independent review, final CI and coordinated publication.
+
+- Preserve recent tool context before archiving paired rounds, retain original history, and expose bounded derived continuity checkpoints without treating them as fresh evidence or instructions.
+- Require native fresh-source evidence for supported explicit reread requests, including byte ranges and nameless range requests. Missing, stale, denied or wrong-range observations do not establish verification. Unsupported ranges remain unresolved.
+- Validate advertised tool arguments before dispatch. For run_command only, decode a JSON-string args array once and parse a canonical numeric timeout string within bounds. Preserve original arguments and record normalization separately; never guess a program, invoke a shell implicitly or grant approval through normalization.
+- Show distinct argument, denial, spawn, nonzero-exit, timeout and cancellation outcomes. Provide redacted local /tool-result inspection without provider calls or command replay. Bound malformed-call correction and block unchanged invalid repetitions.
+- Accept one JSON-string encoding of an exact registered discovery name, record the conversion and retain human approvals. Equivalent unchanged selections remain repetition-blocked; changing tool phases still works. Step limits are unchanged.
+
+The frozen implementation candidate 1a41627 passed 353 Rust tests, 15 command CLI/PTY cases and 35 pinned local qualification groups. These are implementation measurements, not substitutes for checks on the release commit. A subsequent single live free-route print task required one specific approval and produced native stdout with exit code 0 in three requests (14.48 seconds, no observed 429). That live model emitted correct argument types; malformed-name and command-type repair were demonstrated with scripted local providers. The earlier live trial stalled at five discovery steps. Model outputs differed, so this is not a controlled performance comparison or evidence of sustained service capacity.
+
+No physical Termux, long-session reliability, new Windows/macOS execution or real-browser validation is claimed by this preparation. Narrow 40x24 Linux PTY tests are not phone tests. Existing alpha.5 tags/assets stay unchanged; the coordinating parent handles GitHub after independent review and required CI. See [continuity evidence](CONTINUITY_EVIDENCE_AUDIT.md), [command repair](COMMAND_ARGUMENT_REPAIR.md), [discovery repair](DISCOVERY_COMMAND_REPAIR.md) and [candidate gates](CANDIDATE_TRIAL_PLAN.md).
+
+---
+
+Blue Dragon 0.9.0-alpha.5 — historical preparation notes for the published baseline.
 
 - Separate the soft input traffic target from the configured/catalog context bound, reserve the actual default Kilo output limit, and preserve original instructions/evidence and tool pairing.
 - Reduce already-selected oversized schema sets, advertise browser capability for URL-bearing prompts without widening permissions, and continue analysis with explicit failed/unknown initial browser evidence.

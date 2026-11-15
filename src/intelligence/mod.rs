@@ -1,5 +1,6 @@
 pub mod checks;
 pub mod code;
+pub mod fresh;
 pub mod memory;
 use serde_json::{json, Value};
 pub fn definitions() -> Vec<Value> {

@@ -1,0 +1,12 @@
+{
+  "binary_sha256": "73c54edfbd1f52e2fc6e917d8ee366c163a620348bb68228fc3bf325e69f424f",
+  "binary_unchanged": true,
+  "exit_code": 1,
+  "timed_out_outcome_unknown": false,
+  "approval_decisions": [],
+  "native_command_results": [],
+  "native_print_verified": false,
+  "finished": false,
+  "elapsed_seconds": 30.239,
+  "limits": "One synthetic local print task on Linux, not physical Termux, long-session capacity or proof that a live model emitted malformed types. No credentials or paid fallback."
+}

@@ -1,0 +1,81 @@
+{
+  "binary_sha256": "aeaf3b6d6a05d7b161d03f049a43066d38e951d0f41072c5ddf5c4300ea90bc5",
+  "cases": [
+    {
+      "case": "quoted_approve",
+      "requests": 4,
+      "passed": true
+    },
+    {
+      "case": "quoted_denied",
+      "requests": 3,
+      "passed": true
+    },
+    {
+      "case": "original_denied",
+      "requests": 3,
+      "passed": true
+    },
+    {
+      "case": "approve",
+      "requests": 4,
+      "passed": true
+    },
+    {
+      "case": "projected",
+      "requests": 4,
+      "passed": true
+    },
+    {
+      "case": "denied",
+      "requests": 3,
+      "passed": true
+    },
+    {
+      "case": "repeat",
+      "requests": 3,
+      "passed": true
+    },
+    {
+      "case": "invalid_final",
+      "requests": 3,
+      "passed": true
+    },
+    {
+      "case": "correct",
+      "requests": 5,
+      "passed": true
+    },
+    {
+      "case": "spawn",
+      "requests": 3,
+      "passed": true
+    },
+    {
+      "case": "nonzero",
+      "requests": 3,
+      "passed": true
+    },
+    {
+      "case": "stream",
+      "requests": 4,
+      "passed": true
+    },
+    {
+      "case": "truncated",
+      "requests": 2,
+      "passed": true
+    },
+    {
+      "case": "tui_approve",
+      "requests": 4,
+      "passed": true
+    },
+    {
+      "case": "tui_denied",
+      "requests": 3,
+      "passed": true
+    }
+  ],
+  "limits": "Linux/local scripted provider, real subprocess and approvals. External curl fixture was denied, never executed. Not physical Termux or live provider."
+}

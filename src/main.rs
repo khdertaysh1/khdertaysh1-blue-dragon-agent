@@ -35,6 +35,7 @@ mod streaming;
 mod test_coverage;
 #[cfg(test)]
 mod test_support;
+mod tool_arguments;
 mod tool_selection;
 mod tools;
 mod tui;
@@ -328,7 +329,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -478,6 +479,19 @@ fn run() -> Result<()> {
                             }
                             "/plan" => {
                                 println!("{}", agent.plan_text());
+                                continue;
+                            }
+                            name if name.starts_with("/tool-result ") => {
+                                match agent.inspect_saved_tool(
+                                    name.trim_start_matches("/tool-result ").trim(),
+                                ) {
+                                    Ok(value) => {
+                                        println!("{}", serde_json::to_string_pretty(&value)?)
+                                    }
+                                    Err(_) => eprintln!(
+                                        "Saved tool evidence unavailable or integrity check failed"
+                                    ),
+                                }
                                 continue;
                             }
                             "/report" => {

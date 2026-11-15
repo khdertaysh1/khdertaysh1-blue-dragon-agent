@@ -645,14 +645,18 @@ impl ToolBox {
         {
             anyhow::bail!("Command exceeds limits");
         }
-        let command_preview = format!(
-            "{} {}\nTimeout: {} seconds",
-            program,
-            args.join(" "),
-            timeout_seconds
-        );
+        let command_preview = serde_json::to_string_pretty(
+            &json!({"program":program,"args":args,"timeout_seconds":timeout_seconds,"shell_expansion":false}),
+        )?;
         if !self.approve("Execute workspace command", &command_preview)? {
-            return Ok(json!({"ok":false,"status":"denied by user"}));
+            if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(
+                    json!({"ok":false,"command_outcome":"cancelled","execution_status":"not_executed","error":"Cancelled before command execution"}),
+                );
+            }
+            return Ok(
+                json!({"ok":false,"denied":true,"status":"denied by user","command_outcome":"denied","execution_status":"not_executed"}),
+            );
         }
         let mut out = tempfile::tempfile()?;
         let mut err = tempfile::tempfile()?;
@@ -683,7 +687,14 @@ impl ToolBox {
                 command.env(var, value);
             }
         }
-        let mut child = command.spawn().context("Could not start command")?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                return Ok(
+                    json!({"ok":false,"command_outcome":"spawn_failure","execution_status":"not_executed","error":"Could not start command","os_error_code":error.raw_os_error()}),
+                )
+            }
+        };
         let start = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait()? {
@@ -692,12 +703,16 @@ impl ToolBox {
             if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                 child.kill().ok();
                 child.wait().ok();
-                anyhow::bail!("Command cancelled");
+                return Ok(
+                    json!({"ok":false,"command_outcome":"cancelled","execution_status":"unknown","error":"Command cancelled; partial effects possible, inspect before any retry"}),
+                );
             }
             if start.elapsed() > Duration::from_secs(timeout_seconds) {
                 child.kill().ok();
                 child.wait().ok();
-                anyhow::bail!("Command timed out after {} seconds; it may have changed files before stopping. Inspect state before retrying.", timeout_seconds);
+                return Ok(
+                    json!({"ok":false,"command_outcome":"timeout","execution_status":"unknown","error":"Command timed out; partial effects possible, inspect before any retry","timeout_seconds":timeout_seconds}),
+                );
             }
             thread::sleep(Duration::from_millis(40));
         };
@@ -712,7 +727,7 @@ impl ToolBox {
             .read_to_string(&mut stderr)
             .ok();
         Ok(
-            json!({"ok":status.success(), "exit_code":status.code(), "stdout":stdout,"stderr":stderr}),
+            json!({"ok":status.success(), "command_outcome":if status.success(){"success"}else{"nonzero_exit"},"execution_status":"completed", "exit_code":status.code(), "stdout":stdout,"stderr":stderr}),
         )
     }
 }
@@ -907,6 +922,28 @@ mod tests {
         .unwrap();
         let tools = ToolBox::new(tmp.path().canonicalize().unwrap(), ApprovalMode::ReadOnly);
         (tmp, tools)
+    }
+
+    #[test]
+    fn stringified_command_fields_are_rejected_without_execution() {
+        let (_tmp, tools) = setup();
+        let args = json!({"program":"curl","args":"[\"-sS\",\"-I\"]","timeout_seconds":"30"});
+        assert_eq!(
+            invoke(&tools, "run_command", &args)["error"],
+            "Missing args array"
+        );
+        let args = json!({"program":"curl","args":["-sS","-I"],"timeout_seconds":"30"});
+        assert_eq!(
+            invoke(&tools, "run_command", &args)["error"],
+            "timeout_seconds must be an integer"
+        );
+        let outer_string = json!(args.to_string());
+        assert_eq!(
+            invoke(&tools, "run_command", &outer_string)["error"],
+            "Missing or invalid program"
+        );
+        let message = json!({"role":"assistant","content":null,"tool_calls":[{"id":"fixture","function":{"name":"run_command","arguments":outer_string.to_string()}}]});
+        assert!(crate::provider_contract::validate_completion(&message, &definitions()).is_err());
     }
     #[test]
     fn command_timeout_bounds_are_enforced_before_approval() {
@@ -1350,7 +1387,10 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
         let approver = std::thread::spawn(move || {
             let request = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-            assert!(request.detail.contains("Timeout: 1 seconds"));
+            assert_eq!(
+                serde_json::from_str::<Value>(&request.detail).unwrap()["timeout_seconds"],
+                1
+            );
             request.respond_to.send(true).unwrap();
         });
         let tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
@@ -1360,10 +1400,7 @@ mod tests {
             &["-c".into(), "import time; time.sleep(60)".into()],
             1,
         );
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("timed out after 1"));
+        assert_eq!(result.unwrap()["command_outcome"], "timeout");
         assert!(start.elapsed() < Duration::from_secs(5));
         approver.join().unwrap();
     }
@@ -1390,7 +1427,7 @@ mod tests {
             "python",
             &["-c".into(), "import time; time.sleep(60)".into()],
         );
-        assert!(result.unwrap_err().to_string().contains("cancelled"));
+        assert_eq!(result.unwrap()["command_outcome"], "cancelled");
         assert!(start.elapsed() < Duration::from_secs(5));
         approver.join().unwrap();
         timer.join().unwrap();

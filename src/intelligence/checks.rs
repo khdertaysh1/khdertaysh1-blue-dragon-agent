@@ -68,7 +68,11 @@ impl Contract {
         if proof.message_index <= self.declared_at
             || result["ok"] == false
             || result["denied"] == true
-            || result["execution_status"] == "unknown"
+            || result["cached_result"] == true
+            || result["fresh_evidence"] == false
+            || result
+                .get("execution_status")
+                .is_some_and(|s| !matches!(s.as_str(), Some("completed" | "succeeded" | "success")))
             || result["repetition_blocked"] == true
         {
             return;
@@ -103,6 +107,32 @@ impl Contract {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_or_historical_native_fields_never_satisfy_acceptance() {
+        for status in [
+            "failed",
+            "denied",
+            "not_executed",
+            "cancelled",
+            "unknown",
+            "stale",
+        ] {
+            let mut c = Contract::default();
+            c.declare(&json!({"checks":[{"label":"test","tool":"run_command","arguments":{"program":"fixture","args":[]},"field":"/exit_code","equals":0}]}),0).unwrap();
+            c.observe(
+                "run_command",
+                &json!({"program":"fixture","args":[]}),
+                &json!({"exit_code":0,"execution_status":status}),
+                Proof {
+                    evidence_id: "E1".into(),
+                    message_index: 1,
+                    workspace_fingerprint: "current".into(),
+                    coverage_complete: true,
+                },
+            );
+            assert!(c.needs_review(Some("current"), false), "{status}");
+        }
+    }
     #[test]
     fn prose_wrong_arguments_and_predeclaration_evidence_do_not_satisfy_check() {
         let mut c = Contract::default();

@@ -1,0 +1,56 @@
+{
+  "source_commit": "27424175bfea8502425414e3dc784609b53c03ac",
+  "source_tree": "d982e5e0a34105bce3762c059c7522ec6adfaeae",
+  "base_commit": "7da0c1860d2bb82a009e5c0d38b2f6630bca4a02",
+  "alpha_source_commit": "d49f8830dbf1b79f82ad94aee8045c475a3752a6",
+  "binary_sha256": "ef0f01798a3fd935ef618e3c9ef15344b94adde346d9d72b39bc90b959545b6c",
+  "binary_path": "/workspace/scratch/58a10643c600/alpha5-inspect-fix/target/debug/blue-dragon",
+  "rust_tests_passed": 344,
+  "clippy_all_targets_warnings_denied": "passed",
+  "integrated_groups_passed": 34,
+  "scripted_Arabic_exchanges": 30,
+  "actual_platform": "Linux x86_64",
+  "final_runtime_live_tested": false,
+  "physical_Termux_tested": false,
+  "current_Alpha_runtime_comparison": {
+    "status": "blocked",
+    "reason": "Available Alpha binary identifies v1.1.7-dev 773e3ba, not the audited d49f883; disk has only hundreds of MB free. No current-reference runtime parity claim."
+  },
+  "publication": "local commits only; GitHub transfer/release coordinated by parent",
+  "logs": {
+    "fresh-qualified-tests.log": {
+      "path": "/workspace/scratch/58a10643c600/fresh-qualified-tests.log",
+      "sha256": "8931e88ff2695dbbc38e48fccecc736ef3e29f29fb37f58fe7211fc186aee1bc"
+    },
+    "fresh-qualified-clippy.log": {
+      "path": "/workspace/scratch/58a10643c600/fresh-qualified-clippy.log",
+      "sha256": "a858f420a3a7f9d78465d19cfafad9180bedccc63d195eb30bcd99fa5fafb34f"
+    },
+    "fresh-build-qualified.log": {
+      "path": "/workspace/scratch/58a10643c600/fresh-build-qualified.log",
+      "sha256": "dcf56e30de645fc5fdb89ea7a5643a56235ca099fc520e61b0350ec7da3eba08"
+    },
+    "fresh-qualified.log": {
+      "path": "/workspace/scratch/58a10643c600/fresh-qualified.log",
+      "sha256": "c4e85d80f706244fe26465cabe3b6ab70d2b03dca6e0d6c41a0c194eb20fc923"
+    },
+    "fresh-review-corrected.log": {
+      "path": "/workspace/scratch/58a10643c600/fresh-review-corrected.log",
+      "sha256": "9eaa62d32d7f8b032a1d697862ca990cfd9bbfc61052b7efdebdee594b33ea0b"
+    },
+    "fresh-delegate-corrected.log": {
+      "path": "/workspace/scratch/58a10643c600/fresh-delegate-corrected.log",
+      "sha256": "e877c7bb120535a011cb192d9159d57234f264ad4f2a0e5510bdb7e7f0e8dc74"
+    }
+  },
+  "remaining_P0": [
+    "Semantic citation validation: reproduced wrong search-match offsets in first live answer.",
+    "20–30 live turns not achieved; earlier binary stalled at round 9, second trial manually cancelled after 4.",
+    "General natural-language acceptance beyond recognized local-source requests remains partial."
+  ],
+  "limits": [
+    "Local lab HTTP/state assertions are not an autonomous live-model investigation or DOM proof.",
+    "No current Windows/macOS/Android execution or hour-long reliability claim.",
+    "Two intermediate compaction regressions were preserved in failed-run logs, corrected, and all 34 groups rerun successfully."
+  ]
+}

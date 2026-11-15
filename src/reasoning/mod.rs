@@ -1,4 +1,5 @@
 //! Independent task control and evidence, not model weights or hidden reasoning.
+pub mod checkpoint;
 pub mod claims;
 pub mod context;
 pub mod loops;
