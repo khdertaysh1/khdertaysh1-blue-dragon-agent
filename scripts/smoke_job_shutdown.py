@@ -14,6 +14,7 @@ import tempfile
 import termios
 import threading
 import time
+from pty_helpers import contains_styled_text
 
 started = threading.Event()
 release = threading.Event()
@@ -51,7 +52,7 @@ try:
         def wait_for(text):
             deadline=time.monotonic()+8
             while time.monotonic()<deadline:
-                if text in output: return
+                if contains_styled_text(output, text): return
                 if select.select([master],[],[],.05)[0]: output.extend(os.read(master,65536))
             raise AssertionError(f'Missing {text!r}: {output[-3000:]!r}')
         wait_for(b'BLUE DRAGON')

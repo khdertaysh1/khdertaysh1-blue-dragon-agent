@@ -4,15 +4,15 @@
 
 ## 01 · Identity
 
-![Blue Dragon: intact electric-blue cyber dragon](../assets/blue-dragon-hero.webp)
+![Blue Dragon: intact electric-blue cyber dragon](../assets/abyss-banner.svg)
 
 The dragon stands for deliberate execution; the surrounding circuit motifs stand for project context and tool orchestration. The visual language is original, not borrowed from another project's branding.
 
 ## 02 · The Dragon Mind
 
-![Neural workflow diagram](../assets/dragon-mind.svg)
+![Neural workflow diagram](../assets/abyss-dragon.gif)
 
-The diagram shows a *conceptual* workflow from project inspection to approved actions. CSS/SMIL motion may be disabled by the GitHub image renderer; the diagram remains legible as a static illustration.
+The approved second Abyss dragon is exported as a 24-frame GIF. This is decorative identity artwork, not live activity. [Still alternative](../assets/abyss-dragon.svg) and [terminal adaptation](ABYSS_IDENTITY.md) explain accessibility and platform limits.
 
 ## 03 · Animated console concept
 

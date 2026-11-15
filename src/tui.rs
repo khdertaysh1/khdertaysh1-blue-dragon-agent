@@ -14,7 +14,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
 };
@@ -31,8 +31,8 @@ use crate::{
     tools::ApprovalRequest,
 };
 
-const BLUE: Color = Color::Rgb(25, 170, 232);
-const SURFACE: Color = Color::Rgb(9, 20, 34);
+const BLUE: Color = Color::Rgb(89, 229, 255);
+const SURFACE: Color = Color::Rgb(8, 21, 34);
 const GREEN: Color = Color::Rgb(111, 218, 178);
 const MUTED: Color = Color::Rgb(139, 170, 191);
 const MAX_INPUT_CHARS: usize = 4096;
@@ -75,6 +75,8 @@ impl ModelPicker {
 }
 
 struct Screen {
+    motion: bool,
+    motion_clock: std::time::Instant,
     lines: Vec<String>,
     input: String,
     busy: bool,
@@ -95,6 +97,10 @@ struct Screen {
 impl Screen {
     fn new(model: String, workspace: String) -> Self {
         Self {
+            motion: std::env::var("BLUE_DRAGON_MOTION").as_deref() == Ok("1")
+                && std::env::var_os("NO_COLOR").is_none()
+                && std::env::var("BLUE_DRAGON_REDUCED_MOTION").as_deref() != Ok("1"),
+            motion_clock: std::time::Instant::now(),
             lines: vec![
                 "Blue Dragon interactive terminal".into(),
                 "Enter a coding task, or use /help. Nothing is modified without approval.".into(),
@@ -602,6 +608,30 @@ fn transcript_lines(text: &str, width: usize) -> Vec<Line<'static>> {
         .collect()
 }
 
+// Text-cell adaptation of the Abyss identity. Never implies task progress.
+fn energy_marker(motion: bool, busy: bool, approval: bool, tick: usize) -> &'static str {
+    if motion && busy && !approval {
+        ["·  ", " · ", "  ·", " · "][tick % 4]
+    } else {
+        "◆"
+    }
+}
+
+fn identity_title(compact: bool, state: &str, marker: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(" BLUE ", Style::default().fg(BLUE)),
+        Span::styled("DRAGON", Style::default().fg(Color::White)),
+        Span::styled(
+            if compact {
+                format!("  /  {state}")
+            } else {
+                format!("  {marker}  ABYSS WORKBENCH  /  {state} ")
+            },
+            Style::default().fg(MUTED),
+        ),
+    ])
+}
+
 fn draw(frame: &mut Frame<'_>, app: &Screen) {
     let compact = frame.area().width < 70 || frame.area().height < 22;
     frame.render_widget(
@@ -624,13 +654,14 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     } else {
         "READY"
     };
-    let title = if compact {
-        format!(" BLUE DRAGON  /  {state}")
-    } else {
-        format!(" BLUE DRAGON  ◆  AI CODING WORKBENCH  /  {state} ")
-    };
-    let header =
-        Paragraph::new(title).style(Style::default().fg(BLUE).add_modifier(Modifier::BOLD));
+    let marker = energy_marker(
+        app.motion,
+        app.busy,
+        app.approval.is_some(),
+        (app.motion_clock.elapsed().as_millis() / 240) as usize,
+    );
+    let title = identity_title(compact, state, marker);
+    let header = Paragraph::new(title).style(Style::default().add_modifier(Modifier::BOLD));
     frame.render_widget(
         if compact {
             header
@@ -891,6 +922,27 @@ fn center(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abyss_identity_keeps_blue_and_white_wordmark() {
+        let line = identity_title(true, "READY", "◆");
+        assert_eq!(line.spans[0].style.fg, Some(BLUE));
+        assert_eq!(line.spans[1].style.fg, Some(Color::White));
+        assert_eq!(line.to_string(), " BLUE DRAGON  /  READY");
+    }
+
+    #[test]
+    fn decorative_motion_is_optional_and_pauses_for_approval() {
+        assert_ne!(
+            energy_marker(true, true, false, 0),
+            energy_marker(true, true, false, 1)
+        );
+        for tick in 0..8 {
+            assert_eq!(energy_marker(false, true, false, tick), "◆");
+            assert_eq!(energy_marker(true, false, false, tick), "◆");
+            assert_eq!(energy_marker(true, true, true, tick), "◆");
+        }
+    }
 
     #[test]
     fn model_picker_filters_concrete_choices_and_renders_on_mobile_width() {
