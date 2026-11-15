@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exact advertised-transition GET count and approval denial, loopback only."""
 import hashlib,http.server,json,os,pathlib,subprocess,sys,tempfile,threading
+from schema_fixture_support import fixture_env, require_progress
 binary=pathlib.Path(sys.argv[1]).resolve();baseline='--expect-regression' in sys.argv[2:]
 for approve in (True,False):
  with tempfile.TemporaryDirectory(prefix='blue-schema-fetch-') as d:
@@ -17,9 +18,12 @@ for approve in (True,False):
     else:msg={'role':'assistant','content':'No security conclusion. Local fixture response only.'};stop='stop'
     body=json.dumps({'choices':[{'message':msg,'finish_reason':stop}]}).encode();self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
   server=http.server.ThreadingHTTPServer(('127.0.0.1',0),H);url=f'http://127.0.0.1:{server.server_port}/fixture';threading.Thread(target=server.serve_forever,daemon=True).start()
-  env=dict(PATH=os.environ['PATH'],HOME=d,BLUE_DRAGON_HOME=str(root/'state'),BLUE_DRAGON_INPUT_BUDGET='8192',NO_COLOR='1')
-  run=subprocess.run([str(binary),'--root',str(root/'work'),'--base-url',f'http://127.0.0.1:{server.server_port}/v1','--model','fixture','--no-stream','--no-rotation','--max-steps','6','run','Inspect only the explicitly approved local fixture; no external connections.'],input='y\n' if approve else 'n\n',env=env,text=True,capture_output=True,timeout=40)
-  state=json.loads(next((root/'state/sessions').glob('*.json')).read_text());results=[json.loads(m['content']) for m in state['messages'] if m['role']=='tool'];server.shutdown();server.server_close()
+  env=fixture_env(root)
+  run=subprocess.run([str(binary),'--root',str(root/'work'),'--base-url',f'http://127.0.0.1:{server.server_port}/v1','--model','fixture','--no-stream','--no-rotation','--max-steps','6','run','Inspect only the explicitly approved local fixture; no external connections.'],input='y\n' if approve else 'n\n',env=env,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=40)
+  server.shutdown();server.server_close()
+  sessions=list((root/'state/sessions').glob('*.json'));require_progress(run,packets,4,sessions)
+  state=json.loads(sessions[0].read_text(encoding='utf-8'));results=[json.loads(m['content']) for m in state['messages'] if m['role']=='tool']
+  require_progress(run,packets,4,sessions,results,4)
   assert dispatch_counts[:3]==[0,0,0],dispatch_counts
   assert 'web_fetch' not in [v['function']['name'] for v in packets[0]['tools']]
   assert 'web_fetch' in [v['function']['name'] for v in packets[2]['tools']]
