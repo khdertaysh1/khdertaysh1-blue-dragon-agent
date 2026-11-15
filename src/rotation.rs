@@ -131,7 +131,11 @@ impl Rotation {
         failure: &ProviderFailure,
         candidates: &[String],
     ) -> Option<String> {
-        if !self.enabled || !failure.model_specific || self.remaining == 0 {
+        if current == crate::models::KILO_MODEL
+            || !self.enabled
+            || !failure.model_specific
+            || self.remaining == 0
+        {
             return None;
         }
         self.tried.insert(current.into());
@@ -157,7 +161,7 @@ impl Rotation {
         Some(next)
     }
     pub fn status(&self, active: &str) -> Value {
-        json!({"mode":if self.enabled {"Blue Free automatic"} else {"pinned / disabled"},"active_model":active,
+        json!({"mode":if self.enabled {"Blue Free automatic"} else {"pinned / disabled"},"active_model":active,"gateway_auto_alias_preserved":active==crate::models::KILO_MODEL,
             "remaining_switches_this_turn":self.remaining,"max_switches_per_turn":3,"history":self.history,
             "cooldowns":self.cooldowns.iter().filter_map(|(id,until)| until.checked_duration_since(Instant::now()).map(|d|json!({"model":id,"seconds":d.as_secs()}))).collect::<Vec<_>>(),
             "rules":"Same Kilo zero-priced tool-capable pool only. No paid/auth/IP/global-limit fallback; no retry after stream interruption; completed tools are never replayed."})
@@ -191,7 +195,8 @@ mod tests {
         .map(str::to_owned);
         assert!(r.next("kilo-auto/free", &ip, &pool).is_none());
         assert!(r.next("kilo-auto/free", &unknown, &pool).is_none());
-        let one = r.next("kilo-auto/free", &model, &pool).unwrap();
+        assert!(r.next("kilo-auto/free", &model, &pool).is_none());
+        let one = r.next("a/start:free", &model, &pool).unwrap();
         let two = r.next(&one, &model, &pool).unwrap();
         let three = r.next(&two, &model, &pool).unwrap();
         assert!(r.next(&three, &model, &pool).is_none());

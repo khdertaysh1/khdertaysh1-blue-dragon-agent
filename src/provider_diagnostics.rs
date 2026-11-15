@@ -83,7 +83,7 @@ pub fn retry_after(value: &str, now: chrono::DateTime<chrono::Utc>) -> Option<u6
     })
 }
 pub fn metadata(failure: &crate::rotation::ProviderFailure) -> Value {
-    json!({"http_status":failure.status,"provider_error_code":failure.code,"reason_redacted":failure.reason,"request_id":failure.request_id,"cooldown_seconds":failure.retry_after,"cooldown_source":failure.retry_after_source,"context_exceeded":failure.context_exceeded,"model_specific_evidence":failure.model_specific,"raw_response_retained":false})
+    json!({"http_status":failure.status,"rate_limit_dimension":if failure.code.as_deref()==Some("tpm_rate_limit_exceeded") {"tokens_per_minute"} else {"unknown"},"provider_error_code":failure.code,"reason_redacted":failure.reason,"request_id":failure.request_id,"cooldown_seconds":failure.retry_after,"cooldown_source":failure.retry_after_source,"context_exceeded":failure.context_exceeded,"model_specific_evidence":failure.model_specific,"raw_response_retained":false})
 }
 
 #[cfg(test)]

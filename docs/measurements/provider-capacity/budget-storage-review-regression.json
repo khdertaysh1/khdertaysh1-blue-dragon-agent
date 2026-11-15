@@ -1,0 +1,13 @@
+{
+  "initial_events": 2045,
+  "initial_bytes": 65518,
+  "after_dispatch_bytes": 65551,
+  "after_next_dispatch_bytes": 65584,
+  "after_expiry_events": 1,
+  "provider_dispatches": 4,
+  "network": "loopback only",
+  "passed": true,
+  "baseline_expected_failure": "Provider budget state invalid on the next CLI dispatch after crossing 65536 bytes",
+  "baseline_binary_sha256": "6ef3d4d3b218649824993dc865a03c8e362c15e2c4a0985060521d6054e5b183",
+  "fixed_binary_sha256": "45172cc26ede658420a7dccf5efbb9289a03d8c740c25abd6d4e74e0052678c8"
+}

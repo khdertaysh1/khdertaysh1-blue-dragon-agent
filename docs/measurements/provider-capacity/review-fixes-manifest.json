@@ -1,0 +1,18 @@
+{
+  "base_commit": "8c870f85779406cfa5b03de6ebefe47e814b6c36",
+  "oracle_commit": "a28025f",
+  "budget_commit": "dde9350",
+  "binary_sha256": "45172cc26ede658420a7dccf5efbb9289a03d8c740c25abd6d4e74e0052678c8",
+  "rust_tests_passed": 330,
+  "oracle_unittest_methods_passed": 5,
+  "traffic_tests_passed": 2,
+  "clippy": "passed, all targets, warnings denied",
+  "provider_boundary_smoke": "passed",
+  "delegate_smoke": "passed",
+  "live_provider_calls": 0,
+  "saved_live_trials_revalidated": 6,
+  "prior_classifications_changed": false,
+  "full_33_group_suite_rerun_for_followup": false,
+  "phone_tested": false,
+  "published_or_uploaded": false
+}

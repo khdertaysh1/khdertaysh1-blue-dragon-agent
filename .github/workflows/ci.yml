@@ -41,6 +41,9 @@ jobs:
           binary=target/release/blue-dragon
           if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
           python scripts/benchmark_runtime.py --candidate "$binary" --repeats 1 --output runtime-benchmark.json
+          python scripts/test_provider_traffic.py
+          python scripts/test_verify_live_provider_capacity.py
+          python scripts/test_provider_budget_storage.py "$binary"
           python scripts/test_benchmark_alpha_reads.py
           python scripts/benchmark_alpha_reads.py --blue "$binary" --output common-read-blue.json
           python scripts/test_benchmark_alpha_workflows.py

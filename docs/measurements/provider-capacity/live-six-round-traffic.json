@@ -1,0 +1,15 @@
+{
+  "dispatches": 12,
+  "blocked_before_dispatch": 0,
+  "http_429": 0,
+  "peak_rolling_60s_requests": 5,
+  "peak_rolling_60s_estimated_input_plus_max_output": 44146,
+  "peak_rolling_60s_reported_tokens": 26150,
+  "usage_reported_requests": 12,
+  "usage_unreported_requests": 0,
+  "by_kind": {
+    "completion": 12
+  },
+  "total_request_elapsed_ms": 184128,
+  "limits": "Client dispatches, not server receipts. Input estimates are not tokenizer measurements; max output is a conservative reservation. Missing usage is unknown. Scope of an unclassified 429 remains unknown."
+}

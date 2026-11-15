@@ -1,0 +1,46 @@
+{
+  "binary_sha256": "4c2be68760dec3331e290bca76113502a728f720d6440c066940aa2527ca000c",
+  "provider": "Kilo anonymous, documented endpoint",
+  "requested_model": "kilo-auto/free",
+  "requested_rounds": 4,
+  "fixture_unchanged": true,
+  "limits": "Live observation from this host and time only. Short bounded trial, not proof of sustained capacity or another IP/account quota. Synthetic fixture only; no private project or credentials.",
+  "rounds": [
+    {
+      "round": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 23.345,
+      "finished": true,
+      "native_observations_total": 1,
+      "provider_failure": null,
+      "partial": null
+    },
+    {
+      "round": 1,
+      "exit_code": 0,
+      "elapsed_seconds": 25.321,
+      "finished": true,
+      "native_observations_total": 2,
+      "provider_failure": null,
+      "partial": null
+    },
+    {
+      "round": 2,
+      "exit_code": 0,
+      "elapsed_seconds": 61.461,
+      "finished": true,
+      "native_observations_total": 2,
+      "provider_failure": null,
+      "partial": null
+    },
+    {
+      "round": 3,
+      "exit_code": 0,
+      "elapsed_seconds": 35.888,
+      "finished": true,
+      "native_observations_total": 2,
+      "provider_failure": null,
+      "partial": null
+    }
+  ]
+}

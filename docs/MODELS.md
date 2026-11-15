@@ -1,4 +1,4 @@
-# Ready-to-use free models — v0.5.0-alpha.1
+# Model configuration and historical free-model validation
 
 ## Start and choose without keys
 
@@ -10,7 +10,9 @@ blue-dragon --provider free tui
 
 `/models refresh` updates metadata. CLI equivalents: `blue-dragon models`, `blue-dragon models --refresh`, `blue-dragon model kilo MODEL_ID`. Listing is metadata discovery, not an availability test. No prompt/workspace content is sent when listing or selecting. Tasks send context and tool results to the chosen service. No account, API key, embedded secret, wallet or payment is configured for Kilo free access. Unrelated keys are never forwarded.
 
-## What AlphaCode uses
+Current source comparison against AlphaCode 1.1.8 and the capacity investigation: [provider-capacity-review.md](provider-capacity-review.md). The catalog observations below remain dated historical evidence.
+
+## Historical AlphaCode comparison
 
 AlphaCode reference snapshot `7b325dfdb73066eaea372b7b39bf125effa2ae72` uses Kilo Gateway for Alphax Free. Its legacy base is `https://api.kilo.ai/api/gateway`, with `kilo-auto/free` and discovered `:free` pool members; its picker supports concrete pool members. Blue Dragon independently implements this using the same publicly documented service at `https://ai-gateway.kilo.ai/api/v1`. Both catalogs returned the same free IDs during verification. No additional AlphaCode source, branding or credentials are copied.
 
@@ -20,7 +22,7 @@ These zero-priced tool-capable rows were returned by Kilo:
 
 | Model | Exact ID |
 |---|---|
-| Blue Free (automatic free rotation) | `kilo-auto/free` |
+| Blue Free (gateway automatic routing) | `kilo-auto/free` |
 | Baidu ERNIE 5.5 Flash Preview | `baidu/ernie-5.5-flash-preview:free` |
 | Cohere North Mini Code | `cohere/north-mini-code:free` |
 | Dots3 Note Preview | `dots-studio/dots-3-note-preview:free` |
@@ -36,7 +38,7 @@ This is a historical snapshot, not a permanent lineup. Runtime filtering require
 
 ## Cache, selection and compatibility
 
-Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. Blue Free now adds bounded client rotation for explicit model-scoped failures; unknown/shared HTTP429 and HTTP402 still stop. Individual selections remain pinned. No paid fallback, purchase or cross-provider switch occurs. Use `/rotation` for status and see [FREE_ROTATION.md](FREE_ROTATION.md) for the complete retry/cooldown policy.
+Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. The current candidate preserves the automatic alias even after explicit model-scoped failures; unknown/shared HTTP429 and HTTP402 still stop. Concurrent Kilo refreshes share a lock/cache with a 30-second forced-refresh coalescing interval and 60-second failure backoff. Individual selections remain pinned. No paid fallback, purchase or cross-provider switch occurs. Use `/rotation` for status and see [FREE_ROTATION.md](FREE_ROTATION.md) for the complete retry/cooldown policy.
 
 Selections are stored as provider/model names in `model.json`, never from repository config. Fresh installs use Kilo unless explicit legacy endpoint/model/key settings exist. Previously saved `{"provider":"free","model":"auto/free"}` migrates to **JarvisClaw** without silently changing its destination; `/model free` explicitly switches to Kilo.
 

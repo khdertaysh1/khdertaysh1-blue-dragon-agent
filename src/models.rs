@@ -127,7 +127,7 @@ pub fn save(home: &Path, selection: &Selection) -> Result<()> {
 }
 
 pub fn menu() -> &'static str {
-    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free automatic free-model rotation; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. Automatic Blue Free switches stay inside the verified Kilo free pool; /rotation shows them. Pinned selections do not switch."
+    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free gateway automatic routing; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. Blue Free preserves the gateway auto alias; shared limits do not trigger model switching. /rotation shows routing state. Pinned selections do not switch."
 }
 
 fn zero(value: Option<&Value>) -> bool {
@@ -175,13 +175,53 @@ pub fn free_catalog(value: &Value) -> Vec<String> {
 }
 
 pub fn refresh() -> Result<String> {
-    // Public metadata only; no credentials or conversation are sent.
-    let response = reqwest::blocking::Client::builder()
+    type Entry = Option<(std::time::Instant, std::result::Result<String, String>)>;
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<Entry>> = std::sync::OnceLock::new();
+    let mut cache = CACHE
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .unwrap();
+    if let Some((stamp, result)) = cache.as_ref() {
+        if stamp.elapsed() < Duration::from_secs(if result.is_ok() { 3600 } else { 60 }) {
+            return result.clone().map_err(anyhow::Error::msg);
+        }
+    }
+    let result = refresh_openrouter().map_err(|e| e.to_string());
+    *cache = Some((std::time::Instant::now(), result.clone()));
+    result.map_err(anyhow::Error::msg)
+}
+fn catalog_get(url: &str) -> Result<reqwest::blocking::Response> {
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let id = format!(
+        "catalog-{}-{}-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+        std::process::id(),
+        SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let start = chrono::Utc::now().timestamp_millis();
+    let mut event = serde_json::json!({"dispatch_id":id,"unix_ms":start,"kind":"catalog","provider_origin":reqwest::Url::parse(url)?.origin().ascii_serialization(),"attempts":1,"estimated_message_tokens":0,"estimated_tool_tokens":0,"max_output_tokens":0,"outcome":"dispatch_started_outcome_unknown"});
+    let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::none())
-        .build()?
-        .get("https://openrouter.ai/api/v1/models")
-        .send()?;
+        .build()?;
+    crate::provider_traffic::record(event.clone());
+    let response = client.get(url).send();
+    event["elapsed_ms"] = serde_json::json!(chrono::Utc::now().timestamp_millis() - start);
+    event["outcome"] = serde_json::json!(if response.is_ok() {
+        "response_received"
+    } else {
+        "transport_failure"
+    });
+    if let Ok(response) = &response {
+        event["http_status"] = serde_json::json!(response.status().as_u16());
+        event["rate_limit_headers"] = crate::provider_traffic::headers(response.headers());
+    }
+    crate::provider_traffic::record(event);
+    Ok(response?)
+}
+fn refresh_openrouter() -> Result<String> {
+    // Public metadata only; no credentials or conversation are sent.
+    let response = catalog_get("https://openrouter.ai/api/v1/models")?;
     if !response.status().is_success() {
         anyhow::bail!("Catalog returned HTTP {}", response.status().as_u16());
     }
@@ -238,7 +278,7 @@ pub fn kilo_choices(value: &Value) -> Vec<ModelChoice> {
         choices.push(ModelChoice {
             id: id.into(),
             name: if id == KILO_MODEL {
-                "Blue Free (automatic rotation)".into()
+                "Blue Free (gateway automatic)".into()
             } else {
                 name
             },
@@ -301,7 +341,56 @@ fn write_cache(home: &Path, choices: &[ModelChoice]) -> Result<()> {
 }
 
 pub fn kilo_catalog(home: &Path, force: bool) -> Result<(Vec<ModelChoice>, String)> {
+    catalog_at(home, force, KILO_BASE)
+}
+fn catalog_at(home: &Path, force: bool, base: &str) -> Result<(Vec<ModelChoice>, String)> {
+    // One cross-process fetch at a time, followed by a cache recheck. Force
+    // refreshes within 30 seconds coalesce rather than amplifying UI requests.
+    std::fs::create_dir_all(home)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(home.join("kilo-catalog.lock"))?;
+    let started = std::time::Instant::now();
+    loop {
+        if lock.try_lock().is_ok() {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(22) {
+            anyhow::bail!("Catalog refresh already in progress; no duplicate request sent");
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
     let cached = read_cache(home).ok().flatten();
+    if let Some(c) = &cached {
+        if c.fetched_at <= now() && now().saturating_sub(c.fetched_at) < 30 {
+            return Ok((
+                c.choices.clone(),
+                "Shared catalog cache; duplicate refresh coalesced (30 seconds)".into(),
+            ));
+        }
+    }
+    let attempt = home.join("kilo-catalog-attempt.json");
+    let last = std::fs::read(&attempt)
+        .ok()
+        .filter(|b| b.len() < 128)
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v["at"].as_u64())
+        .unwrap_or(0);
+    if last <= now() && now().saturating_sub(last) < 60 {
+        return Ok((
+            cached.map(|c| c.choices).unwrap_or_else(|| {
+                vec![ModelChoice {
+                    id: KILO_MODEL.into(),
+                    name: "Auto Free (catalog unavailable)".into(),
+                    context_length: 0,
+                }]
+            }),
+            "Recent catalog failure; no duplicate request sent".into(),
+        ));
+    }
     if !force {
         if let Some(c) = &cached {
             if c.fetched_at <= now() && now().saturating_sub(c.fetched_at) < 3600 {
@@ -312,13 +401,12 @@ pub fn kilo_catalog(home: &Path, force: bool) -> Result<(Vec<ModelChoice>, Strin
             }
         }
     }
+    let mut stamp = tempfile::NamedTempFile::new_in(home)?;
+    use std::io::Write;
+    stamp.write_all(serde_json::json!({"at":now()}).to_string().as_bytes())?;
+    stamp.persist(&attempt)?;
     let fetch = || -> Result<Vec<ModelChoice>> {
-        let response = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?
-            .get(format!("{KILO_BASE}/models"))
-            .send()?;
+        let response = catalog_get(&format!("{base}/models"))?;
         if !response.status().is_success() {
             anyhow::bail!("Catalog HTTP {}", response.status().as_u16());
         }
@@ -374,6 +462,46 @@ pub fn kilo_listing(home: &Path, force: bool) -> Result<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn concurrent_forced_catalog_refreshes_share_one_response() {
+        use std::io::{Read, Write};
+        let home = tempfile::tempdir().unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = [0u8; 4096];
+            let _ = stream.read(&mut bytes).unwrap();
+            let body=serde_json::json!({"data":[{"id":"fixture/model:free","name":"Fixture","pricing":{"prompt":"0","completion":"0"},"supported_parameters":["tools"],"context_length":32000}]}).to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+        });
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+        let workers = (0..4)
+            .map(|_| {
+                let dir = home.path().to_owned();
+                let url = base.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    catalog_at(&dir, true, &url).unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let results = workers
+            .into_iter()
+            .map(|w| w.join().unwrap())
+            .collect::<Vec<_>>();
+        server.join().unwrap();
+        assert!(results.iter().all(|r| r.0[0].id == "fixture/model:free"));
+        assert_eq!(
+            results.iter().filter(|r| r.1.contains("Live Kilo")).count(),
+            1
+        );
+        assert_eq!(
+            results.iter().filter(|r| r.1.contains("coalesced")).count(),
+            3
+        );
+    }
     #[test]
     fn kilo_catalog_rejects_paid_routes_missing_prices_and_non_tools() {
         let row = json!({"id":"vendor/code:free", "name":"Code free", "context_length":32000,

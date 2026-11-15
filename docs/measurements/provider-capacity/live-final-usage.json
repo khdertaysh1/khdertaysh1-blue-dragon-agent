@@ -1,0 +1,14 @@
+{
+  "requests": 10,
+  "requested_models": [
+    "kilo-auto/free"
+  ],
+  "actual_models": [
+    "nvidia/nemotron-3-ultra-550b-a55b:free"
+  ],
+  "input_reported": 47706,
+  "output_reported": 2488,
+  "request_time_seconds": 105.582,
+  "rate_headers_reported": false,
+  "binary_sha256": "6ef3d4d3b218649824993dc865a03c8e362c15e2c4a0985060521d6054e5b183"
+}

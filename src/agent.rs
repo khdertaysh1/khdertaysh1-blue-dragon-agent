@@ -619,6 +619,29 @@ impl Agent {
                         }
                     }
                 }
+                if let Some(input_budget) =
+                    crate::provider_traffic::input_budget(&self.settings.base_url)
+                {
+                    // This is a traffic target, not the provider's context window.
+                    limit = limit.min(
+                        input_budget.saturating_add(
+                            crate::provider_traffic::positive_env(
+                                "BLUE_DRAGON_MAX_OUTPUT_TOKENS",
+                                16384,
+                            )
+                            .unwrap_or(4096)
+                            .max(4096) as usize
+                                + 1024,
+                        ),
+                    );
+                    if self.selected_tools.is_none() {
+                        let mut core = crate::tool_selection::core();
+                        core.remove("read_file"); // Window reads first; whole-file reads remain discoverable.
+                        self.selected_tools = Some(core);
+                        self.output(AgentEvent::Notice("Capacity mode: bounded input and core schemas; discover_tools enables additional tools without changing permissions. Original history remains saved.".into()));
+                        continue; // Recompute schemas locally before projection; no HTTP dispatch.
+                    }
+                }
                 let memory = json!({"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
                 let projection = crate::reasoning::context::build(
                     &self.session.messages,
@@ -704,6 +727,7 @@ impl Agent {
                             }
                         }
                         if self.session.vision_destination.is_some()
+                            || self.provider.model() == crate::models::KILO_MODEL
                             || !self.rotation.enabled
                             || !failure.model_specific
                         {
@@ -1935,7 +1959,7 @@ mod tests {
         assert_eq!(agent.session.messages[3]["content"], original);
     }
     #[test]
-    fn switches_model_after_scoped_limit_without_replaying_completed_tools() {
+    fn preserves_gateway_auto_alias_after_scoped_limit_without_replaying_tools() {
         let workspace = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
         let sessions = state.path().join("sessions");
@@ -1944,11 +1968,9 @@ mod tests {
         std::fs::write(state.path().join("kilo-models.json"), json!({"fetched_at":chrono::Utc::now().timestamp(),"choices":[{"id":"test/healthy:free","name":"Healthy","context_length":32000}]}).to_string()).unwrap();
         let call = json!({"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"read_once","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"once.txt\"}"}}]}}]});
         let limit = json!({"error":{"limit_source":"upstream_model","provider_error_code":"model_rate_limit_exceeded","retry_after_seconds":60}});
-        let done = json!({"choices":[{"message":{"role":"assistant","content":"Read once successfully"}}]});
         let (url, server) = crate::test_support::http_status(vec![
             (200, "application/json", call.to_string()),
             (429, "application/json", limit.to_string()),
-            (200, "application/json", done.to_string()),
         ]);
         let settings = Settings {
             root: workspace.path().canonicalize().unwrap(),
@@ -1966,12 +1988,11 @@ mod tests {
         let mut agent = Agent::new(settings, ApprovalMode::ReadOnly, None).unwrap();
         // Fixture-only enablement; production enables routing only on exact Kilo Auto Free.
         agent.rotation = crate::rotation::Rotation::new(true);
-        agent.turn("Read once.txt once and report").unwrap();
+        assert!(agent.turn("Read once.txt once and report").is_err());
         let requests = server.join().unwrap();
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 2);
         assert_eq!(requests[1]["model"], crate::models::KILO_MODEL);
-        assert_eq!(requests[2]["model"], "test/healthy:free");
-        assert_eq!(requests[1]["messages"], requests[2]["messages"]);
+        assert_eq!(agent.provider.model(), crate::models::KILO_MODEL);
         assert_eq!(
             agent.session.last_report["actions"]
                 .as_array()
@@ -1979,7 +2000,7 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(agent.rotation.history.len(), 1);
+        assert_eq!(agent.rotation.history.len(), 0);
         assert_eq!(agent.settings.model, crate::models::KILO_MODEL);
     }
     #[test]
