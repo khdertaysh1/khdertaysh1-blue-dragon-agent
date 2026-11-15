@@ -194,10 +194,25 @@ fn project(
     }
     (result, archived)
 }
+#[cfg(test)]
 pub fn build(
     history: &[Value],
     definitions: &Value,
     limit: usize,
+    briefing: &str,
+    memory: &Value,
+) -> Result<(Vec<Value>, Value)> {
+    build_with_budget(history, definitions, limit, None, 4096, briefing, memory)
+}
+
+/// The traffic target guides projection; only the model/context bound rejects input.
+#[allow(clippy::too_many_arguments)]
+pub fn build_with_budget(
+    history: &[Value],
+    definitions: &Value,
+    limit: usize,
+    input_target: Option<usize>,
+    output_tokens: usize,
     briefing: &str,
     memory: &Value,
 ) -> Result<(Vec<Value>, Value)> {
@@ -207,11 +222,10 @@ pub fn build(
         .flatten()
         .filter_map(|v| v.as_u64().and_then(|n| usize::try_from(n).ok()))
         .collect::<std::collections::BTreeSet<_>>();
-    let reserved = estimate(&definitions.to_string())
-        + crate::provider_traffic::positive_env("BLUE_DRAGON_MAX_OUTPUT_TOKENS", 16384)
-            .unwrap_or(4096)
-            .max(4096) as usize
-        + 1024;
+    let schema_tokens = estimate(&definitions.to_string());
+    let reserved = schema_tokens + output_tokens + 1024;
+    let target = input_target.map(|n| n.saturating_sub(schema_tokens));
+    let mut fallback: Option<(Vec<Value>, Value)> = None;
     let available = limit.saturating_sub(reserved);
     let original = history
         .iter()
@@ -288,11 +302,25 @@ pub fn build(
         let tokens = view.iter().map(|m| estimate(&m.to_string())).sum::<usize>();
         smallest = smallest.min(tokens);
         if tokens <= available {
-            return Ok((
+            let candidate = (
                 view,
-                json!({"effective_context_tokens":limit,"estimated_message_tokens":tokens,"reserved_schema_reply_margin_tokens":reserved,"tool_definition_bytes":definitions.to_string().len(),"estimated_tool_definition_tokens":estimate(&definitions.to_string()),"advertised_tools":definitions.as_array().map_or(0,Vec::len),"original_estimated_message_tokens":original,"projection_level":level,"archived_messages":archived,"original_transcript_preserved":true,"estimator":"conservative character heuristic, not a model tokenizer"}),
-            ));
+                json!({"effective_context_tokens":limit,"soft_input_target_tokens":input_target,"soft_target_exceeded":target.is_some_and(|n|tokens>n),"reserved_output_tokens":output_tokens,"reserved_margin_tokens":1024,"estimated_message_tokens":tokens,"reserved_schema_reply_margin_tokens":reserved,"tool_definition_bytes":definitions.to_string().len(),"estimated_tool_definition_tokens":estimate(&definitions.to_string()),"advertised_tools":definitions.as_array().map_or(0,Vec::len),"original_estimated_message_tokens":original,"projection_level":level,"archived_messages":archived,"original_transcript_preserved":true,"estimator":"conservative character heuristic, not a model tokenizer"}),
+            );
+            if target.is_none_or(|n| tokens <= n) {
+                return Ok(candidate);
+            }
+            if fallback.as_ref().is_none_or(|(_, stats)| {
+                tokens
+                    < stats["estimated_message_tokens"]
+                        .as_u64()
+                        .unwrap_or(u64::MAX) as usize
+            }) {
+                fallback = Some(candidate);
+            }
         }
+    }
+    if let Some(candidate) = fallback {
+        return Ok(candidate);
     }
     bail!("Essential user/system instructions or recent tool arguments exceed the context budget ({limit} tokens; smallest projected messages {smallest}, available {available}, working notes {memory_tokens}). Original history is preserved; use a larger --context-tokens only when the selected model supports it, or start a new session.")
 }
@@ -336,6 +364,69 @@ pub fn recall(history: &[Value], args: &Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn thirty_arabic_turns_preserve_constraints_above_soft_target() {
+        let mut history = vec![
+            serde_json::json!({"role":"system","content":"Never repeat an uncertain action."}),
+        ];
+        for turn in 0..30 {
+            history.push(serde_json::json!({"role":"user","content":format!("الجولة {turn}: حافظ على النطاق والقيود والأدلة. {}", "تحليل ".repeat(30))}));
+            history.push(serde_json::json!({"role":"assistant","content":"historical analysis ".repeat(100)}));
+            let original = history.clone();
+            let (view, stats) = super::build_with_budget(
+                &history,
+                &serde_json::json!([]),
+                32768,
+                Some(8192),
+                2048,
+                "Continue the current task",
+                &serde_json::Value::Null,
+            )
+            .unwrap();
+            for message in history
+                .iter()
+                .filter(|m| m["role"] == "user" || m["role"] == "system")
+            {
+                assert!(
+                    view.contains(message),
+                    "lost an original instruction in turn {turn}"
+                );
+            }
+            assert_eq!(history, original);
+            assert_eq!(stats["effective_context_tokens"], 32768);
+            assert_eq!(stats["reserved_output_tokens"], 2048);
+            if turn == 29 {
+                assert_eq!(stats["soft_target_exceeded"], true);
+            }
+        }
+    }
+    #[test]
+    fn soft_target_never_overrides_hard_bound_or_pending_calls() {
+        let history = vec![serde_json::json!({"role":"user","content":"قيد".repeat(3000)})];
+        assert!(super::build_with_budget(
+            &history,
+            &serde_json::json!([]),
+            8192,
+            Some(8192),
+            2048,
+            "",
+            &serde_json::Value::Null
+        )
+        .is_err());
+        let pending = vec![
+            serde_json::json!({"role":"assistant","content":"","tool_calls":[{"id":"pending","type":"function","function":{"name":"write_file","arguments":"x".repeat(30000)}}]}),
+        ];
+        assert!(super::build_with_budget(
+            &pending,
+            &serde_json::json!([]),
+            8192,
+            Some(1000),
+            2048,
+            "",
+            &serde_json::Value::Null
+        )
+        .is_err());
+    }
     #[test]
     fn window_compaction_preserves_source_text_not_just_json_metadata() {
         let code = "export function vulnerableRead(user, record) { return record.value; }\nexport function protectedRead(user, record) { if (user.id !== record.owner) throw new Error(\"denied\"); return record.value; }\n";

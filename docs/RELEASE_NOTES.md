@@ -1,4 +1,19 @@
-Blue Dragon 0.9.0-alpha.4 — release candidate, pending final CI and coordinated publication.
+Blue Dragon 0.9.0-alpha.5 — release candidate, pending independent review, final CI and coordinated publication.
+
+- Separate the soft input traffic target from the configured/catalog context bound, reserve the actual default Kilo output limit, and preserve original instructions/evidence and tool pairing.
+- Reduce already-selected oversized schema sets, advertise browser capability for URL-bearing prompts without widening permissions, and continue analysis with explicit failed/unknown initial browser evidence.
+- Keep initial browser failure recoverable in interactive chat, but make one-shot `inspect`, URL aliases and URL-only `run` return failure without sending a model request when initial inspection is denied or fails. Preserve the failed observation and partial report.
+- Fix recurring discovery transitions: browser → file_outline → browser → file_outline now works; unchanged duplicate discovery remains blocked and turn step limits remain enforced.
+- Prevent an unchanged context-recovery request from being resent. Distinguish latest projection failure from the last successful request.
+- Add explicit opt-in concrete free-model fallback restricted to verified free/tool-capable routes with adequate known context. Keep automatic routing pinned and shared/unknown quota failures non-rotating. No paid fallback or quota bypass.
+
+Controlled local acceptance achieved 30/30 fresh-source exchanges versus 7/30 on alpha.4; it is scripted loopback evidence, not a service-capacity claim. The pinned live trial achieved only two successful fresh-source exchanges; the third omitted the required read and failed acceptance. There is no demonstrated 20–30-turn live stability, no guarantee against 429, no measured numerical TPM ceiling and no physical Android qualification. A normal CLI return is not semantic task success. See [source comparison and evidence](context-continuity-review.md).
+
+The coordinating parent handles GitHub after review and required CI. Existing tags/assets are unchanged. Cross-builds do not count as phone testing; final Chromium/Firefox and platform CI remain required. Exact local release-candidate evidence is recorded separately.
+
+---
+
+Blue Dragon 0.9.0-alpha.4 — historical published developer-preview preparation notes.
 
 - Preserve the selected `kilo-auto/free` gateway route instead of replacing it with concrete model IDs after failures. No paid fallback or shared-quota bypass.
 - Share cached catalog refreshes and suppress duplicate concurrent requests. Record bounded metadata-only provider traffic, separating estimates/reservations from reported usage and program-default cooldown from provider Retry-After.

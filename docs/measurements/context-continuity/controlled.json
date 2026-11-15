@@ -1,0 +1,1237 @@
+{
+  "before": {
+    "binary_sha256": "71a0ef8c138d1d797f9b59a8ffdd27fcaa05c148f5bb748e85d1cded7360c504",
+    "verified_exchanges": 7,
+    "provider_requests": 15,
+    "native_browser_status_calls": 0,
+    "context_error_mentions": 23,
+    "elapsed_seconds": 0.165,
+    "original_user_messages_preserved": 30,
+    "fixture_unchanged": true,
+    "last_context": {
+      "configured_context_tokens": 32768,
+      "original_transcript_preserved": true,
+      "ready": false
+    },
+    "packets": [
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 2797
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 4656
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 5411
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 7271
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 8026
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 9887
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 10642
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 12503
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 13258
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 15119
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 13991
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 14830
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 11901
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 13550
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 12664
+      }
+    ],
+    "limits": "Scripted loopback provider, native file tools and browser status only; no DOM/Chromium, live reasoning, real quota, or phone capacity claim. RPM=120 explicitly for fixture; three CLI processes resume the same session."
+  },
+  "after": {
+    "binary_sha256": "492f858baacba7c5d7d3ed10192f59d8585e8d9fefebaa75f728558c787483ab",
+    "verified_exchanges": 30,
+    "provider_requests": 60,
+    "native_browser_status_calls": 30,
+    "context_error_mentions": 0,
+    "elapsed_seconds": 3.735,
+    "original_user_messages_preserved": 30,
+    "fixture_unchanged": true,
+    "last_context": {
+      "advertised_tools": 9,
+      "archived_messages": 90,
+      "available_tool_count": 41,
+      "configured_context_tokens": 32768,
+      "context_limit_source": "configured_context",
+      "effective_context_tokens": 32768,
+      "estimated_message_tokens": 21042,
+      "estimated_tool_definition_tokens": 1945,
+      "estimator": "conservative character heuristic, not a model tokenizer",
+      "last_successful_request": {
+        "advertised_tools": 9,
+        "archived_messages": 90,
+        "available_tool_count": 41,
+        "context_limit_source": "configured_context",
+        "effective_context_tokens": 32768,
+        "estimated_message_tokens": 21042,
+        "estimated_tool_definition_tokens": 1945,
+        "estimator": "conservative character heuristic, not a model tokenizer",
+        "original_estimated_message_tokens": 31035,
+        "original_transcript_preserved": true,
+        "projection_level": 5,
+        "provider_request_metrics": {
+          "actual_model": "deterministic-local",
+          "attempts": 1,
+          "dispatch_id": "1794762772995233864-1359-19",
+          "elapsed_ms": 12,
+          "estimated_message_tokens": 21042,
+          "estimated_output_tokens": 38,
+          "estimated_tool_tokens": 1945,
+          "history_bytes": 32330,
+          "http_status": 200,
+          "kind": "completion",
+          "max_output_tokens": 2048,
+          "outcome": "completed",
+          "provider_instance_requests_sent": 20,
+          "provider_origin": "http://127.0.0.1:41019",
+          "rate_limit_headers": {},
+          "requested_model": "fixture",
+          "scope": "This provider instance only; children have separate instance counters and shared admission budgets. Estimates are not billed usage.",
+          "stream": false,
+          "tool_definition_bytes": 5834,
+          "tool_result_bytes": 0,
+          "unix_ms": 1794762772987,
+          "usage": {},
+          "usage_reported": false
+        },
+        "reserved_margin_tokens": 1024,
+        "reserved_output_tokens": 2048,
+        "reserved_schema_reply_margin_tokens": 5017,
+        "soft_input_target_tokens": 8192,
+        "soft_target_exceeded": true,
+        "soft_target_source": "user_configured_traffic_target",
+        "tool_definition_bytes": 5834,
+        "tool_schema_selection": "task_phase_core_plus_selected"
+      },
+      "latest_projection_failure": null,
+      "original_estimated_message_tokens": 31035,
+      "original_transcript_preserved": true,
+      "projection_level": 5,
+      "provider_request_metrics": {
+        "actual_model": "deterministic-local",
+        "attempts": 1,
+        "dispatch_id": "1794762772995233864-1359-19",
+        "elapsed_ms": 12,
+        "estimated_message_tokens": 21042,
+        "estimated_output_tokens": 38,
+        "estimated_tool_tokens": 1945,
+        "history_bytes": 32330,
+        "http_status": 200,
+        "kind": "completion",
+        "max_output_tokens": 2048,
+        "outcome": "completed",
+        "provider_instance_requests_sent": 20,
+        "provider_origin": "http://127.0.0.1:41019",
+        "rate_limit_headers": {},
+        "requested_model": "fixture",
+        "scope": "This provider instance only; children have separate instance counters and shared admission budgets. Estimates are not billed usage.",
+        "stream": false,
+        "tool_definition_bytes": 5834,
+        "tool_result_bytes": 0,
+        "unix_ms": 1794762772987,
+        "usage": {},
+        "usage_reported": false
+      },
+      "reserved_margin_tokens": 1024,
+      "reserved_output_tokens": 2048,
+      "reserved_schema_reply_margin_tokens": 5017,
+      "soft_input_target_tokens": 8192,
+      "soft_target_exceeded": true,
+      "soft_target_source": "user_configured_traffic_target",
+      "tool_definition_bytes": 5834,
+      "tool_schema_selection": "task_phase_core_plus_selected"
+    },
+    "packets": [
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 2797
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 5928
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 6683
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 9815
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 10570
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 13704
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 14459
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 12917
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 11114
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 13526
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 11877
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 14291
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 12642
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 15056
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 13405
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 15819
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 14168
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 16582
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 14931
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 17345
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 15695
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 18109
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 16459
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 18873
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 17223
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 19637
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 17987
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 20401
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 18751
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 21165
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 19515
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 21929
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 20279
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 22693
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 21043
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 23457
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 21807
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 24221
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 22571
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 24985
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 23335
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 25756
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 24106
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 26527
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 24874
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 27293
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 25640
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 28059
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 26406
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 28825
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 27172
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 29591
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 27938
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 30357
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 28704
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 31123
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 29470
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 31889
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 30236
+      },
+      {
+        "max_output_tokens": 2048,
+        "tool_names": [
+          "browser",
+          "discover_tools",
+          "file_info",
+          "list_files",
+          "read_file_window",
+          "recall_context",
+          "search_file",
+          "task_continuity",
+          "update_plan"
+        ],
+        "message_bytes": 32655
+      }
+    ],
+    "limits": "Scripted loopback provider, native file tools and browser status only; no DOM/Chromium, live reasoning, real quota, or phone capacity claim. RPM=120 explicitly for fixture; three CLI processes resume the same session."
+  }
+}

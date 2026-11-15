@@ -1279,6 +1279,7 @@ mod tests {
             mcp_config: None,
             stream: false,
             free_rotation: false,
+            free_model_fallback: false,
             max_steps: 8,
             context_tokens: 4096,
             project_memory: false,

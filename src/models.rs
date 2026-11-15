@@ -242,6 +242,15 @@ pub struct ModelChoice {
     pub context_length: u64,
 }
 
+/// Input choices must come from the free/tool-capable catalog filter.
+pub fn fallback_ids(choices: &[ModelChoice], required_context: usize) -> Vec<String> {
+    choices
+        .iter()
+        .filter(|c| c.context_length > 0 && c.context_length >= required_context as u64)
+        .map(|c| c.id.clone())
+        .collect()
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CachedCatalog {
@@ -462,6 +471,16 @@ pub fn kilo_listing(home: &Path, force: bool) -> Result<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn fallback_rejects_unknown_and_insufficient_context() {
+        let choices = [0, 8192, 32768].map(|size| ModelChoice {
+            id: format!("{size}:free"),
+            name: "fixture".into(),
+            context_length: size,
+        });
+        assert_eq!(fallback_ids(&choices, 32768), vec!["32768:free"]);
+        assert!(fallback_ids(&choices, 65536).is_empty());
+    }
     #[test]
     fn concurrent_forced_catalog_refreshes_share_one_response() {
         use std::io::{Read, Write};

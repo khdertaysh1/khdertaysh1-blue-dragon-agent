@@ -7,7 +7,6 @@ pub fn core() -> BTreeSet<String> {
     [
         "discover_tools",
         "list_files",
-        "read_file",
         "read_file_window",
         "search_file",
         "file_info",
@@ -19,6 +18,18 @@ pub fn core() -> BTreeSet<String> {
     .map(str::to_owned)
     .collect()
 }
+/// Advertise browser capability for URL-bearing tasks without granting access.
+pub fn for_prompt(prompt: &str) -> BTreeSet<String> {
+    let mut selected = core();
+    if prompt.split_whitespace().any(|word| {
+        let word = word
+            .trim_matches(|c: char| matches!(c, '(' | ')' | '[' | ']' | '<' | '>' | '\"' | '\''));
+        reqwest::Url::parse(word).is_ok_and(|url| matches!(url.scheme(), "https" | "http"))
+    }) {
+        selected.insert("browser".into());
+    }
+    selected
+}
 pub fn filter(all: &Value, selected: Option<&BTreeSet<String>>) -> Value {
     json!(all
         .as_array()
@@ -28,6 +39,32 @@ pub fn filter(all: &Value, selected: Option<&BTreeSet<String>>) -> Value {
             .is_none_or(|set| set.contains(d["function"]["name"].as_str().unwrap_or(""))))
         .cloned()
         .collect::<Vec<_>>())
+}
+/// The same discovery in an unchanged phase cannot provide new information.
+pub fn discover_once(
+    all: &Value,
+    selected: &mut Option<BTreeSet<String>>,
+    args: &Value,
+    seen: &mut BTreeSet<String>,
+) -> Result<Value> {
+    // Validate and compute the requested phase before consulting old reads.
+    // A previously visited transition is still useful when it changes the
+    // currently advertised schemas (A -> B -> A -> B).
+    let mut next = selected.clone();
+    let result = discover(all, &mut next, args)?;
+    let changed = next != *selected;
+    let key = json!([args, next]).to_string();
+    if !changed && seen.contains(&key) {
+        return Ok(
+            json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,"error":"This catalog page/selection was already provided in the same phase. Use the advertised tool or choose different names; no permissions changed."}),
+        );
+    }
+    if changed {
+        seen.clear();
+    }
+    *selected = next;
+    seen.insert(key);
+    Ok(result)
 }
 pub fn discover(
     all: &Value,
@@ -71,6 +108,64 @@ pub fn definition() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_discovery_is_blocked_but_a_changed_phase_can_restore_tools() {
+        let all = json!([{"function":{"name":"browser"}},{"function":{"name":"file_outline"}}]);
+        let mut selected = Some(core());
+        let mut seen = BTreeSet::new();
+        let args = json!({"names":["browser"]});
+        assert_eq!(
+            discover_once(&all, &mut selected, &args, &mut seen).unwrap()["ok"],
+            true
+        );
+        assert_eq!(
+            discover_once(&all, &mut selected, &args, &mut seen).unwrap()["repetition_blocked"],
+            true
+        );
+        assert_eq!(
+            discover_once(
+                &all,
+                &mut selected,
+                &json!({"names":["file_outline"]}),
+                &mut seen
+            )
+            .unwrap()["ok"],
+            true
+        );
+        assert_eq!(
+            discover_once(&all, &mut selected, &args, &mut seen).unwrap()["ok"],
+            true
+        );
+        let outline = json!({"names":["file_outline"]});
+        assert_eq!(
+            discover_once(&all, &mut selected, &outline, &mut seen).unwrap()["ok"],
+            true
+        );
+        assert!(selected.as_ref().unwrap().contains("file_outline"));
+        assert!(!selected.as_ref().unwrap().contains("browser"));
+        assert_eq!(
+            discover_once(&all, &mut selected, &outline, &mut seen).unwrap()["repetition_blocked"],
+            true
+        );
+        let before = selected.clone();
+        assert!(discover_once(
+            &all,
+            &mut selected,
+            &json!({"names":["unknown"]}),
+            &mut seen
+        )
+        .is_err());
+        assert_eq!(selected, before);
+        assert!(!selected.unwrap().contains("read_file"));
+    }
+    #[test]
+    fn url_task_selects_browser_without_whole_file_schema() {
+        let tools = for_prompt("حلل https://example.test/app ثم تابع");
+        assert!(tools.contains("browser"));
+        assert!(!tools.contains("read_file"));
+        assert!(!for_prompt("Explain browser history").contains("browser"));
+        assert!(!for_prompt("file:///private").contains("browser"));
+    }
     #[test]
     fn paginated_catalog_keeps_tools_discoverable_and_selection_is_explicit() {
         let all = json!((0..45)
