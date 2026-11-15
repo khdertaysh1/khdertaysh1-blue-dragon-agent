@@ -3,6 +3,7 @@ mod anthropic;
 mod browser;
 mod config;
 mod intelligence;
+mod jobs;
 mod mcp;
 mod mcp_protocol;
 mod models;
@@ -303,7 +304,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -327,6 +328,15 @@ fn run() -> Result<()> {
                                 match agent.select_model(line.trim_start_matches("/model ")) {
                                     Ok(text) => println!("{text}"),
                                     Err(e) => eprintln!("Model: {e:#}"),
+                                }
+                                continue;
+                            }
+                            line if line == "/jobs" || line.starts_with("/jobs ") => {
+                                match agent
+                                    .jobs_command(line.strip_prefix("/jobs").unwrap_or("").trim())
+                                {
+                                    Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
+                                    Err(e) => eprintln!("Jobs: {e:#}"),
                                 }
                                 continue;
                             }

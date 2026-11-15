@@ -23,6 +23,9 @@ impl Guard {
         format!("{name}:{}", args)
     }
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
+        if matches!(name, "job_status" | "job_output") {
+            return None;
+        }
         let key = Self::key(name, args);
         if self
             .seen
@@ -59,6 +62,9 @@ impl Guard {
         }));
     }
     pub fn after(&mut self, name: &str, args: &Value, result: &Value) -> bool {
+        if matches!(name, "job_status" | "job_output") {
+            return false;
+        }
         self.consecutive_cached = 0;
         let key = Self::key(name, args);
         let text = result.to_string();
@@ -92,6 +98,16 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_job_polling_is_not_cached_or_classified_as_a_stall() {
+        let mut guard = Guard::default();
+        let args = json!({"job_id":"test"});
+        for _ in 0..12 {
+            assert!(guard.before("job_status", &args).is_none());
+            assert!(!guard.after("job_status", &args, &json!({"ok":true,"state":"running"})));
+        }
+        assert!(!guard.stalled());
+    }
     #[test]
     fn blocks_denied_actions_but_rechecks_live_reads_until_unchanged() {
         let mut g = Guard::default();

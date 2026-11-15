@@ -89,6 +89,7 @@ struct Screen {
     draft: String,
     plan: String,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    jobs: std::sync::Arc<crate::jobs::Jobs>,
 }
 
 impl Screen {
@@ -111,6 +112,7 @@ impl Screen {
             draft: String::new(),
             plan: "Use /plan or ask for a multi-step task.".into(),
             cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            jobs: std::sync::Arc::new(crate::jobs::Jobs::default()),
         }
     }
 
@@ -146,7 +148,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -202,6 +204,13 @@ impl Drop for TerminalGuard {
     }
 }
 
+struct JobShutdownGuard(std::sync::Arc<crate::jobs::Jobs>);
+impl Drop for JobShutdownGuard {
+    fn drop(&mut self) {
+        self.0.shutdown();
+    }
+}
+
 pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         anyhow::bail!("TUI needs an interactive terminal. Use 'blue-dragon chat' or 'run' instead");
@@ -213,6 +222,8 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
     let (approval_tx, approval_rx) = mpsc::channel::<ApprovalRequest>();
     let saved_resume = resume.map(str::to_owned);
     let cancellation = app.cancelled.clone();
+    let jobs = app.jobs.clone();
+    let _job_shutdown = JobShutdownGuard(app.jobs.clone());
 
     thread::spawn(move || {
         let approval = if read_only {
@@ -230,6 +241,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
             }
         };
         agent.set_cancellation(cancellation);
+        agent.set_jobs(jobs);
         agent.set_output(message_tx.clone());
         let _ = message_tx.send(AgentEvent::Model(agent.model_status()));
         let _ = message_tx.send(AgentEvent::Plan(agent.plan_text()));
@@ -372,6 +384,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
             if app.busy {
                 app.cancelled
                     .store(true, std::sync::atomic::Ordering::Relaxed);
+                app.jobs.cancel_all();
                 app.approve(false);
                 app.status = "Cancellation requested; waiting for current I/O".into();
                 continue;
@@ -438,6 +451,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
             KeyCode::Esc => {
                 app.cancelled
                     .store(true, std::sync::atomic::Ordering::Relaxed);
+                app.jobs.cancel_all();
                 break;
             }
             KeyCode::PageUp => app.scroll_up = app.scroll_up.saturating_add(5),
@@ -484,6 +498,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
     }
     app.cancelled
         .store(true, std::sync::atomic::Ordering::Relaxed);
+    app.jobs.cancel_all();
     app.approve(false);
     drop(work_tx);
     Ok(())
@@ -504,6 +519,10 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/browser ") => serde_json::to_string_pretty(
             &agent.browser_command(line.trim_start_matches("/browser "))?,
         )?,
+        "/jobs" => serde_json::to_string_pretty(&agent.jobs_command("")?)?,
+        _ if line.starts_with("/jobs ") => {
+            serde_json::to_string_pretty(&agent.jobs_command(line.trim_start_matches("/jobs "))?)?
+        }
         "/checks" => serde_json::to_string_pretty(&agent.check_status())?,
         "/memory" => serde_json::to_string_pretty(&agent.memory_command("")?)?,
         _ if line.starts_with("/memory ") => serde_json::to_string_pretty(

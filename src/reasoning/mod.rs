@@ -1,4 +1,5 @@
 //! Independent task control and evidence, not model weights or hidden reasoning.
+pub mod claims;
 pub mod context;
 pub mod loops;
 use anyhow::{bail, Result};
@@ -13,6 +14,8 @@ pub struct Observation {
     pub excerpt: String,
     #[serde(default)]
     pub origin: Option<String>,
+    #[serde(default)]
+    pub native_facts: claims::NativeFacts,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
@@ -20,9 +23,13 @@ pub struct Finding {
     pub summary: String,
     pub evidence_ids: Vec<String>,
     pub limitation: String,
+    #[serde(default)]
+    pub assertions: Vec<claims::Assertion>,
+    #[serde(default)]
+    pub assertion_verification: String,
 }
 pub fn finding(args: &Value, observations: &[Observation]) -> Result<Finding> {
-    let item: Finding = serde_json::from_value(args.clone())?;
+    let mut item: Finding = serde_json::from_value(args.clone())?;
     if !matches!(item.status.as_str(), "hypothesis" | "supported" | "blocked")
         || item.summary.trim().is_empty()
         || item.summary.len() > 2000
@@ -44,6 +51,12 @@ pub fn finding(args: &Value, observations: &[Observation]) -> Result<Finding> {
     {
         bail!("Supported findings need a successful observed tool result. This is a citation check, not semantic proof of the claim.");
     }
+    claims::validate(&item.assertions, &item.evidence_ids, observations)?;
+    item.assertion_verification = if item.assertions.is_empty() {
+        "Citation checks only; summary prose is not semantically verified"
+    } else {
+        "Exact native metadata assertions matched; summary prose, test coverage and exploitability are not semantically verified"
+    }.into();
     Ok(item)
 }
 pub fn observe(index: usize, tool: &str, result: &Value) -> Observation {
@@ -56,6 +69,7 @@ pub fn observe(index: usize, tool: &str, result: &Value) -> Observation {
             && result["execution_status"] != "unknown",
         excerpt: context::clip(&result.to_string(), 1000),
         origin: None,
+        native_facts: claims::extract(tool, result),
     }
 }
 pub fn briefing(task: &str) -> &'static str {
@@ -78,12 +92,31 @@ pub fn briefing(task: &str) -> &'static str {
 pub fn definitions() -> Vec<Value> {
     vec![
         json!({"type":"function","function":{"name":"recall_context","description":"Read an exact bounded excerpt from this session's original transcript. Use message_index from a compacted observation/evidence ID to recover omitted details. This does not rerun a tool.","parameters":{"type":"object","properties":{"message_index":{"type":"integer","minimum":0},"offset":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":1,"maximum":12000}},"required":["message_index"],"additionalProperties":false}}}),
-        json!({"type":"function","function":{"name":"record_finding","description":"Save an evidence-linked finding. Status hypothesis/supported/blocked. Supported requires real successful evidence IDs but is still a model interpretation, not an engine guarantee of exploitability or correctness. Include uncertainty and failed checks in limitation.","parameters":{"type":"object","properties":{"status":{"type":"string","enum":["hypothesis","supported","blocked"]},"summary":{"type":"string"},"evidence_ids":{"type":"array","items":{"type":"string"}},"limitation":{"type":"string"}},"required":["status","summary","evidence_ids","limitation"],"additionalProperties":false}}}),
+        json!({"type":"function","function":{"name":"record_finding","description":"Save an evidence-linked finding. Status hypothesis/supported/blocked. Supported requires real successful evidence IDs but is still a model interpretation, not an engine guarantee of exploitability or correctness. Include uncertainty and failed checks in limitation. Optional assertions validate only exact native command exit codes or HTTP statuses against cited observations, not the meaning or truth of summary prose.","parameters":{"type":"object","properties":{"status":{"type":"string","enum":["hypothesis","supported","blocked"]},"summary":{"type":"string"},"evidence_ids":{"type":"array","items":{"type":"string"}},"limitation":{"type":"string"},"assertions":{"type":"array","maxItems":12,"items":{"type":"object","properties":{"evidence_id":{"type":"string"},"kind":{"type":"string","enum":["command_exit_code","http_status"]},"value":{"type":"integer"}},"required":["evidence_id","kind","value"],"additionalProperties":false}}},"required":["status","summary","evidence_ids","limitation"],"additionalProperties":false}}}),
     ]
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn structured_findings_reject_mismatch_and_generate_their_own_label() {
+        let evidence = vec![observe(1, "run_command", &json!({"ok":true,"exit_code":0}))];
+        let mut args = json!({"status":"supported","summary":"Observed command exit","evidence_ids":["E000001"],"limitation":"Does not prove coverage","assertions":[{"kind":"command_exit_code","value":1,"evidence_id":"E000001"}],"assertion_verification":"Everything proven"});
+        assert!(finding(&args, &evidence).is_err());
+        args["assertions"][0]["value"] = json!(0);
+        let accepted = finding(&args, &evidence).unwrap();
+        assert!(accepted
+            .assertion_verification
+            .contains("not semantically verified"));
+        assert!(!accepted
+            .assertion_verification
+            .contains("Everything proven"));
+        args["assertions"] = json!([]);
+        assert!(finding(&args, &evidence)
+            .unwrap()
+            .assertion_verification
+            .starts_with("Citation checks only"));
+    }
     #[test]
     fn claims_cannot_cite_invented_or_failed_evidence_as_support() {
         let evidence = vec![

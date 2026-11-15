@@ -65,7 +65,7 @@ async function execute(action,args) {
     const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
     return {body:new TextDecoder().decode(bytes),status:response.status,note:'Fresh unauthenticated copy, not the original browser response body'};
   }
-  if(!['snapshot','click','fill','evaluate','console'].includes(action))throw Error('Unsupported action');
+  if(!['snapshot','click','fill','select','set_checked','evaluate','console'].includes(action))throw Error('Unsupported action');
   await readyTab(currentTab);
   const results=await api.scripting.executeScript({target:{tabId:currentTab},world:'MAIN',func:blueDragonPage,args:[action,args]});
   if(results[0]?.error)throw Error('Page execution failed');
@@ -76,7 +76,7 @@ async function connect() {
   const config=await api.storage.local.get(['token','port']);
   if(!/^[a-f0-9]{64}$/.test(config.token||'') || !Number.isInteger(config.port) || config.port<1 || config.port>65535)return;
   const ws=new WebSocket(`ws://127.0.0.1:${config.port}/bridge`);socket=ws;
-  ws.onopen=()=>ws.send(JSON.stringify({type:'hello',version:1,token:config.token,capabilities:['open','navigate','snapshot','click','fill','evaluate','network','console','source','screenshot','close']}));
+  ws.onopen=()=>ws.send(JSON.stringify({type:'hello',version:1,token:config.token,capabilities:['open','navigate','snapshot','click','fill','select','set_checked','evaluate','network','console','source','screenshot','close']}));
   ws.onmessage=event=> {
     if(typeof event.data!=='string'||event.data.length>24000)return;
     let packet;try{packet=JSON.parse(event.data);}catch{return;}

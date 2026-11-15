@@ -124,3 +124,16 @@ Page content, console and errors are untrusted. Approving a browser action may s
 `python scripts/build_browser_extension.py` builds both independent variants. `node scripts/smoke_browser.mjs` tests real Chromium CDP; `--extension` tests its extension; `--firefox` uses Firefox/geckodriver with a temporary add-on. CI installs pinned official test browsers. All pages are synthetic localhost fixtures: DOM, input/click, MAIN-world isolation, network, script source, console, screenshot and unmanaged-tab isolation. These are Linux browser tests, not evidence of physical Android or store approval.
 
 Official setup references: [Chrome Android debugging](https://developer.chrome.com/docs/devtools/remote-debugging/), [Android authorized wireless debugging](https://developer.android.com/tools/adb#wireless), [Firefox extension signing](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/), [Firefox Android development](https://extensionworkshop.com/documentation/develop/developing-extensions-for-firefox-for-android/).
+
+### Explicit form state actions
+
+`select` accepts a selector and an exact option `value` for a single-select control.
+Snapshots share a 12,000-character option budget across all selects, with at most 100 options per control. Omitted option counts and truncated-value flags distinguish previews from exact usable values. Duplicate, missing or
+ disabled options are rejected rather than guessed. `set_checked` accepts a
+selector and boolean `checked` for a checkbox or radio. Clearing a radio is not
+supported: select the desired alternative. Both require normal action approval,
+reject disabled controls (including disabled fieldsets), and avoid duplicate
+change events when the requested state already holds. They report the resulting
+DOM state and `matched`; this is not evidence of server-side acceptance. Page
+handlers can veto or later change state. A mismatch returns outer `ok:false` with execution status `executed_state_mismatch`, not a claim that nothing happened. Both actions dispatch page events whose handlers may submit forms or make network requests. They do not directly call form submission and never automatically retry. Updated extensions must be installed to expose
+these capabilities. Contract test: `node scripts/test_browser_forms.mjs`.

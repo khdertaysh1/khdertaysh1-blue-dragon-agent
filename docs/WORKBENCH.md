@@ -72,3 +72,14 @@ Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or
 `code_search` locates fresh local text and Tree-sitter symbols/references without running the project or contacting an embedding service. `project_memory` stores historical notes under app data, scoped by canonical workspace and explicit URL target; follow-up turns retain that scope and multiple targets have a distinct scope. New sessions begin with project scope; resumed sessions retain saved target scope. `/memory` searches the current scope, `/memory URL` selects that origin for the lookup, and `/memory forget ID` deletes a note. `--no-project-memory` disables reading/writing project notes, not ordinary session persistence.
 
 `set_task_checks` binds a requested check to exact `run_command` or `file_info` arguments and native result metadata. It does not run commands or grant approval. `/checks` and `/report` expose observed/missing/stale states. A source mutation invalidates previous proof; native output must be observed after declaration. Finalization permits one review continuation, then explicitly reports `needs_verification` when checks are missing. The protocol report's `finished` means the turn returned normally; inspect `task_status` for acceptance status. A successful exit code and model-authored criteria do not prove semantic correctness. See [limits and audit](PROJECT_INTELLIGENCE.md).
+
+### Atomic single-file edits
+
+`read_file` returns a SHA-256 digest. `multi_edit_file` requires this digest and
+1–64 sequential exact replacements. All replacements are validated in memory
+before one combined diff approval and an atomic file replacement. Ambiguity,
+stale content, denial, oversized output, or a content change during approval
+writes nothing. Existing Unix mode bits are preserved; ownership, ACLs and
+Windows security attributes are not guaranteed to be retained. This is not a multi-file
+transaction or protection against a malicious concurrent filesystem writer;
+the last content check and rename are not a filesystem compare-and-swap.

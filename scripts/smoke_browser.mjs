@@ -19,7 +19,7 @@ const server=http.createServer((req,res)=>{
  if(req.url==='/api'){apiHits++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({message:'Hello Browser42'}));}
  else if(req.url==='/app.js'){res.setHeader('Content-Type','application/javascript');res.end(`console.log('BB_BROWSER_TEST');window.__freshLoad=location.hash;document.querySelector('#send').onclick=async()=>{const r=await fetch('/api');document.querySelector('#out').textContent=(await r.json()).message;};`);}
  else if(req.url==='/unmanaged'){res.end('<h1>UNMANAGED_SECRET</h1>');}
- else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Blue Dragon fixture</title><h1>BB fixture ready</h1><input id="name"><button id="send">Send</button><div id="out"></div><script src="/app.js"></script>');}
+ else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Blue Dragon fixture</title><h1>BB fixture ready</h1><input id="name"><input id="agree" type="checkbox"><select id="choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="send">Send</button><div id="out"></div><script src="/app.js"></script>');}
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const site=`http://127.0.0.1:${server.address().port}`;
@@ -93,6 +93,11 @@ try{
  async function action(args){const result=(await send('/browser do '+JSON.stringify(args),true)).data;assert.equal(result?.ok,true,JSON.stringify(result));return result.result;}
  await action({action:'open',url:site});
  const snapshot=await action({action:'snapshot'});assert.equal(snapshot.title,'Blue Dragon fixture');assert(snapshot.elements.some(e=>e.selector==='#send'));assert(!snapshot.text.includes('UNMANAGED_SECRET'));
+ assert(snapshot.elements.find(e=>e.selector==='#choice').options.some(o=>o.value==='b'));
+ assert.equal((await action({action:'select',selector:'#choice',value:'b'})).matched,true);
+ assert.equal((await action({action:'select',selector:'#choice',value:'b'})).changed,false);
+ assert.equal((await action({action:'set_checked',selector:'#agree',checked:true})).matched,true);
+ assert.equal((await action({action:'set_checked',selector:'#agree',checked:true})).changed,false);
  await action({action:'fill',selector:'#name',value:'Browser42'});
  assert.equal(await action({action:'evaluate',expression:'document.querySelector("#name").value'}),'Browser42');
  if(extensionMode)assert.equal(await action({action:'evaluate',expression:'typeof chrome === "undefined" || typeof chrome.storage === "undefined"'}),true,'MAIN world must not expose extension storage');
