@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import termios
 import time
+from pty_helpers import wait_exit
 
 master, slave = pty.openpty()
 process = None
@@ -34,7 +35,7 @@ try:
                     return
                 if select.select([master], [], [], 0.05)[0]:
                     captured.extend(os.read(master, 65536))
-            raise AssertionError(f"TUI did not render {text!r}")
+            raise AssertionError(f"TUI did not render {text!r}; exit={process.poll()}; tail={bytes(captured[-4096:])!r}")
         wait_for(b"BLUE DRAGON")
         os.write(master, b"/help\r")
         wait_for(b"Commands:")
@@ -63,13 +64,11 @@ try:
                 captured.extend(os.read(master, 65536))
         assert selected == "liquid/lfm-3-1.7b:free", selected
         os.write(master, b"/exit\r")
-        assert process.wait(timeout=5) == 0
-        # Drain the final restoration sequence.
-        while select.select([master], [], [], 0.05)[0]:
-            captured.extend(os.read(master, 65536))
+        code, exit_seconds = wait_exit(process, master, captured, seconds=5)
+        assert code == 0, f"TUI exit code {code}; tail={bytes(captured[-4096:])!r}"
         assert b"\x1b[?1049l" in captured
         assert termios.tcgetattr(slave) == before
-        print("PTY model picker/filter/select/save, help, exit and terminal-mode restoration passed")
+        print(f"PTY model picker/filter/select/save, help, exit and terminal-mode restoration passed; exit={exit_seconds:.3f}s")
 finally:
     if process is not None and process.poll() is None:
         process.kill()

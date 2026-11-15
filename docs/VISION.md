@@ -1,0 +1,15 @@
+# Explicit screenshot interpretation
+
+`browser screenshot` saves a local JPEG and retains the latest capture in memory. It does not transmit pixels to the language model. `inspect_screenshot` separately asks for consent showing the capture path, selected provider/model, byte count and question. The user must assess whether the image contains private information before approving.
+
+After approval, Blue Dragon sends actual base64 JPEG pixels in the provider's image content format. This is a separate bounded request without tools. The entire session is pinned to the exact approved provider/model once an interpretation is returned. Subsequent provider/model switches, automatic rotation and resumed sessions with a different destination are blocked before transmission. Automatic and explicit project-memory exports are disabled in such sessions. Start a new session without this history to use another destination. Only the resulting text interpretation is recorded in chat; pixels are not placed in session history or automatically forwarded during model rotation. The capture is consumed before requesting, so an ambiguous failure cannot replay the image automatically. A new capture is needed to retry. Successful output means the provider returned an interpretation, not proof of correct perception, current page state, server-side acceptance or exploitability.
+
+Current conservative capability allowlist:
+- Official OpenAI `/v1/chat/completions`: gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano.
+- Official Anthropic `/v1/messages`: claude-sonnet-4-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022, claude-3-7-sonnet-20250219.
+
+Unknown providers, proxies, free gateways, model aliases and unlisted versions are rejected rather than guessing vision support. Availability/pricing remains provider-controlled; this feature does not grant a free entitlement. Credentials use the selected provider configuration. Changing providers requires another capture/request/consent.
+
+Limits: 2.1 MB encoded-source JPEG bytes, 2000 UTF-8 question bytes, 1024 response tokens, 64 KiB response body, 16 KiB description. JPEG signature checking is not full image decoding. Mutating browser actions (including raw URL inspection), new screenshot attempts, backend commands and turn boundaries invalidate retained pixels. The captured image is not automatically deleted from the local screenshot directory. Provider requests can remain in flight until their existing 120-second timeout; cancellation is checked before transmission, not a guarantee of stopping an already sent request.
+
+Tests verify content payloads, loopback HTTP serialization and error/response limits, unsupported destinations, normal completion status, destination-specific consent, cancellation before transmission and one-shot consumption. Incompatible resumed destinations are rejected before checkpoint changes; CLI/TUI model status shows when image-derived history is destination locked. No paid/live provider inference was run as part of local validation.

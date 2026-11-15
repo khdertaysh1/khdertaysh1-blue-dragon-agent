@@ -148,7 +148,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -532,6 +532,11 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         "/findings" => agent.findings_text()?,
         "/rotation" => serde_json::to_string_pretty(&agent.rotation_status())?,
         "/plan" => agent.plan_text(),
+        line if line == "/scope" || line.starts_with("/scope ") => serde_json::to_string_pretty(
+            &agent.scope_command(line.strip_prefix("/scope").unwrap_or("").trim())?,
+        )?,
+        "/audit-report" => serde_json::to_string_pretty(&agent.reproduction_report())?,
+        "/coverage" => serde_json::to_string_pretty(&agent.audit_report())?,
         "/report" => agent.report_text(),
         "/mcp" => serde_json::to_string_pretty(&agent.mcp_list())?,
         _ if line.starts_with("/connect ") => serde_json::to_string_pretty(

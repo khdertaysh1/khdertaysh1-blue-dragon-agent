@@ -26,7 +26,9 @@ pub enum ApprovalMode {
 
 pub struct ToolBox {
     root: PathBuf,
+    pub scope: crate::scope::Policy,
     approval: ApprovalMode,
+    progress: Option<Box<dyn Fn(String) + Send + Sync>>,
     jobs: std::sync::Arc<crate::jobs::Jobs>,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -38,9 +40,22 @@ impl ToolBox {
     pub fn new(root: PathBuf, approval: ApprovalMode) -> Self {
         Self {
             root,
+            scope: crate::scope::Policy::default(),
             approval,
+            progress: None,
             jobs: std::sync::Arc::new(crate::jobs::Jobs::default()),
             cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    pub fn set_progress(&mut self, callback: impl Fn(String) + Send + Sync + 'static) {
+        self.progress = Some(Box::new(callback));
+    }
+    pub fn progress(&self, text: String) {
+        if let Some(callback) = &self.progress {
+            callback(text);
+        } else {
+            eprintln!("[Blue Dragon] {text}");
         }
     }
 
@@ -500,6 +515,7 @@ impl ToolBox {
         )
     }
     pub fn web_fetch(&self, raw: &str) -> Result<Value> {
+        self.scope.check(raw, "read")?;
         if raw.len() > 4096 {
             anyhow::bail!("URL exceeds 4096 characters");
         }
