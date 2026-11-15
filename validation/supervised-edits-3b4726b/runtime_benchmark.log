@@ -1,0 +1,226 @@
+{
+  "schema": 1,
+  "scope": "Blue Dragon deterministic runtime; not model quality or Alpha parity",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "fixture_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+  "harness_sha256": "8818b29c152fd3bf49c487c99b6269880cb49ce5c4d33ce70e32625777327236",
+  "candidate": {
+    "binary": "/workspace/scratch/58a10643c600/candidate-builds/blue-dragon-supervised-3b4726b-linux-x64",
+    "binary_sha256": "ba806bb1a0811f87ee725c960f4a8e891e8043e5f8191b9bce07a54739ba421f",
+    "binary_bytes": 18539424,
+    "cases": [
+      {
+        "case": "atomic_edit",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 17.466,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 20.376,
+            "provider_requests": 3,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 17.466,
+            "provider_requests": 3,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 15.457,
+            "provider_requests": 3,
+            "tool_results": 1
+          }
+        ]
+      },
+      {
+        "case": "atomic_rejection",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 33.319,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 49.429,
+            "provider_requests": 2,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 33.319,
+            "provider_requests": 2,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 17.595,
+            "provider_requests": 2,
+            "tool_results": 1
+          }
+        ]
+      },
+      {
+        "case": "denied_write",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 17.829,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 13.719,
+            "provider_requests": 2,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 49.636,
+            "provider_requests": 2,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 17.829,
+            "provider_requests": 2,
+            "tool_results": 1
+          }
+        ]
+      },
+      {
+        "case": "native_exit",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 55.365,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 55.365,
+            "provider_requests": 2,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 54.32,
+            "provider_requests": 2,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 170.793,
+            "provider_requests": 2,
+            "tool_results": 1
+          }
+        ]
+      },
+      {
+        "case": "cached_symbols",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 25.683,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 35.002,
+            "provider_requests": 3,
+            "tool_results": 2
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 25.683,
+            "provider_requests": 3,
+            "tool_results": 2
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 22.427,
+            "provider_requests": 3,
+            "tool_results": 2
+          }
+        ]
+      },
+      {
+        "case": "interrupted_resume",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 25.767,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 75.117,
+            "provider_requests": 1,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 21.798,
+            "provider_requests": 1,
+            "tool_results": 1
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 25.767,
+            "provider_requests": 1,
+            "tool_results": 1
+          }
+        ]
+      },
+      {
+        "case": "archived_arguments",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 30.226,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 30.226,
+            "provider_requests": 2,
+            "tool_results": 2
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 39.183,
+            "provider_requests": 2,
+            "tool_results": 2
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 24.607,
+            "provider_requests": 2,
+            "tool_results": 2
+          }
+        ]
+      },
+      {
+        "case": "session_identity",
+        "passed": 3,
+        "executed": 3,
+        "median_ms": 11.87,
+        "samples": [
+          {
+            "status": "passed",
+            "elapsed_ms": 11.174,
+            "provider_requests": 0,
+            "tool_results": 0
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 11.87,
+            "provider_requests": 0,
+            "tool_results": 0
+          },
+          {
+            "status": "passed",
+            "elapsed_ms": 18.919,
+            "provider_requests": 0,
+            "tool_results": 0
+          }
+        ]
+      }
+    ]
+  },
+  "alpha": {
+    "status": "not_run",
+    "reason": "No validated Alpha adapter/executable supplied"
+  }
+}

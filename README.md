@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Blue Dragon 0.9.0-alpha.2 — unpublished candidate.** The integrated package includes bounded file research, independent read-only agents, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
+> **Blue Dragon 0.9.0-alpha.3 — release candidate, pending review and CI.** The integrated package includes provider diagnostics and shared cooldowns, bounded file research, independent agents with parent-approved edit proposals, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 

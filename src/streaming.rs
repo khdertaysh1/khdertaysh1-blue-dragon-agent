@@ -13,28 +13,59 @@ struct Assembly {
     calls: BTreeMap<usize, Value>,
     arguments: BTreeMap<usize, String>,
     finished: bool,
+    stream_end: bool,
+    metadata: Value,
 }
 
 impl Assembly {
     fn event(&mut self, data: &str, anthropic: bool, delta: &mut impl FnMut(&str)) -> Result<()> {
         if data == "[DONE]" {
             self.finished = true;
+            self.stream_end = true;
             return Ok(());
         }
         let v: Value = serde_json::from_str(data).context("Invalid SSE JSON")?;
+        if !self.metadata.is_object() {
+            self.metadata = json!({"usage":{}});
+        }
+        if let Some(model) = v["model"]
+            .as_str()
+            .or_else(|| v["message"]["model"].as_str())
+        {
+            self.metadata["model"] = json!(model);
+        }
+        let usage = if v["usage"].is_object() {
+            &v["usage"]
+        } else {
+            &v["message"]["usage"]
+        };
+        for key in [
+            "input_tokens",
+            "output_tokens",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+        ] {
+            if let Some(number) = usage[key].as_u64() {
+                self.metadata["usage"][key] = json!(number);
+            }
+        }
         if v.get("error").is_some() || v["type"] == "error" {
             bail!("Provider stream reported an error (payload suppressed)");
         }
         if anthropic {
             match v["type"].as_str() {
-                Some("message_stop") => self.finished = true,
-                Some("message_delta")
-                    if matches!(
-                        v["delta"]["stop_reason"].as_str(),
-                        Some("max_tokens" | "refusal")
-                    ) =>
-                {
-                    bail!("Provider stopped before a complete response (token limit or refusal)");
+                Some("message_stop") => {
+                    self.finished = true;
+                    self.stream_end = true;
+                }
+                Some("message_delta") => {
+                    if let Some(kind) = v["delta"]["stop_reason"]
+                        .as_str()
+                        .and_then(crate::provider_contract::stop_kind)
+                    {
+                        return Err(crate::provider_contract::incomplete(kind, &self.text));
+                    }
                 }
                 Some("content_block_start") => {
                     let index = v["index"].as_u64().context("Missing block index")? as usize;
@@ -65,6 +96,15 @@ impl Assembly {
             }
         } else {
             let choice = &v["choices"][0];
+            if choice["delta"]["refusal"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+            {
+                return Err(crate::provider_contract::incomplete(
+                    "explicit_refusal",
+                    &self.text,
+                ));
+            }
             if let Some(text) = choice["delta"]["content"].as_str() {
                 self.text.push_str(text);
                 delta(text);
@@ -94,11 +134,11 @@ impl Assembly {
                     }
                 }
             }
-            if matches!(
-                choice["finish_reason"].as_str(),
-                Some("length" | "content_filter")
-            ) {
-                bail!("Provider stopped before a complete response (token limit or filter)");
+            if let Some(kind) = choice["finish_reason"]
+                .as_str()
+                .and_then(crate::provider_contract::stop_kind)
+            {
+                return Err(crate::provider_contract::incomplete(kind, &self.text));
             }
             if choice["finish_reason"].is_string() {
                 self.finished = true;
@@ -138,7 +178,9 @@ impl Assembly {
             }
             calls.push(parsed);
         }
-        Ok(json!({"role":"assistant","content":self.text,"tool_calls":calls}))
+        Ok(
+            json!({"role":"assistant","content":self.text,"tool_calls":calls,"_blue_provider_metadata":self.metadata}),
+        )
     }
 }
 
@@ -158,7 +200,9 @@ pub fn decode(
             bail!("Task cancelled");
         }
         line.clear();
-        let count = input.read_until(b'\n', &mut line)?;
+        let count = input.read_until(b'\n', &mut line).map_err(|_| {
+            crate::provider_contract::incomplete("connection_interrupted", &assembly.text)
+        })?;
         consumed += count as u64;
         if consumed > MAX_STREAM {
             bail!("Provider stream exceeded 4 MB");
@@ -171,9 +215,20 @@ pub fn decode(
             .trim_end_matches(['\r', '\n']);
         if text.is_empty() {
             if !data.is_empty() {
-                assembly.event(&data, anthropic, &mut delta)?;
+                assembly
+                    .event(&data, anthropic, &mut delta)
+                    .map_err(|error| {
+                        if error
+                            .downcast_ref::<crate::provider_contract::Incomplete>()
+                            .is_some()
+                        {
+                            error
+                        } else {
+                            crate::provider_contract::incomplete("malformed_stream", &assembly.text)
+                        }
+                    })?;
                 data.clear();
-                if assembly.finished {
+                if assembly.stream_end {
                     break;
                 }
             }
@@ -185,12 +240,32 @@ pub fn decode(
         }
     }
     if !data.is_empty() {
-        assembly.event(&data, anthropic, &mut delta)?;
+        assembly
+            .event(&data, anthropic, &mut delta)
+            .map_err(|error| {
+                if error
+                    .downcast_ref::<crate::provider_contract::Incomplete>()
+                    .is_some()
+                {
+                    error
+                } else {
+                    crate::provider_contract::incomplete("malformed_stream", &assembly.text)
+                }
+            })?;
     }
     if cancelled() {
         bail!("Task cancelled");
     }
-    assembly.finish(anthropic)
+    if !assembly.finished {
+        return Err(crate::provider_contract::incomplete(
+            "connection_interrupted",
+            &assembly.text,
+        ));
+    }
+    let partial = crate::reasoning::context::clip(&assembly.text, 16000);
+    assembly
+        .finish(anthropic)
+        .map_err(|_| crate::provider_contract::incomplete("malformed_tool_call", &partial))
 }
 
 #[cfg(test)]
@@ -242,6 +317,23 @@ mod tests {
         )
         .is_err());
         assert!(decode(b"data: [DONE]\n\n".as_slice(), false, |_| {}, || true).is_err());
+    }
+    #[test]
+    fn stream_limit_filter_and_disconnect_have_distinct_preserved_partials() {
+        for (reason, kind) in [
+            (Some("length"), "response_limit"),
+            (Some("content_filter"), "content_filter"),
+            (None, "connection_interrupted"),
+        ] {
+            let event = json!({"choices":[{"delta":{"content":"partial UTF-8 🐉"},"finish_reason":reason}]});
+            let wire = format!("data: {event}\n\n");
+            let error = decode(wire.as_bytes(), false, |_| {}, || false).unwrap_err();
+            let failure = error
+                .downcast_ref::<crate::provider_contract::Incomplete>()
+                .unwrap();
+            assert_eq!(failure.kind, kind);
+            assert_eq!(failure.partial_text, "partial UTF-8 🐉");
+        }
     }
     #[test]
     fn token_limit_does_not_report_completion() {
