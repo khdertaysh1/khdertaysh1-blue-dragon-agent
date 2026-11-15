@@ -28,7 +28,7 @@
 > [!IMPORTANT]
 > **[Blue Dragon 0.9.0-alpha.3 — published developer preview](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.3).** [Release CI passed](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/43715146909); physical Termux testing remains unverified. The integrated package includes provider diagnostics and shared cooldowns, bounded file research, independent agents with parent-approved edit proposals, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
-> **Next candidate: Blue Dragon 0.9.0-alpha.4**, prepared from reviewed model-capacity work `def2469`. It is not published yet; the alpha.3 release above remains unchanged. See [release notes](docs/RELEASE_NOTES.md) and [capacity evidence and limits](docs/provider-capacity-review.md).
+> **[Current published release: Blue Dragon 0.9.0-alpha.4](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.4). Next candidate: 0.9.0-alpha.5**, containing the context-continuity repair and the discovery-cycle correction requested by independent review. The candidate is not published by this local preparation. Existing releases remain unchanged. See [release notes](docs/RELEASE_NOTES.md) and [context evidence and limits](docs/context-continuity-review.md).
 
 ## The Dragon Mind
 
@@ -133,6 +133,8 @@ Run the **same installer command to update**. It selects a published release for
 See [installation, supported systems, rollback and developer source builds](docs/INSTALL.md). [Published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases) contain persistent downloads and checksums; Actions artifacts are temporary developer outputs.
 
 This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects **Blue Free** (Kilo automatic free route preserved by the client). Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
+
+Long-session context uses a soft input traffic target separately from the model/context bound. `/context` reports both and distinguishes a failed local projection from the last successful request. Concrete free-model recovery is opt-in with `--free-model-fallback`; the automatic route remains pinned, and shared or unknown quota errors never trigger model rotation. See the [context continuity review and acceptance limits](docs/context-continuity-review.md).
 
 Select and save a provider from the terminal:
 

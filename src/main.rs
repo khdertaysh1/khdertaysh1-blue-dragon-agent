@@ -90,6 +90,9 @@ struct Cli {
         help = "Disable automatic Blue Free model rotation"
     )]
     no_rotation: bool,
+    /// Opt in to same-provider free concrete-model recovery; never changes the automatic alias.
+    #[arg(long)]
+    free_model_fallback: bool,
     #[arg(long, global=true, default_value_t=24, value_parser=clap::value_parser!(u16).range(1..=100))]
     max_steps: u16,
     #[arg(long, global=true, default_value_t=32768, value_parser=clap::value_parser!(u32).range(8192..=1048576), help="Context window budget including tools and reply reserve; match the selected model")]
@@ -246,6 +249,7 @@ fn run() -> Result<()> {
     settings.mcp_config = args.mcp_config;
     settings.stream = !args.no_stream;
     settings.free_rotation = !args.no_rotation;
+    settings.free_model_fallback = args.free_model_fallback;
     settings.max_steps = usize::from(args.max_steps);
     settings.context_tokens = args.context_tokens as usize;
     settings.project_memory = !args.no_project_memory;
