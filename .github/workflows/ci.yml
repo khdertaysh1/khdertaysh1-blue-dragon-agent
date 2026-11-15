@@ -200,13 +200,14 @@ jobs:
           path: target/reviewed-web-lab
           persist-credentials: false
       - run: cargo build --locked --release
+      # Keep run evidence outside the cached Cargo target directory.
       - name: Qualify one candidate binary
-        run: python scripts/qualify_local.py --binary target/release/blue-dragon --lab target/reviewed-web-lab --output target/qualification --timeout 120
+        run: python scripts/qualify_local.py --binary target/release/blue-dragon --lab target/reviewed-web-lab --output "$RUNNER_TEMP/qualification-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --timeout 120
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: integrated-local-qualification
-          path: target/qualification/
+          path: ${{ runner.temp }}/qualification-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: warn
           retention-days: 14
   publish:
