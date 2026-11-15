@@ -10,10 +10,44 @@ use std::{
 };
 use tungstenite::{Message, WebSocket};
 
+fn record_network(events: &mut VecDeque<Value>, evictions: &mut usize, value: &Value) {
+    let p = &value["params"];
+    let event = match value["method"].as_str() {
+        Some("Network.requestWillBeSent") => Some(
+            json!({"event":"request","request_id":p["requestId"],"url":p["request"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"method":p["request"]["method"],"type":p["type"]}),
+        ),
+        Some("Network.responseReceived") => Some(
+            json!({"event":"response","request_id":p["requestId"],"url":p["response"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"url_truncated":p["response"]["url"].as_str().is_none_or(|url|url.chars().count()>2000),"status":p["response"]["status"],"mime_type":p["response"]["mimeType"],"security_header_indicators":super::inspection::security_header_indicators(&p["response"]["headers"])}),
+        ),
+        _ => None,
+    };
+    if let Some(event) = event {
+        events.push_back(event);
+        if events.len() > 300 {
+            events.pop_front();
+            *evictions = evictions.saturating_add(1);
+        }
+    }
+}
+fn network_snapshot(events: &VecDeque<Value>, evictions: usize) -> Value {
+    let mut rows = Vec::new();
+    let mut used = 0;
+    for event in events.iter().rev() {
+        let size = event.to_string().len() + 1;
+        if used + size > 180_000 {
+            break;
+        }
+        used += size;
+        rows.push(event);
+    }
+    rows.reverse();
+    json!({"entries":rows,"entries_omitted":events.len()-rows.len(),"ring_entries_omitted":evictions,"ring_omission_scope":"dedicated CDP tab since connection start","header_values_and_cookies":"Not retained; bounded policy indicators only"})
+}
 pub struct Cdp {
     ws: WebSocket<TcpStream>,
     id: u64,
     network: VecDeque<Value>,
+    network_evictions: usize,
     console: VecDeque<Value>,
     loaded_documents: VecDeque<String>,
     target: String,
@@ -75,6 +109,7 @@ impl Cdp {
             ws,
             id: 0,
             network: VecDeque::new(),
+            network_evictions: 0,
             console: VecDeque::new(),
             loaded_documents: VecDeque::new(),
             target: info["id"].as_str().context("CDP target missing")?.into(),
@@ -165,21 +200,7 @@ impl Cdp {
                 }
             }
         }
-        let event = match value["method"].as_str() {
-            Some("Network.requestWillBeSent") => Some(
-                json!({"event":"request","request_id":p["requestId"],"url":p["request"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"method":p["request"]["method"],"type":p["type"]}),
-            ),
-            Some("Network.responseReceived") => Some(
-                json!({"event":"response","request_id":p["requestId"],"url":p["response"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"status":p["response"]["status"],"mime_type":p["response"]["mimeType"],"security_headers":super::inspection::security_headers(&p["response"]["headers"])}),
-            ),
-            _ => None,
-        };
-        if let Some(event) = event {
-            self.network.push_back(event);
-            if self.network.len() > 300 {
-                self.network.pop_front();
-            }
-        }
+        record_network(&mut self.network, &mut self.network_evictions, value);
         if value["method"] == "Runtime.consoleAPICalled" {
             let text = p["args"]
                 .as_array()
@@ -259,6 +280,9 @@ impl Cdp {
         self.alive = false;
         anyhow::bail!("Browser action deadline exceeded; outcome unknown; reconnect explicitly and inspect before retry")
     }
+    pub fn source_url(&self, request_id: &str) -> Option<&str> {
+        observed_response_url(&self.network, request_id)
+    }
     fn evaluate(&mut self, expression: String) -> Result<Value> {
         let result=self.call("Runtime.evaluate",json!({"expression":expression,"returnByValue":true,"awaitPromise":true,"timeout":15000}))?;
         if result.get("exceptionDetails").is_some() {
@@ -283,7 +307,7 @@ impl Cdp {
                 }
                 Ok(json!({"navigated":true,"dom_content_loaded":loader.as_ref().is_none_or(|id|self.loaded_documents.contains(id)),"note":"Snapshot reflects the current document; dynamic applications may continue loading."}))
             }
-            "network" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(json!({"entries":self.network,"headers_and_cookies":"Only selected security headers; cookies and authorization are not captured"})) }
+            "network" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(network_snapshot(&self.network,self.network_evictions)) }
             "console" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(json!({"entries":self.console})) }
             "source" => {
                 let id=args["request_id"].as_str().context("CDP source needs a request_id from network output")?;
@@ -294,12 +318,22 @@ impl Cdp {
             }
             "screenshot" => self.call("Page.captureScreenshot",json!({"format":"jpeg","quality":60,"captureBeyondViewport":false})),
             "close" => { self.call("Page.close",json!({}))?; self.alive=false; Ok(json!({"closed":true})) }
-            "snapshot"|"click"|"fill"|"select"|"set_checked"|"evaluate" => {
+            "snapshot"|"wait_for"|"click"|"fill"|"select"|"set_checked"|"evaluate" => {
                 self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,args))
             }
             _ => anyhow::bail!("Unsupported CDP action"),
         }
     }
+}
+fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Option<&'a str> {
+    let response = events
+        .iter()
+        .rev()
+        .find(|event| event["event"] == "response" && event["request_id"] == id)?;
+    if response["url_truncated"] == true {
+        return None;
+    }
+    response["url"].as_str()
 }
 impl Drop for Cdp {
     fn drop(&mut self) {
@@ -377,4 +411,67 @@ pub(super) fn find_browser() -> Option<PathBuf> {
     .iter()
     .map(PathBuf::from)
     .find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod source_scope_tests {
+    use super::*;
+    #[test]
+    fn cdp_ring_omissions_reach_policy_engine_from_producer() {
+        let mut events = VecDeque::new();
+        let mut evictions = 0;
+        for n in 0..301 {
+            record_network(
+                &mut events,
+                &mut evictions,
+                &json!({"method":"Network.responseReceived","params":{"requestId":n.to_string(),"response":{"url":"https://example.test/","status":200,"headers":{"X-Frame-Options":"DENY"}}}}),
+            );
+        }
+        let network = network_snapshot(&events, evictions);
+        assert_eq!(network["entries"].as_array().unwrap().len(), 300);
+        assert_eq!(network["ring_entries_omitted"], 1);
+        assert_eq!(network["entries_omitted"], 0);
+        let root = tempfile::tempdir().unwrap();
+        let mut session = crate::session::new(root.path(), "test");
+        session
+            .scope
+            .command("allow https://example.test/ read")
+            .unwrap();
+        session.messages.push(json!({"role":"assistant","tool_calls":[{"id":"c","function":{"name":"browser","arguments":"{\"action\":\"network\"}"}}]}));
+        let result = json!({"ok":true,"result":network});
+        session
+            .observations
+            .push(crate::reasoning::observe(1, "browser", &result));
+        session
+            .messages
+            .push(json!({"role":"tool","tool_call_id":"c","content":result.to_string()}));
+        let out = crate::audit_engines::review(
+            &session,
+            &json!({"engine":"response_policy_review","evidence_id":"E000001"}),
+        )
+        .unwrap();
+        assert_eq!(out["review"]["upstream_capture_partial"], true);
+        assert_eq!(out["review"]["upstream_capture_completeness_known"], true);
+        assert_eq!(out["vulnerability_confirmed"], false);
+        for event in &mut events {
+            event["url"] = json!("x".repeat(2000));
+        }
+        let bounded = network_snapshot(&events, evictions);
+        assert!(bounded["entries_omitted"].as_u64().unwrap() > 0);
+        assert!(bounded.to_string().len() < 181000);
+    }
+    #[test]
+    fn uses_latest_response_location_and_refuses_truncated_provenance() {
+        let mut events = VecDeque::from([
+            json!({"event":"response","request_id":"r","url":"https://allowed.test/start"}),
+            json!({"event":"response","request_id":"r","url":"https://outside.test/final"}),
+        ]);
+        assert_eq!(
+            observed_response_url(&events, "r"),
+            Some("https://outside.test/final")
+        );
+        events.back_mut().unwrap()["url_truncated"] = json!(true);
+        assert!(observed_response_url(&events, "r").is_none());
+        assert!(observed_response_url(&events, "unknown").is_none());
+    }
 }

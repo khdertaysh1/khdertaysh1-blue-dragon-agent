@@ -29,6 +29,7 @@ struct State {
     slot: Mutex<Option<SyncSender<Command>>>,
     clients: AtomicUsize,
     sequence: AtomicU64,
+    connection_epoch: AtomicU64,
 }
 pub struct Bridge {
     state: Arc<State>,
@@ -79,6 +80,7 @@ impl Bridge {
             slot: Mutex::new(None),
             clients: AtomicUsize::new(0),
             sequence: AtomicU64::new(1),
+            connection_epoch: AtomicU64::new(0),
         });
         let shared = state.clone();
         let secret = token.clone();
@@ -111,16 +113,33 @@ impl Bridge {
         json!({"url":format!("ws://127.0.0.1:{}/bridge",self.port),"pairing_token":self.token,"instruction":"Copy this local secret into Blue Dragon Browser Bridge options. It is never sent to the model. Install the extension first; keep it private."})
     }
     pub fn status(&self) -> Value {
-        json!({"backend":"extension","port":self.port,"ready":self.state.slot.lock().map(|s|s.is_some()).unwrap_or(false),"scope":"managed tabs only"})
+        json!({"backend":"extension","port":self.port,"ready":self.state.slot.lock().map(|s|s.is_some()).unwrap_or(false),"scope":"managed tabs only","connection_epoch":self.state.connection_epoch.load(Ordering::Relaxed),"connection_epoch_scope":"current_bridge_instance_only","page_and_login_continuity_verified":false})
     }
     pub fn request(&self, action: &str, args: &Value) -> Result<Value> {
-        let sender = self
-            .state
-            .slot
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Bridge state unavailable"))?
-            .clone()
-            .context("Browser extension not paired/connected")?;
+        self.request_at_epoch(action, args, None)
+    }
+    pub fn request_at_epoch(
+        &self,
+        action: &str,
+        args: &Value,
+        expected_epoch: Option<u64>,
+    ) -> Result<Value> {
+        // Select the sender and check its epoch under the same slot lock.
+        // A reconnect cannot move this command to a replacement connection.
+        let sender = {
+            let slot = self
+                .state
+                .slot
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Bridge state unavailable"))?;
+            if expected_epoch
+                .is_some_and(|epoch| epoch != self.state.connection_epoch.load(Ordering::Relaxed))
+            {
+                anyhow::bail!("Browser connection changed before dispatch; command not queued");
+            }
+            slot.clone()
+                .context("Browser extension not paired/connected")?
+        };
         let (tx, rx) = mpsc::sync_channel(1);
         let deadline = Instant::now() + Duration::from_secs(30);
         let command = Command {
@@ -205,6 +224,7 @@ fn handle(stream: TcpStream, state: &Arc<State>, token: &str) -> Result<()> {
             ws.close(None).ok();
             anyhow::bail!("A browser is already connected");
         }
+        state.connection_epoch.fetch_add(1, Ordering::Relaxed);
         *slot = Some(tx);
     }
     let mut pending: HashMap<u64, Command> = HashMap::new();
@@ -356,8 +376,14 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(10));
         }
+        assert_eq!(bridge.status()["connection_epoch"], 1);
+        assert!(bridge
+            .request_at_epoch("click", &json!({"selector":"#must-not-run"}), Some(0))
+            .is_err());
         assert_eq!(
-            bridge.request("snapshot", &json!({})).unwrap()["title"],
+            bridge
+                .request_at_epoch("snapshot", &json!({}), Some(1))
+                .unwrap()["title"],
             "Fixture"
         );
         worker.join().unwrap();

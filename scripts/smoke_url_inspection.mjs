@@ -20,7 +20,7 @@ const server=http.createServer(async(req,res)=>{
  }else if(req.url.startsWith('/dom')){res.setHeader('Content-Type','text/html');res.end('<title>DOM fixture</title><form><input name="search"></form><div id="out"></div><script>const value=decodeURIComponent(location.hash.slice(1)) || new URLSearchParams(location.search).get("q") || ""; document.querySelector("#out").'+(req.url.startsWith('/dom-safe')?'textContent':'innerHTML')+'=value;</script>');
  }else if(req.url==='/landing'){res.setHeader('Content-Type','text/html');res.end('<title>Landing fixture</title><a href="https://outside.invalid/register">Register elsewhere</a><a href="/register">Register here</a>');
  }else if(req.url==='/submit'){submissions++;res.end('must not be submitted automatically');}
- else{res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'");res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>URL fixture</title><h1>Real browser page</h1><form method="post" action="/submit"><input type="email" name="email" required><input type="password" name="password"><button>Register</button></form><div id="out"></div><script src="/app.js"></script>');}
+ else{res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; frame-ancestors 'self'");res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>URL fixture</title><h1>Real browser page</h1><form method="post" action="/submit"><input type="email" name="email" required><input type="password" name="password"><button>Register</button></form><div id="out"></div><script src="/app.js"></script>');}
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const site=`http://127.0.0.1:${server.address().port}`;
 const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
@@ -41,25 +41,25 @@ try{
  let evidence=JSON.parse(modelRequests.at(-1).messages.at(-1).content.split('Evidence:\n')[1]);
  assert.equal(evidence.page.title,'URL fixture');assert.equal(evidence.page.forms[0].method,'post');
  assert(evidence.page.forms[0].fields.some(f=>f.type==='password'));
- assert(evidence.network.entries.some(e=>e.security_headers?.['content-security-policy']));
+ assert(evidence.network.entries.some(e=>e.security_header_indicators?.complete && e.security_header_indicators?.csp_header_frame_directive_seen));
  assert(evidence.console.entries.some(e=>e.text.includes('URL_CONSOLE_FIXTURE')));
  assert(evidence.javascript_review.some(e=>e.indicators?.some(i=>i.token==='innerHTML')));
  assert.equal(submissions,0);assert(!JSON.stringify(evidence.page.forms).includes('value'));
- const sessions=fs.readdirSync(path.join(env.BLUE_DRAGON_HOME,'sessions'));
+ const sessions=fs.readdirSync(path.join(env.BLUE_DRAGON_HOME,'sessions')).filter(name=>name.endsWith('.json'));
  const report=JSON.parse(fs.readFileSync(path.join(env.BLUE_DRAGON_HOME,'sessions',sessions.at(-1)))).last_report;
  assert(report.actions.some(a=>a.tool==='browser_url_inspection'&&a.ok));
  result=await run(['chat'],env,site+'\n/exit\n');assert.equal(result.code,0,result.stderr);assert(!result.stdout.includes('APPROVAL REQUIRED'));
- result=await run(['inspect',site+'/landing']);assert.equal(result.code,0,result.stderr);
+ result=await run(['chat'],env,`/scope allow ${site}/ read\n${site}/landing\n/exit\n`);assert.equal(result.code,0,result.stderr);
  evidence=JSON.parse(modelRequests.at(-1).messages.at(-1).content.split('Evidence:\n')[1]);
  assert.equal(evidence.page.url,site+'/register');assert.equal(evidence.landing_page.title,'Landing fixture');
  result=await run(['chat'],env,site+'\n/browser do {"action":"snapshot"}\nn\n/exit\n');
  assert.equal(result.code,0,result.stderr);assert(result.stdout.includes('APPROVAL REQUIRED'),'Read grant must end with the URL turn');assert(result.stdout.includes('"denied": true'));
- result=await run(['inspect',site+'/dom?q=hello']);assert.equal(result.code,0,result.stderr);
+ result=await run(['chat'],env,`/scope allow ${site}/dom interact\n${site}/dom?q=hello\ny\n/exit\n`);assert.equal(result.code,0,result.stderr);
  evidence=JSON.parse(modelRequests.at(-1).messages.at(-1).content.split('Evidence:\n')[1]);
  assert.equal(evidence.dom_checks.attempts.length,2);
  assert(evidence.dom_checks.attempts.some(a=>a.vector==='fragment'&&a.client_side_execution_observed));
  assert(evidence.dom_checks.attempts.some(a=>a.vector==='query:q'&&a.script_execution_observed&&a.source_classification==='client_or_server_origin_not_determined'));
- result=await run(['inspect',site+'/dom-safe?q=hello']);assert.equal(result.code,0,result.stderr);
+ result=await run(['chat'],env,`/scope allow ${site}/dom-safe interact\n${site}/dom-safe?q=hello\ny\n/exit\n`);assert.equal(result.code,0,result.stderr);
  evidence=JSON.parse(modelRequests.at(-1).messages.at(-1).content.split('Evidence:\n')[1]);
  assert.equal(evidence.dom_checks.attempts.length,2);assert(evidence.dom_checks.attempts.every(a=>!a.script_execution_observed));
  const requestsBefore=modelRequests.length;
@@ -78,5 +78,5 @@ try{
  result=await run(['inspect',site],termuxEnv);assert.equal(result.code,0,result.stderr);
  assert.equal(fs.readFileSync(calls,'utf8').trim().split('\n').length,2,'Installed browser must be reused');
  assert.equal(submissions,0);
- console.log('URL-only CLI/chat: automatic real browser, loaded DOM/forms, JS source hints, network/console, no navigation approval prompts with installed browser, explicit package consent, benign DOM canary positive/negative fixtures, no form submission, scoped grant expiry, read-only refusal; simulated Termux package setup/reuse passed');
+ console.log('URL-only CLI/chat: automatic real browser, loaded DOM/forms, JS source hints, network/console, no navigation approval prompts with installed browser, explicit package consent, separately approved benign DOM canary positive/negative fixtures, no form submission, scoped grant expiry, read-only refusal; simulated Termux package setup/reuse passed');
 }finally{children.forEach(p=>p.kill('SIGKILL'));await new Promise(r=>server.close(r));fs.rmSync(temp,{recursive:true,force:true});}

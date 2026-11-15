@@ -66,48 +66,135 @@ pub fn probe_urls(
             .map(|p| p.0.clone())
         {
             let mut target = original.clone();
-            target.query_pairs_mut().clear().extend_pairs(
-                pairs
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), if k == &key { payload } else { v.as_str() })),
-            );
+            let mut changed = false;
+            target
+                .query_pairs_mut()
+                .clear()
+                .extend_pairs(pairs.iter().map(|(k, v)| {
+                    let value = if k == &key && !changed {
+                        changed = true;
+                        payload
+                    } else {
+                        v.as_str()
+                    };
+                    (k.as_str(), value)
+                }));
             variants.push((format!("query:{key}"), target.to_string()));
         }
     }
     Ok(variants)
 }
-pub fn security_headers(headers: &Value) -> Value {
+pub fn probe_document_matches(expected: &str, actual: &str) -> bool {
+    match (reqwest::Url::parse(expected), reqwest::Url::parse(actual)) {
+        (Ok(expected), Ok(actual)) => expected == actual,
+        _ => false,
+    }
+}
+/// Summarize only allowlisted response headers; duplicates/binary/oversized
+/// values are incomplete, never silently reduced to a single trusted value.
+pub fn http_security_header_indicators(headers: &reqwest::header::HeaderMap) -> Value {
     let mut selected = serde_json::Map::new();
-    if let Some(headers) = headers.as_object() {
-        for (name, value) in headers {
-            let key = name.to_ascii_lowercase();
-            if matches!(
-                key.as_str(),
-                "content-security-policy"
-                    | "content-security-policy-report-only"
-                    | "strict-transport-security"
-                    | "x-content-type-options"
-                    | "x-frame-options"
-                    | "referrer-policy"
-                    | "permissions-policy"
-            ) {
-                selected.insert(
-                    key,
-                    json!(value
-                        .as_str()
-                        .unwrap_or("")
-                        .chars()
-                        .take(2000)
-                        .collect::<String>()),
-                );
-            }
+    for name in [
+        "content-security-policy",
+        "content-security-policy-report-only",
+        "x-frame-options",
+        "x-content-type-options",
+    ] {
+        let mut values = headers.get_all(name).iter();
+        if let Some(value) = values.next() {
+            let value = if values.next().is_some() {
+                Value::Null
+            } else {
+                value
+                    .to_str()
+                    .ok()
+                    .filter(|v| v.len() <= 2000)
+                    .map(|v| Value::String(v.to_owned()))
+                    .unwrap_or(Value::Null)
+            };
+            selected.insert(name.to_owned(), value);
         }
     }
-    Value::Object(selected)
+    security_header_indicators(&Value::Object(selected))
+}
+pub fn security_header_indicators(headers: &Value) -> Value {
+    let available = headers.is_object();
+    let mut complete = headers.as_object().is_some_and(|h| h.len() <= 200);
+    let mut selected = std::collections::BTreeMap::new();
+    for (name, value) in headers.as_object().into_iter().flatten().take(200) {
+        if name.len() > 80 {
+            continue;
+        }
+        let key = name.to_ascii_lowercase();
+        if !matches!(
+            key.as_str(),
+            "content-security-policy"
+                | "content-security-policy-report-only"
+                | "x-frame-options"
+                | "x-content-type-options"
+        ) {
+            continue;
+        }
+        if selected.contains_key(&key) {
+            complete = false;
+            continue;
+        }
+        selected.insert(key.clone(), "");
+        if let Some(value) = value
+            .as_str()
+            .filter(|v| v.len() <= 2000 && !v.contains(['\r', '\n']))
+        {
+            selected.insert(key, value);
+        } else {
+            complete = false;
+        }
+    }
+    let get = |name: &str| selected.get(name).copied().unwrap_or("");
+    let frame = |value: &str| {
+        value.split(';').any(|d| {
+            d.split_whitespace()
+                .next()
+                .is_some_and(|n| n.eq_ignore_ascii_case("frame-ancestors"))
+        })
+    };
+    let xframe = get("x-frame-options").trim();
+    json!({"available":available,"complete":complete,"x_frame_options_known_value_seen":xframe.eq_ignore_ascii_case("deny")||xframe.eq_ignore_ascii_case("sameorigin"),"csp_header_frame_directive_seen":frame(get("content-security-policy")),"report_only_frame_directive_seen":frame(get("content-security-policy-report-only")),"nosniff_value_seen":get("x-content-type-options").trim().eq_ignore_ascii_case("nosniff")})
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn http_headers_duplicates_binary_and_limits_are_incomplete() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+        let mut headers = HeaderMap::new();
+        headers.insert("set-cookie", HeaderValue::from_static("PRIVATE_COOKIE"));
+        headers.insert(
+            "content-security-policy-report-only",
+            HeaderValue::from_static("frame-ancestors 'none'; report-uri /PRIVATE"),
+        );
+        let summary = http_security_header_indicators(&headers);
+        assert_eq!(summary["complete"], true);
+        assert_eq!(summary["report_only_frame_directive_seen"], true);
+        assert_eq!(summary["csp_header_frame_directive_seen"], false);
+        assert!(!summary.to_string().contains("PRIVATE"));
+        headers.append(
+            "content-security-policy-report-only",
+            HeaderValue::from_static("frame-ancestors 'self'"),
+        );
+        assert_eq!(http_security_header_indicators(&headers)["complete"], false);
+        for value in [
+            HeaderValue::from_bytes(&[0xff]).unwrap(),
+            HeaderValue::from_str(&"x".repeat(2001)).unwrap(),
+        ] {
+            let mut h = HeaderMap::new();
+            h.insert("x-frame-options", value);
+            assert_eq!(http_security_header_indicators(&h)["complete"], false);
+        }
+        assert_eq!(
+            http_security_header_indicators(&HeaderMap::new())["complete"],
+            true
+        );
+    }
     #[test]
     fn probes_only_fragment_and_existing_search_parameter_preserving_other_parameters() {
         let variants = probe_urls(
@@ -131,11 +218,68 @@ mod tests {
         );
     }
     #[test]
+    fn probe_changes_only_one_duplicate_query_and_requires_exact_document() {
+        let variants = probe_urls(
+            "https://example.test/?q=one&q=two&token=secret",
+            "canary",
+            false,
+            true,
+        )
+        .unwrap();
+        let parsed = reqwest::Url::parse(&variants[0].1).unwrap();
+        assert_eq!(
+            parsed
+                .query_pairs()
+                .map(|(_, v)| v.into_owned())
+                .collect::<Vec<_>>(),
+            vec!["canary", "two", "secret"]
+        );
+        assert!(probe_document_matches(&variants[0].1, &variants[0].1));
+        assert!(!probe_document_matches(
+            "https://example.test/allowed#canary",
+            "https://example.test/other#canary"
+        ));
+        assert!(!probe_document_matches(
+            "https://example.test/allowed#canary",
+            "https://example.test/allowed#changed"
+        ));
+    }
+    #[test]
+    fn policy_indicator_limits_match_extension_contract_cases() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../scripts/fixtures/policy-header-cases.json"
+        ))
+        .unwrap();
+        for case in cases.as_array().unwrap() {
+            let headers = case["headers"]
+                .as_array()
+                .map(|rows| {
+                    Value::Object(
+                        rows.iter()
+                            .map(|row| {
+                                (
+                                    row["name"].as_str().unwrap().to_owned(),
+                                    row["value"].clone(),
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+                .unwrap_or(Value::Null);
+            let result = security_header_indicators(&headers);
+            assert_eq!(result["available"], case["available"], "{}", case["name"]);
+            assert_eq!(result["complete"], case["complete"], "{}", case["name"]);
+            assert!(!result.to_string().contains("PRIVATE_"));
+        }
+    }
+    #[test]
     fn security_header_collection_excludes_credentials_and_cookies() {
-        let result = security_headers(
+        let result = security_header_indicators(
             &json!({"Content-Security-Policy":"default-src 'self'", "Set-Cookie":"secret", "Authorization":"secret", "X-Frame-Options":"DENY"}),
         );
-        assert_eq!(result.as_object().unwrap().len(), 2);
+        assert_eq!(result["available"], true);
+        assert_eq!(result["complete"], true);
+        assert_eq!(result["x_frame_options_known_value_seen"], true);
         assert!(!result.to_string().contains("secret"));
     }
     #[test]

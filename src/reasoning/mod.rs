@@ -16,6 +16,17 @@ pub struct Observation {
     pub origin: Option<String>,
     #[serde(default)]
     pub native_facts: claims::NativeFacts,
+    #[serde(default)]
+    pub automatic_request: Option<AutomaticInspectionRequest>,
+    #[serde(default)]
+    pub request_sha256: Option<String>,
+    #[serde(default)]
+    pub result_sha256: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutomaticInspectionRequest {
+    pub url: String,
+    pub result_sha256: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
@@ -23,6 +34,14 @@ pub struct Finding {
     pub summary: String,
     pub evidence_ids: Vec<String>,
     pub limitation: String,
+    #[serde(default)]
+    pub rationale: String,
+    #[serde(default)]
+    pub next_test: String,
+    #[serde(default)]
+    pub confirms: String,
+    #[serde(default)]
+    pub refutes: String,
     #[serde(default)]
     pub assertions: Vec<claims::Assertion>,
     #[serde(default)]
@@ -37,6 +56,16 @@ pub fn finding(args: &Value, observations: &[Observation]) -> Result<Finding> {
         || item.evidence_ids.len() > 12
     {
         bail!("Invalid finding: use hypothesis/supported/blocked, bounded summary/limitation and at most 12 evidence IDs");
+    }
+    for field in [
+        &item.rationale,
+        &item.next_test,
+        &item.confirms,
+        &item.refutes,
+    ] {
+        if field.len() > 2000 || (item.status == "hypothesis" && field.trim().is_empty()) {
+            bail!("Hypotheses require bounded rationale, next_test, confirms and refutes fields");
+        }
     }
     for id in &item.evidence_ids {
         if !observations.iter().any(|e| &e.id == id) {
@@ -59,17 +88,32 @@ pub fn finding(args: &Value, observations: &[Observation]) -> Result<Finding> {
     }.into();
     Ok(item)
 }
+pub fn result_hash(result: &Value) -> String {
+    // The evidence_id is attached by the agent after the native result is
+    // observed. Scalar tool results are wrapped by the same envelope step.
+    let mut native = if result.is_object() {
+        result.clone()
+    } else {
+        json!({"result":result})
+    };
+    native.as_object_mut().unwrap().remove("evidence_id");
+    crate::intelligence::code::hash(native.to_string().as_bytes())
+}
 pub fn observe(index: usize, tool: &str, result: &Value) -> Observation {
     Observation {
         id: format!("E{index:06}"),
         message_index: index,
         tool: tool.into(),
-        ok: result["ok"] != false
+        ok: !claims::is_historical(result)
+            && result["ok"] != false
             && result["denied"] != true
             && result["execution_status"] != "unknown",
         excerpt: context::clip(&result.to_string(), 1000),
         origin: None,
         native_facts: claims::extract(tool, result),
+        automatic_request: None,
+        request_sha256: None,
+        result_sha256: Some(result_hash(result)),
     }
 }
 pub fn briefing(task: &str) -> &'static str {
@@ -92,12 +136,22 @@ pub fn briefing(task: &str) -> &'static str {
 pub fn definitions() -> Vec<Value> {
     vec![
         json!({"type":"function","function":{"name":"recall_context","description":"Read an exact bounded excerpt from this session's original transcript. Use message_index from a compacted observation/evidence ID to recover omitted details. This does not rerun a tool.","parameters":{"type":"object","properties":{"message_index":{"type":"integer","minimum":0},"offset":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":1,"maximum":12000}},"required":["message_index"],"additionalProperties":false}}}),
-        json!({"type":"function","function":{"name":"record_finding","description":"Save an evidence-linked finding. Status hypothesis/supported/blocked. Supported requires real successful evidence IDs but is still a model interpretation, not an engine guarantee of exploitability or correctness. Include uncertainty and failed checks in limitation. Optional assertions validate only exact native command exit codes or HTTP statuses against cited observations, not the meaning or truth of summary prose.","parameters":{"type":"object","properties":{"status":{"type":"string","enum":["hypothesis","supported","blocked"]},"summary":{"type":"string"},"evidence_ids":{"type":"array","items":{"type":"string"}},"limitation":{"type":"string"},"assertions":{"type":"array","maxItems":12,"items":{"type":"object","properties":{"evidence_id":{"type":"string"},"kind":{"type":"string","enum":["command_exit_code","http_status"]},"value":{"type":"integer"}},"required":["evidence_id","kind","value"],"additionalProperties":false}}},"required":["status","summary","evidence_ids","limitation"],"additionalProperties":false}}}),
+        json!({"type":"function","function":{"name":"record_finding","description":"Save an evidence-linked finding. Status hypothesis/supported/blocked. hypothesis additionally requires rationale, next_test, confirms and refutes; a test plan is not permission to execute. Supported requires real successful evidence IDs but is still a model interpretation, not an engine guarantee of exploitability or correctness. Include uncertainty and failed checks in limitation. Optional assertions validate only exact native command exit codes or HTTP statuses against cited observations, not the meaning or truth of summary prose.","parameters":{"type":"object","properties":{"status":{"type":"string","enum":["hypothesis","supported","blocked"]},"summary":{"type":"string"},"evidence_ids":{"type":"array","items":{"type":"string"}},"limitation":{"type":"string"},"rationale":{"type":"string"},"next_test":{"type":"string"},"confirms":{"type":"string"},"refutes":{"type":"string"},"assertions":{"type":"array","maxItems":12,"items":{"type":"object","properties":{"evidence_id":{"type":"string"},"kind":{"type":"string","enum":["command_exit_code","http_status"]},"value":{"type":"integer"}},"required":["evidence_id","kind","value"],"additionalProperties":false}}},"required":["status","summary","evidence_ids","limitation"],"additionalProperties":false}}}),
     ]
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hypotheses_require_falsifiable_next_steps() {
+        let mut args = json!({"status":"hypothesis","summary":"Input might reach a sink","evidence_ids":[],"limitation":"Static only"});
+        assert!(finding(&args, &[]).is_err());
+        args["rationale"] = json!("A syntactic assignment candidate was found");
+        args["next_test"] = json!("Compare normal and one changed input in an authorized fixture");
+        args["confirms"] = json!("Native canary appears only in controlled variant");
+        args["refutes"] = json!("Input is rendered as inert text in this test");
+        assert_eq!(finding(&args, &[]).unwrap().status, "hypothesis");
+    }
     #[test]
     fn structured_findings_reject_mismatch_and_generate_their_own_label() {
         let evidence = vec![observe(1, "run_command", &json!({"ok":true,"exit_code":0}))];

@@ -1,0 +1,89 @@
+[
+  {
+    "status": "passed",
+    "scope": "all_lab_sources",
+    "lab_GETs": 3,
+    "discovered_static_sources": 2,
+    "initial_counts": {
+      "duplicates": 0,
+      "outside_scope": 0,
+      "unique_index_matches": 0,
+      "unique_missing_in_scope": 2,
+      "unresolved": 0
+    },
+    "final_counts": {
+      "duplicates": 0,
+      "outside_scope": 0,
+      "unique_index_matches": 2,
+      "unique_missing_in_scope": 0,
+      "unresolved": 0
+    },
+    "duplicate_fetch_GETs": 0,
+    "audit_export_verified": true,
+    "revoked_scope_rechecked": true,
+    "tampered_discovery_rejected": true,
+    "report_GETs": 0,
+    "oracle": "independent_HTMLParser_on_pinned_lab_page",
+    "browser_loading_verified": false,
+    "evidence_ids": [
+      "E000003",
+      "E000005",
+      "E000007",
+      "E000009",
+      "E000011",
+      "E000013",
+      "E000015"
+    ],
+    "binary_sha256": "961266bfe1c72bf8af315a298916383a5ce3121b86e4f940d66900d13b2bd9d9"
+  },
+  {
+    "status": "passed",
+    "scope": "page_only",
+    "lab_GETs": 1,
+    "discovered_static_sources": 2,
+    "initial_counts": {
+      "duplicates": 0,
+      "outside_scope": 2,
+      "unique_index_matches": 0,
+      "unique_missing_in_scope": 0,
+      "unresolved": 0
+    },
+    "final_counts": {
+      "duplicates": 0,
+      "outside_scope": 2,
+      "unique_index_matches": 0,
+      "unique_missing_in_scope": 0,
+      "unresolved": 0
+    },
+    "duplicate_fetch_GETs": 0,
+    "audit_export_verified": true,
+    "revoked_scope_rechecked": true,
+    "tampered_discovery_rejected": true,
+    "report_GETs": 0,
+    "oracle": "independent_HTMLParser_on_pinned_lab_page",
+    "browser_loading_verified": false,
+    "evidence_ids": [
+      "E000003",
+      "E000005",
+      "E000007",
+      "E000009"
+    ],
+    "binary_sha256": "961266bfe1c72bf8af315a298916383a5ce3121b86e4f940d66900d13b2bd9d9"
+  },
+  {
+    "status": "passed",
+    "scope": "all_lab_sources",
+    "case": "malformed_duplicate_src_and_custom_element",
+    "lab_GETs": 1,
+    "dependency_GETs": 0,
+    "audit_export_verified": true,
+    "revoked_scope_rechecked": true,
+    "tampered_discovery_rejected": true,
+    "report_GETs": 0,
+    "limited": true,
+    "discovered_static_sources": 0,
+    "oracle": "conservative_duplicate_rejection_and_exact_element_name_contract",
+    "browser_loading_verified": false,
+    "binary_sha256": "961266bfe1c72bf8af315a298916383a5ce3121b86e4f940d66900d13b2bd9d9"
+  }
+]

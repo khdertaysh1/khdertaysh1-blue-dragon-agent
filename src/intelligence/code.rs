@@ -464,6 +464,9 @@ impl Index {
                 })
                 .take(16)
                 .collect::<Vec<_>>();
+            if kind != "code" && item_hits.is_empty() {
+                continue;
+            }
             let mut snippets = Vec::new();
             let mut line_score = 0;
             for (line_no, line) in file.body.lines().enumerate() {
@@ -474,9 +477,6 @@ impl Index {
                         snippets.push(json!({"line":line_no+1,"text":line.chars().take(240).collect::<String>()}));
                     }
                 }
-            }
-            if kind != "code" && item_hits.is_empty() {
-                continue;
             }
             let score = name_words.intersection(&terms).count() * 8
                 + item_hits.len() * 4

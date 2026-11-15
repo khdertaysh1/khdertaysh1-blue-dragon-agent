@@ -1,0 +1,4 @@
+{"status": "passed", "scope_case": "allowed", "comparison": false, "native_get_requests": 1, "redirects_followed": 0, "model_requests": 3, "binary_sha256": "b4813f2f2b3ea4671999edec8192449f19c6aa2894947ad88c283cfeb52f76ad"}
+{"status": "passed", "scope_case": "denied", "comparison": false, "native_get_requests": 0, "redirects_followed": 0, "model_requests": 3, "binary_sha256": "b4813f2f2b3ea4671999edec8192449f19c6aa2894947ad88c283cfeb52f76ad"}
+{"status": "passed", "scope_case": "allowed", "comparison": true, "native_get_requests": 3, "redirects_followed": 0, "model_requests": 7, "binary_sha256": "b4813f2f2b3ea4671999edec8192449f19c6aa2894947ad88c283cfeb52f76ad"}
+{"status": "passed", "replayed_commands": 0, "live_jobs": 0, "unknown_message_index": 5, "model_requests": 2, "binary_sha256": "b4813f2f2b3ea4671999edec8192449f19c6aa2894947ad88c283cfeb52f76ad"}

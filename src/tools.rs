@@ -26,7 +26,9 @@ pub enum ApprovalMode {
 
 pub struct ToolBox {
     root: PathBuf,
+    pub scope: crate::scope::Policy,
     approval: ApprovalMode,
+    progress: Option<Box<dyn Fn(String) + Send + Sync>>,
     jobs: std::sync::Arc<crate::jobs::Jobs>,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -38,9 +40,22 @@ impl ToolBox {
     pub fn new(root: PathBuf, approval: ApprovalMode) -> Self {
         Self {
             root,
+            scope: crate::scope::Policy::default(),
             approval,
+            progress: None,
             jobs: std::sync::Arc::new(crate::jobs::Jobs::default()),
             cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    pub fn set_progress(&mut self, callback: impl Fn(String) + Send + Sync + 'static) {
+        self.progress = Some(Box::new(callback));
+    }
+    pub fn progress(&self, text: String) {
+        if let Some(callback) = &self.progress {
+            callback(text);
+        } else {
+            eprintln!("[Blue Dragon] {text}");
         }
     }
 
@@ -500,6 +515,7 @@ impl ToolBox {
         )
     }
     pub fn web_fetch(&self, raw: &str) -> Result<Value> {
+        self.scope.check(raw, "read")?;
         if raw.len() > 4096 {
             anyhow::bail!("URL exceeds 4096 characters");
         }
@@ -524,12 +540,21 @@ impl ToolBox {
             .get(url)
             .send()?;
         let status = response.status().as_u16();
+        let redirect = if (300..400).contains(&status) {
+            response.headers().get(reqwest::header::LOCATION).and_then(|v|v.to_str().ok())
+                .and_then(|location|response.url().join(location).ok())
+                .map(|target|json!({"location_redacted":crate::audit::safe_url(target.as_str()),"cross_origin":target.origin()!=response.url().origin(),"followed":false}))
+        } else {
+            None
+        };
         let content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_owned();
+        let security_header_indicators =
+            crate::browser::inspection::http_security_header_indicators(response.headers());
         let mut bytes = Vec::new();
         response.take(262145).read_to_end(&mut bytes)?;
         let truncated = bytes.len() > 262144;
@@ -542,7 +567,7 @@ impl ToolBox {
             .take(64000)
             .collect::<String>();
         Ok(
-            json!({"ok":status<400,"status":status,"content_type":content_type,"text":text,"truncated":truncated||text.len()<bytes.len(),"note":"Untrusted fetched content. Redirects not followed; scripts not executed."}),
+            json!({"ok":status<400,"status":status,"redirect":redirect,"security_header_indicators":security_header_indicators,"content_type":content_type,"text":text,"truncated":truncated||text.len()<bytes.len(),"note":"Untrusted fetched content. Redirects not followed; scripts not executed."}),
         )
     }
     pub fn run_command(&self, program: &str, args: &[String]) -> Result<Value> {
@@ -761,6 +786,35 @@ pub fn invoke(boxes: &ToolBox, name: &str, args: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fetch_records_redacted_redirect_without_following_destination() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut buf = [0; 4096];
+            assert!(stream.read(&mut buf).unwrap() > 0);
+            stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/target?token=private-token#private-fragment\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let root = tempfile::tempdir().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<super::ApprovalRequest>();
+        let tools = super::ToolBox::new(root.path().into(), super::ApprovalMode::Tui(tx));
+        let approval =
+            std::thread::spawn(move || rx.recv().unwrap().respond_to.send(true).unwrap());
+        let result = tools.web_fetch(&url).unwrap();
+        approval.join().unwrap();
+        server.join().unwrap();
+        assert_eq!(result["status"], 302);
+        assert_eq!(result["redirect"]["followed"], false);
+        assert_eq!(result["redirect"]["cross_origin"], true);
+        assert!(!result.to_string().contains("private-token"));
+        assert!(!result.to_string().contains("private-fragment"));
+    }
+
     use super::*;
     fn setup() -> (tempfile::TempDir, ToolBox) {
         let tmp = tempfile::tempdir().unwrap();

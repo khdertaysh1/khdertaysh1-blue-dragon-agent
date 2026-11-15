@@ -50,6 +50,42 @@ impl Provider {
         })
     }
 
+    pub fn vision_destination(&self) -> Option<String> {
+        crate::vision::supported(&self.url, &self.model)
+            .then(|| format!("{} (model {})", self.url, self.model))
+    }
+    pub fn inspect_image(&self, bytes: &[u8], question: &str) -> Result<String> {
+        let payload = crate::vision::payload(&self.url, &self.model, bytes, question)?;
+        self.send_image_request(&payload)
+    }
+    fn send_image_request(&self, payload: &Value) -> Result<String> {
+        let mut req = self.client.post(&self.url).json(payload);
+        if self.anthropic {
+            req = req.header("anthropic-version", "2023-06-01");
+        }
+        if let Some(key) = &self.key {
+            req = if self.anthropic {
+                req.header("x-api-key", key)
+            } else {
+                req.bearer_auth(key)
+            };
+        }
+        let response = req
+            .send()
+            .context("Image request failed; transmission may have occurred, no automatic retry")?;
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "Image provider returned HTTP {}; no automatic retry",
+                response.status()
+            );
+        }
+        let mut bytes = Vec::new();
+        response.take(65_537).read_to_end(&mut bytes)?;
+        if bytes.len() > 65_536 {
+            anyhow::bail!("Image response exceeds limit");
+        }
+        crate::vision::description(&serde_json::from_slice(&bytes)?, self.anthropic)
+    }
     pub fn model(&self) -> &str {
         &self.model
     }
@@ -160,6 +196,34 @@ impl Provider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_wire_request_sends_pixels_and_bounds_response_without_retry() {
+        let endpoint = "https://api.openai.com/v1/chat/completions";
+        let payload = crate::vision::payload(
+            endpoint,
+            "gpt-4o",
+            &[0xff, 0xd8, 0xff, 0xd9],
+            "Describe layout",
+        )
+        .unwrap();
+        for (status, body, expected) in [
+            (200, json!({"choices":[{"finish_reason":"stop","message":{"content":"Visible button"}}]}).to_string(), true),
+            (429, "rate limited".into(), false),
+            (200, "x".repeat(65_537), false),
+            (200, json!({"choices":[{"finish_reason":"length","message":{"content":"partial"}}]}).to_string(), false),
+        ] {
+            let (base, server) = crate::test_support::http_status(vec![(status, "application/json", body)]);
+            let provider = Provider::new(&base, "gpt-4o".into(), None).unwrap();
+            // Exercise the real HTTP serialization/response path with an already
+            // validated official payload. The public API still rejects localhost.
+            assert!(provider.inspect_image(&[0xff, 0xd8, 0xff, 0xd9], "x").is_err());
+            let result = provider.send_image_request(&payload);
+            assert_eq!(result.is_ok(), expected);
+            let requests = server.join().unwrap();
+            assert_eq!(requests, vec![payload.clone()]);
+            assert!(requests[0].get("tools").is_none());
+        }
+    }
     #[test]
     fn anonymous_gateway_rejects_credentials_and_paid_models() {
         assert!(

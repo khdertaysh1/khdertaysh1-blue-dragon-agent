@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "lab_commit": "c396c90f2e7ed080f71368ce9edb5cd630098b09",
+  "GETs": 1,
+  "analysis_GETs": 0,
+  "selected_scope": {
+    "end_byte": 492,
+    "kind": "arrow_function",
+    "start_byte": 179
+  },
+  "steps": 2,
+  "endpoint": "out.textContent",
+  "exact_source_oracle_matched": true,
+  "semantic_dataflow_verified": false,
+  "browser_execution_verified": false,
+  "evidence_ids": [
+    "E000003",
+    "E000005",
+    "E000007",
+    "E000009"
+  ],
+  "binary_sha256": "0f90f7c1ce334fb8f60b23e10d9005bb29d9658f6b78a2861fe98eecf1f78460"
+}

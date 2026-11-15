@@ -1,5 +1,5 @@
 // Dependency-free contract tests for the shared CDP/extension page implementation.
-import {readFileSync} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 let element, clicks = 0, events = [];
@@ -51,3 +51,37 @@ assert.equal(snapshot.elements.at(-1).options.length,0);
 assert.equal(snapshot.elements.at(-1).options_omitted,100);
 assert(JSON.stringify(snapshot).length<40000);
 console.log('Snapshot option budget tests passed');
+
+const readyDoc={readyState:'complete',location:{href:'https://example.test/app'},querySelectorAll:()=>[{innerText:'Loaded',getClientRects:()=>[{}]}]};
+const readyContext=vm.createContext({window:{__bbStudioConsole:[]},document:readyDoc,console,setTimeout,Date});
+vm.runInContext(readFileSync('browser-extension/shared/page.js','utf8'),readyContext);
+const ready=await readyContext.blueDragonPage('wait_for',{selector:'#ready',text:'Loaded',timeout_ms:1000});
+assert.equal(ready.matched,true);assert.equal(ready.react_complete_proven,false);
+const absent=await readyContext.blueDragonPage('wait_for',{selector:'#ready',text:'Absent',timeout_ms:100});
+assert.equal(absent.matched,false);
+readyDoc.querySelectorAll=()=>[{tagName:'IFRAME',contentDocument:null}];
+assert.throws(()=>readyContext.blueDragonPage('click',{selector:'#submit',frame_selector:'#private'}),/Cross-origin/);
+const child={readyState:'complete',location:{href:'https://example.test/child'},querySelectorAll:()=>[{innerText:'Child ready',getClientRects:()=>[{}]}]};
+readyDoc.querySelectorAll=()=>[{tagName:'IFRAME',contentDocument:child}];
+const framed=await readyContext.blueDragonPage('wait_for',{frame_selector:'#child',selector:'#ready',text:'Child ready',timeout_ms:1000});
+assert.equal(framed.matched,true);assert.equal(framed.url,'https://example.test/child');
+console.log('Bounded readiness and same-origin/cross-origin frame contract tests passed');
+
+// Producer/consumer contract: Rust reviews this exact collector output fixture.
+const fields = Array.from({length:61}, (_,i)=>({id:`f${i}`,tagName:'INPUT',type:'hidden',name:i===60?'csrf_token':'ordinary',value:'PRIVATE_VALUE'}));
+Object.assign(context.document,{querySelectorAll:()=>[], forms:Array.from({length:21},(_,i)=>({action:'https://example.test/submit',method:'post',elements:i===0?fields:[]}))});
+const formSnapshot = JSON.parse(JSON.stringify(context.blueDragonPage('snapshot',{})));
+assert.equal(formSnapshot.forms.length,20);
+assert.equal(formSnapshot.forms_total,21);
+assert.equal(formSnapshot.forms_omitted,1);
+assert.equal(formSnapshot.forms_truncated,true);
+assert.equal(formSnapshot.forms[0].fields.length,60);
+assert.equal(formSnapshot.forms[0].fields_total,61);
+assert.equal(formSnapshot.forms[0].fields_omitted,1);
+assert.equal(formSnapshot.forms[0].fields_truncated,true);
+assert(!JSON.stringify(formSnapshot).includes('csrf_token'));
+assert(!JSON.stringify(formSnapshot).includes('PRIVATE_VALUE'));
+const fixturePath='scripts/fixtures/browser-form-limits.json';
+if(process.argv.includes('--write-fixture')) writeFileSync(fixturePath,JSON.stringify(formSnapshot)+'\n');
+else assert.deepEqual(formSnapshot,JSON.parse(readFileSync(fixturePath,'utf8')));
+console.log('Collector form/field limits fixture passed');

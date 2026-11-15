@@ -46,6 +46,9 @@ with tempfile.TemporaryDirectory() as temp:
     (fixtures / "release.json").write_text(json.dumps(release))
     executable(tools / "curl", """#!/usr/bin/env python3
 import os, pathlib, shutil, sys
+required={'--connect-timeout':'10','--max-time':'120','--speed-limit':'1024','--speed-time':'20','--retry':'1','--retry-max-time':'150'}
+for flag, value in required.items():
+    assert sys.argv[sys.argv.index(flag)+1] == value, (flag,sys.argv)
 if os.environ.get('TEST_DOWNLOAD_FAILURE'): raise SystemExit(22)
 args=sys.argv[1:]; url=next(a for a in args if a.startswith('https://'))
 out=args[args.index('-o')+1]; fixtures=pathlib.Path(os.environ['TEST_FIXTURES'])
@@ -73,7 +76,10 @@ esac
         assert (checkout / "Cargo.lock").read_text() == "user generated lock; preserve me"
         return result.stdout + result.stderr
 
-    assert "Installed blue-dragon 0.4.0-alpha.4" in run()
+    output = run()
+    assert "Installed blue-dragon 0.4.0-alpha.4" in output
+    for phase in ["downloading", "downloaded", "verifying SHA256", "checking binary compatibility"]:
+        assert phase in output, output
     target = bindir / "blue-dragon"
     assert target.read_text() == binary
     assert (bindir / "blue-dragon.LICENSES.txt").exists()
@@ -88,7 +94,7 @@ esac
     assert (bindir / "blue-dragon.previous").read_bytes() == old
     installed = target.read_bytes()
     # Every failure below must preserve the working installation.
-    run(ok=False, extra={"TEST_DOWNLOAD_FAILURE": "1"})
+    assert "existing installation was not changed" in run(ok=False, extra={"TEST_DOWNLOAD_FAILURE": "1"})
     assert target.read_bytes() == installed
     (fixtures / asset).write_text(binary + "# corrupt payload\n")
     assert "SHA256 mismatch" in run(ok=False)

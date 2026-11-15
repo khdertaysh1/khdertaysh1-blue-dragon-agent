@@ -1,0 +1,477 @@
+{
+  "version": "0.8.0-alpha.1",
+  "status": "locally_qualified_unpublished_candidate",
+  "candidate_branch": "candidate/professional-preview",
+  "reviewed_base": "cdb94067817fe226457574491402ac017dfc51d3",
+  "tested_source_tree": "a2b7c64a6535c99ff85ce797fbe4f154c66db44e",
+  "production_src_unchanged_from_reviewed_base": true,
+  "third_party_lock_entries_unchanged": true,
+  "third_party_lock_packages": 343,
+  "binary_sha256": "26e594fa404c20fc76a52c9f6cb2c067bac368050f388e4a3fb0e6b87f7f0595",
+  "binary_bytes": 17731336,
+  "fixed_local_binary": "/workspace/scratch/58a10643c600/candidate-builds/blue-dragon-0.8.0-alpha.1-linux-x64",
+  "version_output": "blue-dragon 0.8.0-alpha.1",
+  "rust_tests": {
+    "passed": 233,
+    "failed": 0
+  },
+  "checks": [
+    "release build --offline --locked",
+    "clippy --offline --locked --all-targets -- -D warnings",
+    "cargo fmt --check",
+    "git diff --check",
+    "CI YAML parse and qualification publish dependency checked"
+  ],
+  "qualification": {
+    "schema": 1,
+    "source_commit": "cdb94067817fe226457574491402ac017dfc51d3",
+    "source_dirty_at_start": true,
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "python": "3.12.14",
+    "lab_commit": "c396c90f2e7ed080f71368ce9edb5cd630098b09",
+    "binary_sha256": "26e594fa404c20fc76a52c9f6cb2c067bac368050f388e4a3fb0e6b87f7f0595",
+    "groups": [
+      {
+        "name": "smoke_continuity",
+        "harness_sha256": "5275b78319eb289942fb20dde75d4e864626ce40ca7531ea989132130a3b2530",
+        "status": "passed",
+        "log": "smoke_continuity.log",
+        "exit_code": 0,
+        "seconds": 0.615,
+        "log_sha256": "460d85c20429adf19862a75023db9d85b566ba4857a1f36ac096ceeff96174a3"
+      },
+      {
+        "name": "smoke_coverage",
+        "harness_sha256": "57b1507c8fa6d7cca7380a631ea45fd4c5ee5a0bc3624a020f5e0c0026353ede",
+        "status": "passed",
+        "log": "smoke_coverage.log",
+        "exit_code": 0,
+        "seconds": 0.618,
+        "log_sha256": "ebd67c93e7d6e5f0c3d33b7a2aec953b14fdd9e4b38150c39327251da84a9922"
+      },
+      {
+        "name": "smoke_source_refresh",
+        "harness_sha256": "0e5193cbed08015dac52af2367b3037eabfc1963c55d91a356085f89d58d2e23",
+        "status": "passed",
+        "log": "smoke_source_refresh.log",
+        "exit_code": 0,
+        "seconds": 0.615,
+        "log_sha256": "9b82843863d0b4ad8c2ab648e01efe79cd2fd056412713607f4b13212b9a76f7"
+      },
+      {
+        "name": "smoke_source_chain",
+        "harness_sha256": "12875a979264f69652cb912e9f86f0098898b20cbd8ee9c1a86082899d07e981",
+        "status": "passed",
+        "log": "smoke_source_chain.log",
+        "exit_code": 0,
+        "seconds": 1.169,
+        "log_sha256": "4718a420cc7c3a1afd2ac128edf5b4b4744c00b760a4b6ea08aa90b198474db5"
+      },
+      {
+        "name": "smoke_review_engines",
+        "harness_sha256": "b497724e3ba63cb64de7c93f7a2bbdecd6f1af7f0692529782584244f148505e",
+        "status": "passed",
+        "log": "smoke_review_engines.log",
+        "exit_code": 0,
+        "seconds": 7.952,
+        "log_sha256": "3e06576680972001ec0fd0ea8c45c2d2675ad4e873f4a4282e67c1c57489bb30"
+      },
+      {
+        "name": "lab_matrix",
+        "harness_sha256": "84631bb345d4f5a68e8d814605bef94f9d4cadbb7c7639d573fe4a63e11c9af2",
+        "status": "passed",
+        "log": "lab_matrix.log",
+        "exit_code": 0,
+        "seconds": 4.183,
+        "log_sha256": "2d4d47632fd00e8f4287a0eaac17ae6b0ae6b1dfab580bc8f305dd0d9622f572"
+      },
+      {
+        "name": "smoke_lab_runner",
+        "harness_sha256": "2c0e209b30fdc4f58dc112afe0c88f9878454000d223b3d1b2e43fe9a4daf9d8",
+        "status": "passed",
+        "log": "smoke_lab_runner.log",
+        "exit_code": 0,
+        "seconds": 12.844,
+        "log_sha256": "f8139e8751d56ed0a6f12cd7a76d075226184589820793abb8304a308516cd91"
+      },
+      {
+        "name": "smoke_source_discovery",
+        "harness_sha256": "1fc1dacb71cb55240264e8bb793860788cbef5b946e28a1c11d6ff68bfd9958a",
+        "status": "passed",
+        "log": "smoke_source_discovery.log",
+        "exit_code": 0,
+        "seconds": 3.228,
+        "log_sha256": "d9bd8bd4c05a3f5d1fde53f8aed4787fa6123672697bda80748d75548f63b961"
+      },
+      {
+        "name": "smoke_dynamic_discovery",
+        "harness_sha256": "e4d84540a743952c39e90ad015bacfdec3c810490e8b468d9cd54c445f176acb",
+        "status": "passed",
+        "log": "smoke_dynamic_discovery.log",
+        "exit_code": 0,
+        "seconds": 3.289,
+        "log_sha256": "4abec958160a79106494736a4825cfdd58297eb263c17d235b266d5d705ce920"
+      },
+      {
+        "name": "smoke_scoped_flow",
+        "harness_sha256": "56ba555bd06f9fb633e9ac0f6149928f34c4f29ad5586e7959aaf764d2dfbc5e",
+        "status": "passed",
+        "log": "smoke_scoped_flow.log",
+        "exit_code": 0,
+        "seconds": 3.224,
+        "log_sha256": "f72474e2e897005d7c7813682b2141c9af13a456039d957ea4d4186fe9c052d2"
+      },
+      {
+        "name": "smoke_call_bridge",
+        "harness_sha256": "a9fe9fab40cc05b3fda7728dd76ef4690de4a1a4a99f64b6df5601c537c1008a",
+        "status": "passed",
+        "log": "smoke_call_bridge.log",
+        "exit_code": 0,
+        "seconds": 6.456,
+        "log_sha256": "75d0e5429406e6db97023517b25ddbb4d605ca411e762d2caa12756b0e157245"
+      },
+      {
+        "name": "models_offline",
+        "harness_sha256": "f507cce3d236a4afb965c50ad543232c4fe2ad3681865188d53916074fcb45f2",
+        "status": "passed",
+        "log": "models_offline.log",
+        "exit_code": 0,
+        "seconds": 0.065,
+        "log_sha256": "7e3556cee145961195aa41deb54494a1b4e232ac89f04109781d94ba82cbd599"
+      },
+      {
+        "name": "smoke_tui",
+        "harness_sha256": "d6c6549e3a29e271caee02f8b69dfc1ed77a9497e94544832163ba16cf98aa40",
+        "status": "passed",
+        "log": "smoke_tui.log",
+        "exit_code": 0,
+        "seconds": 0.265,
+        "log_sha256": "9da5cfc0ef7a9db48bf2dd175128dde283a7fd3855e3b9c0f5c980ae6a1e8478"
+      },
+      {
+        "name": "smoke_job_shutdown",
+        "harness_sha256": "e6ff9f8121804353ae6f790f66311c357ea66201f2db6d144d258b6c163e2fcb",
+        "status": "passed",
+        "log": "smoke_job_shutdown.log",
+        "exit_code": 0,
+        "seconds": 2.686,
+        "log_sha256": "0ce757a49abeacdea134a54c07612ec68da84d8b4829c4006e3cee8ae04f83ee"
+      },
+      {
+        "name": "test_pty_shutdown",
+        "harness_sha256": "f4ea21b03ef0d3b5bd46e8c9d4a9aba6aec02499db08170d7626f69d9a48075a",
+        "status": "passed",
+        "log": "test_pty_shutdown.log",
+        "exit_code": 0,
+        "seconds": 0.216,
+        "log_sha256": "91d10cc45c954cdb8cceef6f9c6faf90513a8bd824a7e45ec2da46127eff8272"
+      },
+      {
+        "name": "test_installer",
+        "harness_sha256": "533392b4c5facc49b09891594ef24afdd8b801c4164007417404a8c07098134f",
+        "status": "passed",
+        "log": "test_installer.log",
+        "exit_code": 0,
+        "seconds": 0.916,
+        "log_sha256": "5527bdca4dde183f3a1e39202eef1822b917afb66afa5d906813b3de599fb5fd"
+      },
+      {
+        "name": "test_source_upgrade",
+        "harness_sha256": "8f00c49a04861197a00102c7d2c2d2f88c449160a672eaa5fd36e62a76668599",
+        "status": "passed",
+        "log": "test_source_upgrade.log",
+        "exit_code": 0,
+        "seconds": 0.114,
+        "log_sha256": "b83ab93d2994cb255cb80d3b3281c0dbae5af7d18d6323e76091d1d8d61ee493"
+      },
+      {
+        "name": "test_release_payload",
+        "harness_sha256": "3032acfb3b08ac6bd8d83f1f997aa0af3ce8e0a0f0b5f0faacc06bed2c612da9",
+        "status": "passed",
+        "log": "test_release_payload.log",
+        "exit_code": 0,
+        "seconds": 0.215,
+        "log_sha256": "181fed1bdaf9cfd7efb02485105fee07f1a50a64d12e7cae82b2695247325e3a"
+      },
+      {
+        "name": "test_browser_forms",
+        "harness_sha256": "276874b9670f67d603b821d9e187a367fb70d21d119daced4e3753f96ca68810",
+        "status": "passed",
+        "log": "test_browser_forms.log",
+        "exit_code": 0,
+        "seconds": 0.626,
+        "log_sha256": "eb9bd5dffd8964b2a17d15bbbe89a76f172110d56afc1ee5c2cd487c2ed195e1"
+      },
+      {
+        "name": "test_browser_policy",
+        "harness_sha256": "e703ebaf7cc6f8271db37bf40a96b7f4190e70d36473a6fa5711a2ed9f242092",
+        "status": "passed",
+        "log": "test_browser_policy.log",
+        "exit_code": 0,
+        "seconds": 0.067,
+        "log_sha256": "930f5de07788e944f850b5bfe1889f4e9eeb9f215bf6c3697be54a54f3231f03"
+      },
+      {
+        "name": "runtime_benchmark",
+        "harness_sha256": "8818b29c152fd3bf49c487c99b6269880cb49ce5c4d33ce70e32625777327236",
+        "status": "passed",
+        "log": "runtime_benchmark.log",
+        "exit_code": 0,
+        "seconds": 13.086,
+        "log_sha256": "58ea8edaf70c855a08644172dc1c48860a3c8f302b24424724fd9290d514fead"
+      }
+    ],
+    "limits": [
+      "Synthetic/offline fixtures and reviewed loopback lab only; no OS network isolation claim.",
+      "No real browser, physical Termux, Windows/macOS execution or live provider qualification.",
+      "No Alpha runtime comparison; deterministic runtime tests do not measure model quality.",
+      "POSIX process groups are terminated on timeout; Windows only terminates the immediate process.",
+      "Group pass means its assertions and exit code passed; no count or coverage equivalence across groups."
+    ],
+    "binary_unchanged": true,
+    "status": "passed"
+  },
+  "runtime": {
+    "schema": 1,
+    "scope": "Blue Dragon deterministic runtime; not model quality or Alpha parity",
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "fixture_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+    "harness_sha256": "8818b29c152fd3bf49c487c99b6269880cb49ce5c4d33ce70e32625777327236",
+    "candidate": {
+      "binary": "/workspace/scratch/58a10643c600/review/target/release/blue-dragon",
+      "binary_sha256": "26e594fa404c20fc76a52c9f6cb2c067bac368050f388e4a3fb0e6b87f7f0595",
+      "binary_bytes": 17731336,
+      "cases": [
+        {
+          "case": "atomic_edit",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 13.368,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 18.959,
+              "provider_requests": 3,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 13.368,
+              "provider_requests": 3,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 12.423,
+              "provider_requests": 3,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "atomic_rejection",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 19.821,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 109.202,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 19.821,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 13.205,
+              "provider_requests": 2,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "denied_write",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 17.157,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 10.514,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 81.912,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 17.157,
+              "provider_requests": 2,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "native_exit",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 55.437,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 55.437,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 53.584,
+              "provider_requests": 2,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 89.428,
+              "provider_requests": 2,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "cached_symbols",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 19.783,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 20.833,
+              "provider_requests": 3,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 19.783,
+              "provider_requests": 3,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 18.034,
+              "provider_requests": 3,
+              "tool_results": 2
+            }
+          ]
+        },
+        {
+          "case": "interrupted_resume",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 19.093,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 42.97,
+              "provider_requests": 1,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 19.093,
+              "provider_requests": 1,
+              "tool_results": 1
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 17.151,
+              "provider_requests": 1,
+              "tool_results": 1
+            }
+          ]
+        },
+        {
+          "case": "archived_arguments",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 46.101,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 23.931,
+              "provider_requests": 2,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 49.088,
+              "provider_requests": 2,
+              "tool_results": 2
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 46.101,
+              "provider_requests": 2,
+              "tool_results": 2
+            }
+          ]
+        },
+        {
+          "case": "session_identity",
+          "passed": 3,
+          "executed": 3,
+          "median_ms": 11.933,
+          "samples": [
+            {
+              "status": "passed",
+              "elapsed_ms": 11.933,
+              "provider_requests": 0,
+              "tool_results": 0
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 11.408,
+              "provider_requests": 0,
+              "tool_results": 0
+            },
+            {
+              "status": "passed",
+              "elapsed_ms": 37.462,
+              "provider_requests": 0,
+              "tool_results": 0
+            }
+          ]
+        }
+      ]
+    },
+    "alpha": {
+      "status": "not_run",
+      "reason": "No validated Alpha adapter/executable supplied"
+    }
+  },
+  "remote_state": {
+    "candidate_uploaded": false,
+    "candidate_CI": "not_run_unpublished",
+    "older_draft_pr": 13,
+    "older_draft_head": "de2f613d82be3a5e83629c7ec4bf7f4a0ec6ca97",
+    "older_draft_run": "https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/43662580002",
+    "older_draft_conclusion": "success_does_not_qualify_this_candidate"
+  },
+  "not_tested": [
+    "physical Termux",
+    "candidate Android cross-build",
+    "candidate Windows/macOS execution",
+    "candidate real graphical browser",
+    "live model/vision provider",
+    "Alpha runtime comparison"
+  ],
+  "publication": "No push, merge, tag or release. User deferred trial until a new authorized release."
+}
