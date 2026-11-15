@@ -18,8 +18,9 @@ let apiHits=0;
 const server=http.createServer((req,res)=>{
  if(req.url==='/api'){apiHits++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({message:'Hello Browser42'}));}
  else if(req.url==='/app.js'){res.setHeader('Content-Type','application/javascript');res.end(`console.log('BB_BROWSER_TEST');window.__freshLoad=location.hash;document.querySelector('#send').onclick=async()=>{const r=await fetch('/api');document.querySelector('#out').textContent=(await r.json()).message;};`);}
+ else if(req.url==='/frame'){res.setHeader('Content-Type','text/html');res.end('<!doctype html><div style="height:4000px">FRAME_READY</div>');}
  else if(req.url==='/unmanaged'){res.end('<h1>UNMANAGED_SECRET</h1>');}
- else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Blue Dragon fixture</title><h1>BB fixture ready</h1><input id="name"><input id="agree" type="checkbox"><select id="choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="send">Send</button><div id="out"></div><script src="/app.js"></script>');}
+ else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Blue Dragon fixture</title><h1>BB fixture ready</h1><input id="name"><input id="agree" type="checkbox"><select id="choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="send">Send</button><div id="out"></div><div id="scrollbox" style="height:100px;width:200px;overflow:auto"><div style="height:800px;width:600px">Scrollable fixture</div></div><iframe id="frame" src="/frame"></iframe><div style="height:4000px">Long page</div><script src="/app.js"></script>');}
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const site=`http://127.0.0.1:${server.address().port}`;
@@ -94,6 +95,22 @@ try{
  await action({action:'open',url:site});
  const snapshot=await action({action:'snapshot'});assert.equal(snapshot.title,'Blue Dragon fixture');assert(snapshot.elements.some(e=>e.selector==='#send'));assert(!snapshot.text.includes('UNMANAGED_SECRET'));
  assert(snapshot.elements.find(e=>e.selector==='#choice').options.some(o=>o.value==='b'));
+ await action({action:'evaluate',expression:'document.querySelector("#scrollbox").style.visibility="hidden"'});
+ const hiddenScroll=(await send('/browser do '+JSON.stringify({action:'scroll',selector:'#scrollbox',delta_y:100}),true)).data;
+ assert.equal(hiddenScroll.ok,false);assert.equal(hiddenScroll.automatic_retry,false);
+ assert.equal(await action({action:'evaluate',expression:'document.querySelector("#scrollbox").scrollTop'}),0);
+ await action({action:'evaluate',expression:'document.querySelector("#scrollbox").style.visibility="visible"'});
+ const containerScroll=await action({action:'scroll',selector:'#scrollbox',delta_y:100,delta_x:50});
+ assert.equal(containerScroll.observed_delta.y,100);assert.equal(containerScroll.observed_delta.x,50);assert.equal(containerScroll.loading_complete_proven,false);
+ assert.equal(await action({action:'evaluate',expression:'window.scrollY'}),0,'Container scrolling must not scroll its ancestors');
+ const maxScroll=await action({action:'evaluate',expression:'(()=>{const e=document.querySelector("#scrollbox");return e.scrollHeight-e.clientHeight;})()'});
+ const clamped=await action({action:'scroll',selector:'#scrollbox',delta_y:2000});assert.equal(clamped.after.y,maxScroll);
+ const stationary=await action({action:'scroll',selector:'#scrollbox',delta_y:2000});assert.equal(stationary.movement_observed,false);assert.equal(stationary.automatic_retry,false);
+ const pageScroll=await action({action:'scroll',delta_y:400});assert.equal(pageScroll.observed_delta.y,400);
+ await action({action:'scroll',delta_y:-2000});
+ await action({action:'wait_for',frame_selector:'#frame',selector:'body',text:'FRAME_READY',timeout_ms:3000});
+ const frameScroll=await action({action:'scroll',frame_selector:'#frame',delta_y:200});assert.equal(frameScroll.observed_delta.y,200);
+ assert.equal(await action({action:'evaluate',expression:'window.scrollY'}),0,'Frame scrolling must not scroll the parent');
  assert.equal((await action({action:'select',selector:'#choice',value:'b'})).matched,true);
  assert.equal((await action({action:'select',selector:'#choice',value:'b'})).changed,false);
  assert.equal((await action({action:'set_checked',selector:'#agree',checked:true})).matched,true);
@@ -134,7 +151,7 @@ try{
   assert(!fs.existsSync(path.join(env.BLUE_DRAGON_HOME,'browser-connection.json')));
   agent.stdin.write('/exit\n');await new Promise(resolve=>agent.once('exit',resolve));
  }
- console.log(`${firefoxMode?'FIREFOX EXTENSION':extensionMode?'CHROMIUM EXTENSION':'CDP'} real browser: open/DOM/fill/click/JS/network/source/console/screenshot, managed-tab isolation and approved CLI roundtrips passed`);
+ console.log(`${firefoxMode?'FIREFOX EXTENSION':extensionMode?'CHROMIUM EXTENSION':'CDP'} real browser: open/DOM/fill/click/scroll/JS/network/source/console/screenshot, managed-tab isolation and approved CLI roundtrips passed`);
 }catch(error){console.error(error);process.exitCode=1;}
 finally{if(webdriverSession){await fetch(driverURL+'/session/'+webdriverSession,{method:'DELETE'}).catch(()=>{});}inspector?.close();agent?.kill('SIGKILL');browser?.kill('SIGKILL');await new Promise(r=>server.close(r));fs.rmSync(temp,{recursive:true,force:true});}
 

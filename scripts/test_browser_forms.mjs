@@ -85,3 +85,28 @@ const fixturePath='scripts/fixtures/browser-form-limits.json';
 if(process.argv.includes('--write-fixture')) writeFileSync(fixturePath,JSON.stringify(formSnapshot)+'\n');
 else assert.deepEqual(formSnapshot,JSON.parse(readFileSync(fixturePath,'utf8')));
 console.log('Collector form/field limits fixture passed');
+
+// Bounded scroll contract: exactly one operation, never scroll ancestors first.
+let scrollCalls=0;
+const scroller={scrollLeft:0,scrollTop:0,getClientRects:()=>[{}],scrollTo({left,top,behavior}){assert.equal(behavior,'instant');scrollCalls++;this.scrollLeft=Math.max(0,Math.min(300,left));this.scrollTop=Math.max(0,Math.min(500,top));}};
+const scrollDoc={location:{href:'https://example.test/app'},scrollingElement:scroller,querySelectorAll:()=>[scroller]};
+let scrollVisibility='visible';
+const scrollContext=vm.createContext({window:{__bbStudioConsole:[],getComputedStyle:()=>({visibility:scrollVisibility,display:'block'})},document:scrollDoc,console});
+vm.runInContext(readFileSync('browser-extension/shared/page.js','utf8'),scrollContext);
+let moved=scrollContext.blueDragonPage('scroll',{delta_y:200});assert.equal(moved.after.y,200);assert.equal(moved.loading_complete_proven,false);
+moved=scrollContext.blueDragonPage('scroll',{selector:'#box',delta_y:2000});assert.equal(moved.observed_delta.y,300);
+moved=scrollContext.blueDragonPage('scroll',{delta_y:2000});assert.equal(moved.movement_observed,false);assert.equal(scrollCalls,3);
+for(const args of [{},{delta_y:2001},{delta_y:0.1},{delta_y:'1'},{delta_y:1,selector:''}])assert.throws(()=>scrollContext.blueDragonPage('scroll',args));
+assert.equal(scrollCalls,3);
+scrollDoc.querySelectorAll=()=>[scroller,scroller];assert.throws(()=>scrollContext.blueDragonPage('scroll',{selector:'.ambiguous',delta_y:1}),/exactly one/);
+scrollDoc.querySelectorAll=()=>[{tagName:'IFRAME',contentDocument:null}];assert.throws(()=>scrollContext.blueDragonPage('scroll',{frame_selector:'#private',delta_y:1}),/Cross-origin/);
+assert.equal(scrollCalls,3);
+console.log('Bounded scroll, clamping, no movement and negative contract tests passed');
+
+scrollDoc.querySelectorAll=()=>[scroller];
+for(const hidden of ['hidden','collapse']){
+ scrollVisibility=hidden;
+ assert.throws(()=>scrollContext.blueDragonPage('scroll',{selector:'#box',delta_y:100}),/CSS-visible/);
+}
+assert.equal(scrollCalls,3,'Hidden target must not receive a scroll');
+console.log('CSS-hidden scroll target rejection passed');

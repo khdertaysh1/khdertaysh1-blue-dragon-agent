@@ -287,6 +287,7 @@ pub fn verified_coverage(session: &crate::session::Session) -> Value {
         }
     }
     report["provenance"] = json!({"mode":"rebuilt_from_verified_recent_observations","observation_window":100,"older_observations_omitted":session.observations.len().saturating_sub(100),"candidates_checked":scanned,"unavailable_or_mismatched_evidence":unavailable,"historical_results_skipped":historical,"oversized_or_over_budget_skipped":oversized,"message_byte_budget":4*1024*1024,"max_message_bytes":512*1024,"scope_configured":session.scope.enabled,"stored_ledger_counters_trusted":false});
+    report["test_cases"] = crate::test_coverage::report(session);
     report["fresh_evidence"] = json!(false);
     report["network_requests"] = json!(0);
     report
@@ -639,6 +640,7 @@ pub fn reproduction_report(session: &crate::session::Session) -> Value {
 pub fn definitions() -> Vec<Value> {
     vec![
         crate::audit_engines::definition(),
+        crate::test_coverage::definition(),
         json!({"type":"function","function":{"name":"audit_coverage","description":"Read bounded deduplicated discovered/observed/blocked coverage. Does not crawl or claim security coverage.","parameters":{"type":"object","properties":{},"additionalProperties":false}}}),
         json!({"type":"function","function":{"name":"compare_observations","description":"Compare two paired tool evidence IDs only when exactly one serialized argument field differs; returns native metadata and hashes, never causal or vulnerability proof. Account and server state stability are unverified.","parameters":{"type":"object","properties":{"baseline_evidence":{"type":"string"},"variant_evidence":{"type":"string"}},"required":["baseline_evidence","variant_evidence"],"additionalProperties":false}}}),
     ]

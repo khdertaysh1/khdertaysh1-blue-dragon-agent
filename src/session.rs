@@ -31,6 +31,8 @@ pub struct Session {
     pub scope: crate::scope::Policy,
     #[serde(default)]
     pub audit: crate::audit::Ledger,
+    #[serde(default)]
+    pub test_coverage: crate::test_coverage::Ledger,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +65,7 @@ pub fn new(root: &Path, model: &str) -> Session {
         vision_destination: None,
         scope: crate::scope::Policy::default(),
         audit: crate::audit::Ledger::default(),
+        test_coverage: crate::test_coverage::Ledger::default(),
     }
 }
 
@@ -168,19 +171,23 @@ pub fn lock(sessions_dir: &Path, id: &str) -> Result<fs::File> {
 }
 
 fn read_session(path: &Path) -> Result<Vec<u8>> {
+    read_session_bounded(path, MAX_SESSION_BYTES)
+}
+
+fn read_session_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_file() || meta.file_type().is_symlink() {
         anyhow::bail!("Session must be a regular non-symlink file");
     }
-    if meta.len() > MAX_SESSION_BYTES {
-        anyhow::bail!("Session exceeds 16 MB limit");
+    if meta.len() > limit {
+        anyhow::bail!("Session exceeds byte limit");
     }
     let mut bytes = Vec::new();
     fs::File::open(path)?
-        .take(MAX_SESSION_BYTES + 1)
+        .take(limit + 1)
         .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_SESSION_BYTES {
-        anyhow::bail!("Session exceeds 16 MB limit");
+    if bytes.len() as u64 > limit {
+        anyhow::bail!("Session exceeds byte limit");
     }
     Ok(bytes)
 }
@@ -245,9 +252,19 @@ pub fn load(sessions_dir: &Path, id: &str, root: &Path) -> Result<Session> {
         }
         anyhow::bail!("No resumable sessions for this workspace");
     }
+    load_bounded(sessions_dir, id, root, MAX_SESSION_BYTES)
+}
+
+pub(crate) fn load_bounded(
+    sessions_dir: &Path,
+    id: &str,
+    root: &Path,
+    limit: u64,
+) -> Result<Session> {
     validate_id(id)?;
     let path = sessions_dir.join(format!("{id}.json"));
-    let session: Session = serde_json::from_slice(&read_session(&path)?)?;
+    let session: Session =
+        serde_json::from_slice(&read_session_bounded(&path, limit.min(MAX_SESSION_BYTES))?)?;
     if session.id != id {
         anyhow::bail!("Session ID does not match its filename; refusing to resume");
     }

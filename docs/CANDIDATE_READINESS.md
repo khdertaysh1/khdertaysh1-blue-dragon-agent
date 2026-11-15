@@ -1,3 +1,5 @@
+> Historical 0.8 candidate preparation record. The integrated 0.9 candidate is documented in [INTEGRATED_09_READINESS.md](INTEGRATED_09_READINESS.md); do not use the old binary hash or CI claims below to qualify it.
+
 # One delivery candidate: 0.8.0-alpha.1
 
 Branch: `candidate/professional-preview`. This is the single unpublished delivery branch. It contains the complete reviewed linear chain from `237bb56` through `cdb9406`, followed only by candidate versioning, release notes, delivery audit and an integrated CI gate. No feature branch needs a separate merge to try this candidate. Do not substitute Draft PR #13's older binary.

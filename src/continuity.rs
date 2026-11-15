@@ -65,7 +65,9 @@ pub fn status(session: &crate::session::Session, live: &Value) -> Value {
             "current_runtime":current,"runtime_status":if current.is_some(){"present_in_current_runtime"}else{"not_present_in_current_runtime"},
             "previous_outcome_requires_inspection":current.is_none(),"automatic_restart_allowed":false}));
     }
-    json!({"ok":true,"fresh_evidence":false,"network_requests":0,"actions_replayed":0,
+    let research = crate::test_coverage::report(session);
+    let cells=research["cases"].as_array().into_iter().flatten().take(20).map(|r|json!({"case_id":r["case_id"],"state":r["state"],"scenario":r["scenario"],"current_scope_and_label_match":r["current_scope_and_label_match"],"automatic_retry_allowed":false})).collect::<Vec<_>>();
+    json!({"ok":true,"fresh_evidence":false,"network_requests":0,"actions_replayed":0,"research_cases":cells,"research_cases_omitted":research["cases"].as_array().map_or(0,|r|r.len().saturating_sub(20)),"research_resume":"Revalidated local session cells; inspect test_coverage report and original evidence before new work. No automatic retries.",
         "unknown_outcomes":unknown,"unknown_rows_omitted":unknown_seen.saturating_sub(unknown.len()),"historical_jobs":jobs,"current_runtime_jobs":live["jobs"],
         "open_plan_steps":session.plan.steps.iter().filter(|step|step.status!="completed").count(),
         "plan_status_is_model_reported":true,"prior_run_returned_normally":session.last_report["finished"].as_bool(),

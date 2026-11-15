@@ -26,6 +26,13 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked --release
+      - name: Exercise extracted device trial kit on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python scripts/package_trial_kit.py --output "$RUNNER_TEMP/device-trial.zip"
+          python -m zipfile -e "$RUNNER_TEMP/device-trial.zip" "$RUNNER_TEMP/device-trial"
+          python "$RUNNER_TEMP/device-trial/scripts/device_trial.py" --binary "$PWD/target/release/blue-dragon" --output "$RUNNER_TEMP/device-trial-results"
       - name: Offline provider selection smoke test
         run: python scripts/smoke_models.py
       - name: Deterministic runtime regression benchmark
@@ -34,10 +41,20 @@ jobs:
           binary=target/release/blue-dragon
           if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
           python scripts/benchmark_runtime.py --candidate "$binary" --repeats 1 --output runtime-benchmark.json
+          python scripts/test_benchmark_alpha_reads.py
+          python scripts/benchmark_alpha_reads.py --blue "$binary" --output common-read-blue.json
+          python scripts/test_benchmark_alpha_workflows.py
+          python scripts/benchmark_alpha_workflows.py --blue "$binary" --output edit-workflow-blue.json
           python scripts/smoke_review_engines.py "$binary"
           python scripts/smoke_continuity.py "$binary"
           python scripts/smoke_coverage.py "$binary"
           python scripts/smoke_source_refresh.py "$binary"
+          python scripts/smoke_test_coverage.py "$binary"
+          python scripts/smoke_delegates.py "$binary"
+          python scripts/smoke_delegate_consistency.py "$binary"
+          python scripts/smoke_integrated_research.py "$binary"
+          python scripts/smoke_mcp_resources.py "$binary"
+          python scripts/smoke_memory_sources.py "$binary"
       - uses: actions/upload-artifact@v4
         with:
           name: runtime-benchmark-${{ runner.os }}
@@ -125,8 +142,19 @@ jobs:
           python-version: "3.x"
       - run: bash -n scripts/install.sh
       - run: python scripts/test_installer.py
+      - run: python scripts/test_installer.py
+        env:
+          TEST_RELEASE_TAG: v0.4.0-alpha.4
       - run: python scripts/test_source_upgrade.py
       - run: python scripts/test_release_payload.py
+      - run: python scripts/test_device_trial.py
+      - run: python scripts/package_trial_kit.py --output target/blue-dragon-trial-kit.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blue-dragon-trial-kit
+          path: target/blue-dragon-trial-kit.zip
+          if-no-files-found: error
+          retention-days: 14
   browser:
     name: Real browser integration
     runs-on: ubuntu-latest
@@ -239,6 +267,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ steps.prepare.outputs.tag }}
+          RELEASE_PRERELEASE: ${{ steps.prepare.outputs.prerelease }}
         run: |
           set -euo pipefail
           if gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > release-state.json 2>/dev/null; then
@@ -251,8 +280,8 @@ jobs:
               exit 1
             }
           else
-            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --prerelease \
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --prerelease="$RELEASE_PRERELEASE" \
               --title "Blue Dragon $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
           fi
           gh release upload "$RELEASE_TAG" release-payload/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$RELEASE_PRERELEASE"

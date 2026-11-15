@@ -10,6 +10,8 @@ pub struct Provider {
     model: String,
     key: Option<String>,
     anthropic: bool,
+    response_limit: u64,
+    delegated: bool,
 }
 
 impl Provider {
@@ -47,7 +49,20 @@ impl Provider {
             model,
             key,
             anthropic,
+            response_limit: 4_000_000,
+            delegated: false,
         })
+    }
+
+    pub fn delegated(base_url: &str, model: String, key: Option<String>) -> Result<Self> {
+        let mut provider = Self::new(base_url, model, key)?;
+        provider.delegated = true;
+        provider.response_limit = 65536;
+        provider.client = Client::builder()
+            .timeout(Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        Ok(provider)
     }
 
     pub fn vision_destination(&self) -> Option<String> {
@@ -125,6 +140,9 @@ impl Provider {
         {
             payload["max_tokens"] = json!(4096);
         }
+        if self.delegated {
+            payload["max_tokens"] = json!(2048);
+        }
         if stream {
             payload["stream"] = json!(true);
         }
@@ -175,10 +193,10 @@ impl Provider {
         }
         let mut bytes = Vec::new();
         response
-            .take(4_000_001)
+            .take(self.response_limit + 1)
             .read_to_end(&mut bytes)
             .context("Could not read provider response")?;
-        if bytes.len() > 4_000_000 {
+        if bytes.len() as u64 > self.response_limit {
             anyhow::bail!("Provider response exceeded size limit");
         }
         let value: Value = serde_json::from_slice(&bytes).context("Invalid provider JSON")?;

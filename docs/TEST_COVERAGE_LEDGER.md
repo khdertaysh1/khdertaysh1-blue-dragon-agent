@@ -1,0 +1,30 @@
+# Evidence-bound test coverage
+
+Existing `audit_coverage` tracks discovery/observations and `lab_report` recomputes fixed local-lab comparisons. This extension uses those validators rather than replacing them. `test_coverage` adds explicit planned cells keyed by exact origin/path, method, user-declared account alias, and supported scenario. Planning does not grant scope or execute anything.
+
+Actions: `plan` (url/method/account_label/scenario), `record` (case_id/evidence_id), `link_finding` (case_id/finding_index), `report`. State is derived; the model cannot submit a successful verdict. Cases persist in the existing session and reappear after restart. Old sessions default to an empty ledger.
+
+States:
+
+- `not-tested`: planned cell has no attached observation and its current explicit scope/label matches.
+- `blocked`: no observation and scope/label does not match, or native evidence records denied execution.
+- `inconclusive`: incomplete/unknown observations, cached substitutes, missing/modified evidence versions, or revalidation limits prevent a conclusion.
+- `tested`: complete observations for the narrow named scenario. HTTP errors such as 404 can still mean a response-capture test occurred. This never means safe, vulnerable, authenticated, browser-executed, or exhaustive.
+
+Only native `web_fetch` GET (`http_response`) and the two existing fixed local-lab GET scenarios (`literal_marker`, `inert_html`) can currently qualify. Other methods can be planned but stay unqualified. Browser discovery is still observational coverage; browser login identities are not inferred. Native results receive an account-label digest from explicit unambiguous user scope before evidence hashing. The label is a declaration, not actual login proof. Older evidence without that binding cannot be retroactively attributed to an account.
+
+Each attached version pins request and result SHA256 values and is revalidated against its original paired call/result. The latest attached version determines current state while prior successfully revalidated versions remain visible. No silent history eviction. A failed retest cannot erase earlier observations or refute a hypothesis. Finding links retain the original finding hash and recheck its citations; model narrative and semantic support/refutation are not promoted by a link. Retest recipes reconstruct supported arguments, demand current scope/account checks, a new user request and human approval, and never execute automatically or reuse lab run IDs.
+
+The coverage view, exported audit report and task-continuity view share this ledger. Continuity exposes bounded revalidated case references; the browser connection summary does not restore historical page/login state. There is no new cross-project memory store or source of action authorization.
+
+Bounds: 100 cells, 8 evidence versions and 8 finding links per cell, 512 KiB/result and 4 MiB/report evidence budget, plus existing lab report limits. No coverage percentage or completeness denominator. Query-bearing/credential/fragment targets are rejected, not silently collapsed. Raw bodies, headers and finding prose stay out of the ledger report. Paths and opaque account aliases may still need review before sharing. Hashes are consistency checks, not protection against whole-checkpoint forgery. Revoking scope prevents new attribution but preserves explicitly marked historical reports.
+
+## Competing hypotheses and response retests
+
+`group_hypotheses` accepts an opaque `group_id`, 2–4 distinct existing hypothesis `finding_indices`, and 1–8 distinct planned `case_ids`. Up to 20 immutable groups persist in the same session. The report pins each finding hash, shows which original citations still qualify within those planned cases, lists their current test states/retest recipes, and exposes missing or changed alternatives. It returns no winner or probability and never marks a rival supported/refuted from shared citation validity. Original confirms/refutes criteria remain in the session finding; no model prose is copied into export. At most 32 citations per alternative are shown with an omission count.
+
+Each case additionally reports adjacent attached `retest_deltas`. A delta is comparable only when both observations revalidate as complete native HTTP captures, their original request digests match exactly, and their native message order increases. It reports equality/change of numeric HTTP status and decoded response text without exporting response content or text hashes. Missing, altered, truncated, denied, non-HTTP, differently parameterized or reverse-order observations yield incomparable deltas with null change fields. Matching text does not prove equal server state, authentication, headers, wire bytes or security; changes do not establish causality. The comparison makes zero network requests. New response capture still uses the existing request/approval/scope flow; browser captures are not silently substituted for HTTP fetches.
+
+This extension reuses `record_finding`, coverage evidence verification, existing controlled-input comparisons and manual retest recipes. It does not add a browser driver or an automatic hypothesis-selection engine.
+
+Separate follow-up validation on Linux: 256 Rust tests passed, strict Clippy and formatting passed. The real CLI loopback fixture created two competing hypotheses, fetched twice on two separate user turns, detected changed decoded text with unchanged HTTP status, preserved unresolved alternatives, then reopened/exported after scope revocation with zero additional requests. Negative unit cases cover request changes, reverse observation order, altered evidence, changed finding content, missing/duplicate references and capacity limits. The isolated follow-up branch was based on frozen `51650ba` without the separate delegate-boundary correction; the assembled-candidate report records their later integration. No live browser, live external model, physical phone, Windows/macOS or Alpha runtime comparison was performed for this follow-up.

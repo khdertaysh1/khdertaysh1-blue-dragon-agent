@@ -18,7 +18,7 @@ while (($#)); do
     --version) (($# >= 2)) || fail '--version needs a release tag'; requested="$2"; shift 2 ;;
     --bin-dir) (($# >= 2)) || fail '--bin-dir needs a directory'; bin_dir="$2"; shift 2 ;;
     --help|-h)
-      printf 'Usage: bash install.sh [--version vX.Y.Z[-alpha.N]] [--bin-dir DIR]\nRun again to update. No Git, Rust, root or API key required.\n'
+      printf 'Usage: bash install.sh [--version vX.Y.Z[-prerelease]] [--bin-dir DIR]\nRun again to update. No Git, Rust, root or API key required.\n'
       exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac
@@ -77,7 +77,7 @@ if [[ -n "$requested" ]]; then
   download "$api/releases/tags/$requested" "$stage/release.json"
   jq -e 'type == "object" and .draft == false' "$stage/release.json" >/dev/null || fail 'Release is not published'
 else
-  # /releases/latest excludes prereleases; our public alpha channel includes them.
+  # /releases/latest excludes prereleases; include compatible historical prereleases as well.
   download "$api/releases?per_page=30" "$stage/releases.json"
   jq -e --arg asset "$asset" '[.[] | select(.draft == false) |
     select(any(.assets[]; .name == $asset)) |

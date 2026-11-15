@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Developer preview: `v0.7.0-alpha.1`.** Includes real browser control through local CDP or a paired Firefox/Chromium extension, and Blue Free automatic free-model rotation. Pasting a URL now prepares a local browser and collects an initial review automatically; Android device validation and Firefox signing remain pending. This is not full feature parity with AlphaCode. See [browser setup](docs/BROWSER.md), [rotation rules](docs/FREE_ROTATION.md) and [workbench limits](docs/WORKBENCH.md).
+> **Blue Dragon 0.9.0-alpha.1 — unpublished candidate.** The integrated package includes bounded file research, independent read-only agents, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon Mind
 
@@ -124,7 +124,7 @@ blue-dragon --version
 blue-dragon --provider free tui
 ```
 
-Run the **same installer command to update**. It selects a published release for your device, verifies SHA256 and the executable's version, then replaces the binary atomically. Failed downloads/checks leave the installed binary intact; the previous binary is saved for rollback. Sessions, settings and source checkouts are untouched. Installation needs `curl`, `jq` and a SHA256 utility, not a model API key. Only complete published releases are selected, including alpha prereleases.
+Run the **same installer command to update**. It selects a published release for your device, verifies SHA256 and the executable's version, then replaces the binary atomically. Failed downloads/checks leave the installed binary intact; the previous binary is saved for rollback. Sessions, settings and source checkouts are untouched. Installation needs `curl`, `jq` and a SHA256 utility, not a model API key. Only complete published releases are selected, including previously published prereleases.
 
 See [installation, supported systems, rollback and developer source builds](docs/INSTALL.md). [Published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases) contain persistent downloads and checksums; Actions artifacts are temporary developer outputs.
 

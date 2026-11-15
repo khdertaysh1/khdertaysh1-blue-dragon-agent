@@ -257,6 +257,94 @@ fn parse(path: &str, body: &str) -> Result<(String, Vec<Item>, bool, bool)> {
         structure_limited,
     ))
 }
+/// Single-file structural view for both parent and path-scoped delegates.
+/// Reuses the existing bounded parser without scanning/indexing the workspace.
+pub fn outline(
+    path: &Path,
+    args: &Value,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<Value> {
+    let number = |key: &str, default: u64| -> Result<u64> {
+        match args.get(key) {
+            None => Ok(default),
+            Some(v) => v.as_u64().context("Invalid outline pagination"),
+        }
+    };
+    let offset = number("offset", 0)?;
+    let limit = number("limit", 20)?;
+    if offset > 2000 || !(1..=40).contains(&limit) {
+        bail!("Outline offset must be 0..2000 and limit 1..40");
+    }
+    let kind = args
+        .get("kind")
+        .map(|v| v.as_str().context("Invalid outline kind"))
+        .transpose()?
+        .unwrap_or("declarations");
+    if !matches!(kind, "declarations" | "imports" | "calls") {
+        bail!("Use declarations, imports or calls");
+    }
+    let query = args
+        .get("query")
+        .map(|v| v.as_str().context("Invalid outline query"))
+        .transpose()?
+        .unwrap_or("");
+    if query.len() > 100 || query.contains('\0') {
+        bail!("Outline query exceeds limit");
+    }
+    let expected = args
+        .get("expected_sha256")
+        .map(|v| v.as_str().context("Invalid source digest"))
+        .transpose()?;
+    if expected.is_some_and(|v| v.len() != 64 || !v.bytes().all(|b| b.is_ascii_hexdigit()))
+        || offset > 0 && expected.is_none()
+    {
+        bail!("Supply the previous source SHA256 for paginated outlines");
+    }
+    let body = crate::local_files::source_text(path, cancelled)?;
+    let digest = hash(body.as_bytes());
+    if expected.is_some_and(|v| !v.eq_ignore_ascii_case(&digest)) {
+        bail!("Source changed; discard mixed-version pagination");
+    }
+    let name = path
+        .file_name()
+        .and_then(|p| p.to_str())
+        .context("Non-UTF8 source filename")?;
+    let (language, items, parse_errors, structure_limited) = parse(name, &body)?;
+    if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+        bail!("Outline cancelled");
+    }
+    let available = language != "text";
+    let selected = items
+        .iter()
+        .filter(|item| {
+            let eligible = match kind {
+                "imports" => item.kind == "import",
+                "calls" => item.kind == "call",
+                _ => !matches!(item.kind.as_str(), "identifier" | "call" | "import"),
+            };
+            eligible && item.name.contains(query)
+        })
+        .collect::<Vec<_>>();
+    if offset as usize > selected.len() {
+        bail!("Outline offset exceeds collected items");
+    }
+    let mut rows = Vec::new();
+    let mut bytes = 0;
+    for item in selected.iter().skip(offset as usize).take(limit as usize) {
+        let row = json!({"name":item.name,"kind":item.kind,"line":item.line,"end_line":item.end_line,"scope":item.scope.chars().take(240).collect::<String>(),"scope_truncated":item.scope.chars().count()>240});
+        let size = row.to_string().len();
+        if bytes + size > 12000 {
+            break;
+        }
+        bytes += size;
+        rows.push(row);
+    }
+    let next = offset as usize + rows.len();
+    Ok(
+        json!({"source_sha256":digest,"source_bytes":body.len(),"language":language,"kind":kind,"items":rows,"offset":offset,"next_offset":if next<selected.len(){Some(next)}else{None},"collected_matching_items":selected.len(),"structure_available":available,"parse_errors":parse_errors,"structure_limited":structure_limited,"all_collected_items_returned":offset==0&&next==selected.len(),"semantic_resolution_verified":false,"limits":"One file only, 128000 bytes and existing parser limits. Syntactic declarations/imports/calls, not type resolution, reachable behavior or exhaustive language coverage. Names may be truncated by the shared parser. Query matches retained names literally. Offset pages require the prior source hash; never combine changed versions. Unsupported grammars and parse errors do not establish absence. No workspace scan or execution."}),
+    )
+}
+
 pub fn tokens(text: &str) -> BTreeSet<String> {
     let mut split = String::new();
     let mut lower = false;
@@ -496,6 +584,155 @@ impl Index {
         )
     }
 }
+#[cfg(test)]
+mod outline_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    #[test]
+    fn outline_reuses_syntax_parser_without_claiming_semantics() {
+        let dir = tempfile::tempdir().unwrap();
+        let token = AtomicBool::new(false);
+        for (name, source, expected) in [
+            (
+                "a.rs",
+                "// fn fake() {}\npub fn real() { helper(); }",
+                "real",
+            ),
+            (
+                "a.py",
+                "# def fake(): pass\ndef real():\n    helper()\n",
+                "real",
+            ),
+            (
+                "a.ts",
+                "const fake = 'function fake() {}'; function real() { helper(); }",
+                "real",
+            ),
+            ("a.tsx", "function real() { return <div/>; }", "real"),
+        ] {
+            let path = dir.path().join(name);
+            fs::write(&path, source).unwrap();
+            let r = outline(&path, &json!({}), &token).unwrap();
+            assert_eq!(r["structure_available"], true);
+            assert_eq!(r["semantic_resolution_verified"], false);
+            assert!(r["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|i| i["name"] == expected));
+            assert!(!r["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|i| i["name"] == "fake"));
+        }
+        let path = dir.path().join("a.py");
+        fs::write(&path, "import math\ndef real():\n    math.sqrt(4)\n").unwrap();
+        assert_eq!(
+            outline(&path, &json!({"kind":"imports"}), &token).unwrap()["items"][0]["kind"],
+            "import"
+        );
+        assert_eq!(
+            outline(&path, &json!({"kind":"calls"}), &token).unwrap()["items"][0]["name"],
+            "math.sqrt"
+        );
+    }
+    #[test]
+    fn outline_pagination_is_hash_bound_and_does_not_claim_whole_file_absence() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("many.rs");
+        let token = AtomicBool::new(false);
+        fs::write(
+            &path,
+            (0..70)
+                .map(|i| format!("fn f{i}() {{}}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        let first = outline(&path, &json!({"limit":10}), &token).unwrap();
+        assert_eq!(first["next_offset"], 10);
+        assert_eq!(first["all_collected_items_returned"], false);
+        assert!(outline(&path, &json!({"offset":10}), &token).is_err());
+        let args = json!({"offset":10,"limit":10,"expected_sha256":first["source_sha256"]});
+        let second = outline(&path, &args, &token).unwrap();
+        assert_eq!(second["items"][0]["name"], "f10");
+        fs::write(
+            &path,
+            "fn replaced() {}
+",
+        )
+        .unwrap();
+        assert!(outline(&path, &args, &token).is_err());
+        for args in [
+            json!({"limit":0}),
+            json!({"limit":41}),
+            json!({"offset":-1}),
+            json!({"kind":"execute"}),
+            json!({"expected_sha256":"fake"}),
+            json!({"query":"x".repeat(101)}),
+        ] {
+            assert!(outline(&path, &args, &token).is_err());
+        }
+    }
+    #[test]
+    fn outline_limits_unsupported_errors_binary_and_cancellation_are_explicit() {
+        let dir = tempfile::tempdir().unwrap();
+        let token = AtomicBool::new(false);
+        let path = dir.path().join("a.rs");
+        for bytes in [vec![b'x'; 128001], vec![0], vec![255]] {
+            fs::write(&path, bytes).unwrap();
+            assert!(outline(&path, &json!({}), &token).is_err());
+        }
+        fs::write(&path, "fn broken( {").unwrap();
+        assert_eq!(
+            outline(&path, &json!({}), &token).unwrap()["parse_errors"],
+            true
+        );
+        let plain = dir.path().join("a.txt");
+        fs::write(&plain, "fn pretend() {}").unwrap();
+        let r = outline(&plain, &json!({}), &token).unwrap();
+        assert_eq!(r["structure_available"], false);
+        assert!(r["items"].as_array().unwrap().is_empty());
+        assert!(outline(&path, &json!({}), &AtomicBool::new(true)).is_err());
+        assert!(outline(dir.path(), &json!({}), &token).is_err());
+    }
+    #[test]
+    fn outline_reports_parser_limit_and_keeps_each_page_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.rs");
+        fs::write(
+            &path,
+            (0..1500)
+                .map(|i| format!("fn worker{i}() {{}}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        let r = outline(&path, &json!({"limit":40}), &AtomicBool::new(false)).unwrap();
+        assert_eq!(r["structure_limited"], true);
+        assert!(r["items"].as_array().unwrap().len() <= 40);
+        assert!(r.to_string().len() < 14000);
+        assert!(r["next_offset"].is_number());
+        assert_eq!(r["all_collected_items_returned"], false);
+    }
+    #[test]
+    fn outline_tool_preserves_workspace_and_secret_path_guards() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".env"), "secret").unwrap();
+        let toolbox = crate::tools::ToolBox::new(
+            dir.path().canonicalize().unwrap(),
+            crate::tools::ApprovalMode::ReadOnly,
+        );
+        assert!(toolbox.file_outline(".env", &json!({})).is_err());
+        assert!(toolbox.file_outline("../outside.rs", &json!({})).is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.path().join(".env"), dir.path().join("alias.rs"))
+                .unwrap();
+            assert!(toolbox.file_outline("alias.rs", &json!({})).is_err());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
