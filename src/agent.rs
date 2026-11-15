@@ -431,7 +431,7 @@ impl Agent {
     pub fn inspect_saved_tool(&self, id: &str) -> Result<Value> {
         let (tool, original, result) = crate::audit::request_for(&self.session, id)?;
         Ok(
-            json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" || result["category"]=="invalid_arguments" {crate::tool_arguments::summary(&crate::tool_arguments::diagnostic_view(&tool, &result))}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_argument_view(&original),"original_argument_shape":crate::tool_arguments::argument_shape(&tool, &original),"result":crate::tool_arguments::diagnostic_view(&tool, &result),"redaction":"User string values omitted, including commands, URLs, tokens and stdout. Only fixed diagnostic vocabulary and native schema paths may be displayed; structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
+            json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" || result["category"]=="invalid_arguments" {crate::tool_arguments::summary(&crate::tool_arguments::diagnostic_view(&tool, &result))}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_argument_view(&original),"original_argument_shape":crate::tool_arguments::argument_shape(&tool, &original),"native_action":crate::tool_arguments::native_action(&tool, &original),"result":crate::tool_arguments::diagnostic_view(&tool, &result),"redaction":"User string values omitted, including commands, URLs, tokens and stdout. Only fixed diagnostic vocabulary and native schema paths may be displayed; structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
         )
     }
     pub fn report_text(&self) -> String {
@@ -1101,6 +1101,9 @@ impl Agent {
                 let prepared =
                     crate::tool_arguments::prepare(name, &guard_args, &advertised_definitions);
                 let argument_error = prepared.as_ref().err().cloned();
+                if prepared.is_ok() {
+                    self.loop_guard.advertised_and_valid(name, &guard_args);
+                }
                 let normalization = prepared.as_ref().ok().filter(|p| !p.changes.is_empty()).map(|p| json!({"changes":p.changes,"effective_arguments":p.arguments,"original_preserved_in_tool_call":true,"grants_permission":false}));
                 let args = prepared
                     .map(|p| p.arguments)
@@ -1424,6 +1427,16 @@ impl Agent {
                     }
                     result["agent_recovery_hint"]=json!("This call returned unchanged output again. Change inputs/hypothesis, inspect new evidence, or report the blocker. Repetition is not verification.");
                 }
+                if argument_error.as_ref().is_some_and(|error| {
+                    error["field"] == "$"
+                        && error["expected_type"] == "advertised tool"
+                        && error["actual_type"] == "unknown tool"
+                }) && result["category"] == "invalid_arguments"
+                    && result["execution_status"] == "not_executed"
+                    && result["repetition_blocked"] != true
+                {
+                    self.loop_guard.rejected_unadvertised(name, &guard_args);
+                }
                 if !matches!(
                     name,
                     "update_plan"
@@ -1473,7 +1486,12 @@ impl Agent {
                     self.output(AgentEvent::Plan(self.plan_text()));
                 }
                 self.output(AgentEvent::ToolResult(
-                    if name == "run_command" || argument_error.is_some() {
+                    if name == "browser"
+                        && guard_args["action"] == "status"
+                        && result["ready"].is_boolean()
+                    {
+                        crate::tool_arguments::browser_status_summary(&result).into()
+                    } else if name == "run_command" || argument_error.is_some() {
                         crate::tool_arguments::summary(&result)
                     } else if result["ok"] == false {
                         "Tool failed; inspect saved result locally".into()
@@ -1552,7 +1570,11 @@ fn interrupted_summary(
             "- {} · {} · {} · recall_context message_index={}",
             observation.id,
             observation.tool,
-            if observation.ok {
+            if observation.native_facts.browser_status_ready == Some(false) {
+                "browser status: not ready; no page/DOM inspection; approved connection required"
+            } else if observation.native_facts.browser_status_ready == Some(true) {
+                "browser status: ready; no page/DOM inspection or login verification"
+            } else if observation.ok {
                 "tool returned successfully (not verification of a claim)"
             } else {
                 "failed / blocked / unknown"
@@ -1657,6 +1679,54 @@ mod tests {
             state,
             server,
         )
+    }
+    #[test]
+    fn repeated_status_reports_unready_connection_without_claiming_page_read() {
+        let replies = (0..6)
+            .map(|i| tool_call(&format!("status{i}"), "browser", json!({"action":"status"})))
+            .collect();
+        let (mut agent, _workspace, _state, server) = scripted_agent(replies);
+        assert!(agent.turn("Check local connection only").is_err());
+        assert_eq!(server.join().unwrap().len(), 6);
+        let text = agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(text.contains("browser status: not ready; no page/DOM inspection"));
+        assert!(!text.contains("tool returned successfully"));
+        assert_eq!(agent.session.observations.len(), 3);
+        assert_eq!(agent.session.last_report["finished"], false);
+    }
+    #[test]
+    fn discovered_browser_status_corrects_unadvertised_call_without_page_claim() {
+        let (mut agent, _workspace, _state, server) = scripted_agent(vec![
+            tool_call("a", "browser", json!({"action":"status"})),
+            tool_call("b", "discover_tools", json!({"names":["browser"]})),
+            tool_call("c", "browser", json!({"action":"status"})),
+            completion(
+                json!({"role":"assistant","content":"Browser not ready. No page inspected."}),
+            ),
+        ]);
+        agent.selected_tools = Some(crate::tool_selection::core());
+        agent.turn("Check local browser connection only").unwrap();
+        let requests = server.join().unwrap();
+        assert!(!requests[0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["function"]["name"] == "browser"));
+        assert!(requests[2]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["function"]["name"] == "browser"));
+        let observed = agent.session.observations.last().unwrap();
+        assert_eq!(observed.native_facts.browser_status_ready, Some(false));
+        let saved = agent.inspect_saved_tool(&observed.id).unwrap();
+        assert_eq!(saved["native_action"], "status");
+        assert_eq!(saved["result"]["ready"], false);
+        assert_eq!(saved["provider_requests"], 0);
+        assert_eq!(saved["actions_replayed"], 0);
+        assert!(agent.session.last_report["finished"] == true);
     }
     #[test]
     fn resumed_image_history_rejects_other_destination_before_persistence() {

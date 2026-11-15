@@ -16,7 +16,7 @@ fn kind(v: &Value) -> &'static str {
     }
 }
 fn invalid(tool: &str, field: &str, expected: &str, actual: &str) -> Value {
-    json!({"ok":false,"category":"invalid_arguments","error_code":"schema_validation_failed","execution_status":"not_executed","tool":tool,"field":field,"expected_type":expected,"actual_type":actual,"error":format!("Invalid arguments: {field} expected {expected}, got {actual}"),"example":if tool=="run_command" {json!({"program":"example-program","args":["--help"],"timeout_seconds":30})} else {json!({"note":"Use the advertised tool schema; no supplied values are echoed."})},"retry_hint":"Correct this field for this tool once. Successful discovery does not correct another tool. Do not repeat the same invalid call. No approval or execution occurred."})
+    json!({"ok":false,"category":"invalid_arguments","error_code":"schema_validation_failed","execution_status":"not_executed","tool":tool,"field":field,"expected_type":expected,"actual_type":actual,"error":format!("Invalid arguments: {field} expected {expected}, got {actual}"),"example":if tool=="run_command" {json!({"program":"example-program","args":["--help"],"timeout_seconds":30})} else {json!({"note":"Use the advertised tool schema; no supplied values are echoed."})},"retry_hint":if expected == "advertised tool" {"Tool was not advertised for this request. Use discover_tools to enable its exact registered name, then submit a schema-valid call. No permission, approval or execution occurred."} else {"Correct this field for this tool once. Successful discovery does not correct another tool. Do not repeat the same invalid call. No approval or execution occurred."}})
 }
 fn validate(tool: &str, path: &str, v: &Value, s: &Value, depth: usize) -> Result<(), Value> {
     if depth > 24 {
@@ -309,6 +309,7 @@ pub fn argument_shape(tool: &str, original: &Value) -> Value {
     let fields: &[&str] = match tool {
         "run_command" => &["program", "args", "timeout_seconds"],
         "discover_tools" => &["names", "offset"],
+        "browser" => &["action", "url", "selector", "frame_selector"],
         _ => &[],
     };
     let mut out = serde_json::Map::new();
@@ -321,6 +322,26 @@ pub fn argument_shape(tool: &str, original: &Value) -> Value {
         out.insert((*field).into(), shape);
     }
     Value::Object(out)
+}
+/// Only schema enum values, never selectors, URLs or page strings.
+pub fn native_action(tool: &str, args: &Value) -> Value {
+    if tool == "browser" {
+        let schema = crate::browser::definition();
+        if schema["function"]["parameters"]["properties"]["action"]["enum"]
+            .as_array()
+            .is_some_and(|values| values.contains(&args["action"]))
+        {
+            return args["action"].clone();
+        }
+    }
+    Value::Null
+}
+pub fn browser_status_summary(result: &Value) -> &'static str {
+    if result["ready"] == true {
+        "Browser status: ready; no page/DOM inspection or login verification"
+    } else {
+        "Browser status: not ready; no page/DOM inspection; approved connection required"
+    }
 }
 /// Only native schema field paths and fixed diagnostic vocabulary may be shown.
 /// Never whitelist arbitrary strings merely because their key says "error".
@@ -352,6 +373,38 @@ pub fn diagnostic_view(tool: &str, result: &Value) -> Value {
             out[key] = result[key].clone();
         }
     }
+    if tool == "browser" {
+        for key in [
+            "ready",
+            "reconnect_pending",
+            "page_and_login_continuity_verified",
+            "launched_by_blue_dragon",
+            "termux_chromium_sandbox_unavailable",
+            "page_inspected",
+        ] {
+            if result[key].is_boolean() {
+                out[key] = result[key].clone();
+            }
+        }
+        for key in ["port", "connection_epoch"] {
+            if result[key]
+                .as_u64()
+                .is_some_and(|n| key != "port" || (1..=65535).contains(&n))
+            {
+                out[key] = result[key].clone();
+            }
+        }
+        if result["backend"]
+            .as_str()
+            .is_some_and(|s| ["none", "extension", "cdp"].contains(&s))
+        {
+            out["backend"] = result["backend"].clone();
+        }
+        // Fixed reconstruction; never print a saved error/setup/recovery string.
+        if result["ready"].is_boolean() && out["backend"].is_string() {
+            out["status_note"] = json!(browser_status_summary(result));
+        }
+    }
     if result["category"] != "invalid_arguments" {
         return out;
     }
@@ -360,6 +413,10 @@ pub fn diagnostic_view(tool: &str, result: &Value) -> Value {
         .as_array_mut()
         .unwrap()
         .push(crate::tool_selection::definition());
+    definitions
+        .as_array_mut()
+        .unwrap()
+        .push(crate::browser::definition());
     let Some(schema) = definitions
         .as_array()
         .unwrap()
@@ -795,6 +852,28 @@ mod tests {
     use super::*;
     fn correction_succeeded(tool: &str, args: &Value, result: &Value) -> bool {
         correction_succeeded_from_dispatch(tool, args, result, CorrectionOrigin::Native)
+    }
+    #[test]
+    fn browser_diagnostics_show_only_fixed_native_vocabulary() {
+        assert_eq!(
+            native_action("browser", &json!({"action":"status"})),
+            "status"
+        );
+        assert!(native_action("browser", &json!({"action":"PRIVATE_PAYLOAD"})).is_null());
+        let v = diagnostic_view(
+            "browser",
+            &json!({"backend":"extension","ready":false,"port":37973,"connection_epoch":2,"pairing_token":"PRIVATE_PAYLOAD","setup":"PRIVATE_PAYLOAD","error":"PRIVATE_PAYLOAD","url":"PRIVATE_PAYLOAD","action":"PRIVATE_PAYLOAD"}),
+        );
+        assert_eq!(v["backend"], "extension");
+        assert_eq!(v["ready"], false);
+        assert_eq!(v["port"], 37973);
+        assert!(!v.to_string().contains("PRIVATE_PAYLOAD"));
+        let forged = diagnostic_view(
+            "browser",
+            &json!({"backend":"PRIVATE_PAYLOAD","ready":"PRIVATE_PAYLOAD","port":"PRIVATE_PAYLOAD","status_note":"PRIVATE_PAYLOAD"}),
+        );
+        assert!(!forged.to_string().contains("PRIVATE_PAYLOAD"));
+        assert!(forged.get("status_note").is_none());
     }
     #[test]
     fn native_correction_contracts_require_dispatch_and_reject_failure_metadata() {

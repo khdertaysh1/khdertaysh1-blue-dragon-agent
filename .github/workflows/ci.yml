@@ -56,6 +56,8 @@ jobs:
           python scripts/smoke_fresh_source.py "$binary"
           python scripts/smoke_command_arguments.py "$binary"
           python scripts/smoke_diagnostic_recovery.py "$binary"
+          python scripts/smoke_schema_recovery.py "$binary"
+          python scripts/smoke_discovered_fetch.py "$binary"
           python scripts/smoke_quota_resume.py "$binary"
           python scripts/smoke_canonical_file_policy.py "$binary"
           python scripts/smoke_resume_reference_migration.py "$binary"

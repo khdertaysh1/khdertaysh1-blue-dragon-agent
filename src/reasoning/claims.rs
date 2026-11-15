@@ -8,6 +8,8 @@ use serde_json::Value;
 pub struct NativeFacts {
     pub command_exit_code: Option<i64>,
     pub http_status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_status_ready: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +45,9 @@ pub fn extract(tool: &str, result: &Value) -> NativeFacts {
         return facts;
     }
     match tool {
+        "browser" if result["observation_kind"] == "browser_status" && result["ok"] != false => {
+            facts.browser_status_ready = result["ready"].as_bool();
+        }
         "run_command" => facts.command_exit_code = result["exit_code"].as_i64(),
         "web_fetch" | "source_artifact" => {
             facts.http_status = result["status"]
