@@ -60,8 +60,16 @@ stage=$(mktemp -d "$bin_dir/.blue-dragon-install.XXXXXX")
 download() {
   local url="$1" output="$2"
   [[ "$url" == "https://api.github.com/repos/$repo/"* || "$url" == "https://github.com/$repo/releases/download/"* ]] || fail 'Unexpected download origin'
-  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error --location \
-    --connect-timeout 15 --max-time 180 --retry 2 --retry-delay 2 "$url" -o "$output"
+  local label="${output##*/}"
+  printf 'Blue Dragon: downloading %s (bounded retries; stalled transfers stop after 20s)...\n' "$label" >&2
+  local progress=(--silent)
+  if [[ -t 2 ]]; then progress=(--progress-bar); fi
+  if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail "${progress[@]}" --show-error --location \
+    --connect-timeout 10 --max-time 120 --speed-limit 1024 --speed-time 20 \
+    --retry 1 --retry-delay 2 --retry-max-time 150 "$url" -o "$output"; then
+    fail "Download failed for $label; existing installation was not changed. Check connectivity and rerun the installer."
+  fi
+  printf 'Blue Dragon: downloaded %s\n' "$label" >&2
 }
 
 printf 'Blue Dragon: checking published releases for %s...\n' "$platform"
@@ -88,6 +96,7 @@ done
 hash_of() {
   if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi
 }
+printf 'Blue Dragon: verifying SHA256 checksums...\n' >&2
 for name in "$asset" LICENSES.txt; do
   expected=''
   while read -r digest filename remainder; do
@@ -98,6 +107,7 @@ for name in "$asset" LICENSES.txt; do
   [[ "$actual" == "$expected" ]] || fail "SHA256 mismatch for $name; installation not changed"
 done
 chmod 755 "$stage/$asset"
+printf 'Blue Dragon: checking binary compatibility...\n' >&2
 reported=$("$stage/$asset" --version) || fail 'Downloaded binary cannot run on this device; installation not changed'
 [[ "$reported" == "blue-dragon ${tag#v}" ]] || fail "Binary version mismatch: expected ${tag#v}; installation not changed"
 

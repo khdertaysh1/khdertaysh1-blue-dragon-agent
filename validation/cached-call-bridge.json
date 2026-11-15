@@ -1,0 +1,145 @@
+{
+  "status": "passed",
+  "lab_commit": "c396c90f2e7ed080f71368ce9edb5cd630098b09",
+  "binary_sha256": "ee2aa03bc5b45c5ebfd02def44d6652bcdf4732c9fbf073d39a563b22dc13b7f",
+  "rows": [
+    {
+      "status": "passed",
+      "fixture": "weak_fixture",
+      "GETs": 3,
+      "analysis_GETs": 0,
+      "mapping_available": true,
+      "blocked_reason": null,
+      "endpoint": "node.innerHTML",
+      "source_hashes_verified": true,
+      "endpoint_exact_read_verified": true,
+      "semantic_dataflow_verified": false,
+      "browser_execution_verified": false,
+      "evidence_ids": [
+        "E000003",
+        "E000005",
+        "E000007",
+        "E000009",
+        "E000011",
+        "E000013"
+      ]
+    },
+    {
+      "status": "passed",
+      "fixture": "fixed_fixture",
+      "GETs": 3,
+      "analysis_GETs": 0,
+      "mapping_available": true,
+      "blocked_reason": null,
+      "endpoint": "node.textContent",
+      "source_hashes_verified": true,
+      "endpoint_exact_read_verified": true,
+      "semantic_dataflow_verified": false,
+      "browser_execution_verified": false,
+      "evidence_ids": [
+        "E000003",
+        "E000005",
+        "E000007",
+        "E000009",
+        "E000011",
+        "E000013"
+      ]
+    },
+    {
+      "status": "passed",
+      "fixture": "ambiguous_fixture",
+      "GETs": 3,
+      "analysis_GETs": 0,
+      "mapping_available": false,
+      "blocked_reason": "possible_local_shadow_or_reassignment",
+      "endpoint": null,
+      "source_hashes_verified": true,
+      "endpoint_exact_read_verified": false,
+      "semantic_dataflow_verified": false,
+      "browser_execution_verified": false,
+      "evidence_ids": [
+        "E000003",
+        "E000005",
+        "E000007",
+        "E000009",
+        "E000011"
+      ]
+    },
+    {
+      "status": "passed",
+      "fixture": "reassigned_export",
+      "GETs": 3,
+      "analysis_GETs": 0,
+      "mapping_available": false,
+      "blocked_reason": "possible_import_chain_binding_write",
+      "endpoint": null,
+      "source_hashes_verified": true,
+      "endpoint_exact_read_verified": false,
+      "semantic_dataflow_verified": false,
+      "browser_execution_verified": false,
+      "evidence_ids": [
+        "E000003",
+        "E000005",
+        "E000007",
+        "E000009",
+        "E000011"
+      ]
+    },
+    {
+      "status": "passed",
+      "fixture": "nested_export",
+      "GETs": 3,
+      "analysis_GETs": 0,
+      "mapping_available": false,
+      "blocked_reason": "possible_import_chain_binding_write",
+      "endpoint": null,
+      "source_hashes_verified": true,
+      "endpoint_exact_read_verified": false,
+      "semantic_dataflow_verified": false,
+      "browser_execution_verified": false,
+      "evidence_ids": [
+        "E000003",
+        "E000005",
+        "E000007",
+        "E000009",
+        "E000011"
+      ]
+    },
+    {
+      "status": "passed",
+      "fixture": "unexported_definition",
+      "GETs": 3,
+      "analysis_GETs": 0,
+      "mapping_available": false,
+      "blocked_reason": "definition_not_direct_named_module_export",
+      "endpoint": null,
+      "source_hashes_verified": true,
+      "endpoint_exact_read_verified": false,
+      "semantic_dataflow_verified": false,
+      "browser_execution_verified": false,
+      "evidence_ids": [
+        "E000003",
+        "E000005",
+        "E000007",
+        "E000009",
+        "E000011"
+      ]
+    }
+  ],
+  "GETs": 18,
+  "limits": "Synthetic module response adapters in pinned loopback lab. No JS execution, runtime dispatch or actual vulnerability/protection proof; Python guard is not an OS sandbox for Rust.",
+  "rust_tests": {
+    "passed": 227,
+    "failed": 0
+  },
+  "checks": [
+    "offline locked all-targets tests",
+    "offline locked release build",
+    "offline locked all-targets clippy -D warnings"
+  ],
+  "base_commit": "695ac867660e1839cd6cb85e62b7c61dcfc3bd1f",
+  "reproduced_before_fix": [
+    "reassigned exported definition",
+    "nested declaration selected for unrelated export"
+  ]
+}

@@ -1,9 +1,15 @@
 mod agent;
 mod anthropic;
+mod artifacts;
+mod audit;
+mod audit_engines;
 mod browser;
 mod config;
+mod continuity;
 mod intelligence;
 mod jobs;
+mod lab_report;
+mod lab_runner;
 mod mcp;
 mod mcp_protocol;
 mod models;
@@ -12,13 +18,18 @@ mod project;
 mod provider;
 mod reasoning;
 mod rotation;
+mod scope;
 mod session;
 mod skills;
+mod source_discovery;
+mod source_report;
+mod source_trace;
 mod streaming;
 #[cfg(test)]
 mod test_support;
 mod tools;
 mod tui;
+mod vision;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -304,7 +315,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -338,6 +349,29 @@ fn run() -> Result<()> {
                                     Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
                                     Err(e) => eprintln!("Jobs: {e:#}"),
                                 }
+                                continue;
+                            }
+                            line if line == "/scope" || line.starts_with("/scope ") => {
+                                match agent
+                                    .scope_command(line.strip_prefix("/scope").unwrap_or("").trim())
+                                {
+                                    Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
+                                    Err(e) => eprintln!("Scope: {e:#}"),
+                                }
+                                continue;
+                            }
+                            "/audit-report" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.reproduction_report())?
+                                );
+                                continue;
+                            }
+                            "/coverage" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.audit_report())?
+                                );
                                 continue;
                             }
                             "/checks" => {

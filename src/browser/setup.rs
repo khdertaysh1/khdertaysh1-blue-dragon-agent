@@ -49,6 +49,8 @@ pub fn install(home: &Path, tools: &ToolBox) -> Result<()> {
     let log_path = home.join("browser-install.log");
     let log = std::fs::File::create(&log_path)?;
     for package in ["x11-repo", "chromium"] {
+        tools.progress(format!("Installing official Termux package {package}; details: {}. This may take several minutes.", log_path.display()));
+        let mut last_notice = Instant::now();
         let mut child = Command::new("pkg")
             .args(["install", "-y", package])
             .stdin(Stdio::null())
@@ -72,7 +74,17 @@ pub fn install(home: &Path, tools: &ToolBox) -> Result<()> {
                 if !status.success() {
                     anyhow::bail!("Official Termux package installation failed for {package}; log: {}. Fix the package/mirror error and paste the URL again.", log_path.display());
                 }
+                tools.progress(format!("Termux package {package} installed successfully"));
                 break;
+            }
+            if last_notice.elapsed() >= Duration::from_secs(5) {
+                tools.progress(format!(
+                    "Still installing {package} ({}s elapsed; {} log bytes). Package output: {}",
+                    started.elapsed().as_secs(),
+                    log.metadata().map(|m| m.len()).unwrap_or(0),
+                    log_path.display()
+                ));
+                last_notice = Instant::now();
             }
             std::thread::sleep(Duration::from_millis(100));
         }

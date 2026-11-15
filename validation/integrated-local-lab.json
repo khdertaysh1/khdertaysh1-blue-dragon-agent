@@ -1,0 +1,204 @@
+{
+  "status": "passed",
+  "lab_commit": "c396c90f2e7ed080f71368ce9edb5cd630098b09",
+  "binary_sha256": "746e5f99ea688af3d5e471994ad081bb002142365a1aed186378f108771baab8",
+  "rows": [
+    {
+      "status": "passed",
+      "mode": "vulnerable",
+      "condition": "normal",
+      "GETs": 3,
+      "state": "completed",
+      "verdict": "differential_literal_marker_only",
+      "observations": [
+        {
+          "baseline_marker_seen": true,
+          "body_sha256": "8b72d498ec239a0aa5b5a6f72d29390b5f1d043ceb6d99b005974a9ffdcdeffd",
+          "bytes_captured": 623,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 0,
+          "variant_marker_seen": false
+        },
+        {
+          "baseline_marker_seen": false,
+          "body_sha256": "14cfe7a7f4c82c8d2a9320ef5b702587946c07f63f5f498a6ffd9d5c5e46ae62",
+          "bytes_captured": 626,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 1,
+          "variant_marker_seen": true
+        },
+        {
+          "baseline_marker_seen": true,
+          "body_sha256": "8b72d498ec239a0aa5b5a6f72d29390b5f1d043ceb6d99b005974a9ffdcdeffd",
+          "bytes_captured": 623,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 2,
+          "variant_marker_seen": false
+        }
+      ],
+      "independent_server_response_oracle_matched": true,
+      "restarted_process_GETs": 0,
+      "browser_execution_observed": false,
+      "vulnerability_confirmed": false,
+      "evidence_id": "E000003"
+    },
+    {
+      "status": "passed",
+      "mode": "fixed",
+      "condition": "normal",
+      "GETs": 3,
+      "state": "completed",
+      "verdict": "differential_literal_marker_only",
+      "observations": [
+        {
+          "baseline_marker_seen": true,
+          "body_sha256": "8b72d498ec239a0aa5b5a6f72d29390b5f1d043ceb6d99b005974a9ffdcdeffd",
+          "bytes_captured": 623,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 0,
+          "variant_marker_seen": false
+        },
+        {
+          "baseline_marker_seen": false,
+          "body_sha256": "14cfe7a7f4c82c8d2a9320ef5b702587946c07f63f5f498a6ffd9d5c5e46ae62",
+          "bytes_captured": 626,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 1,
+          "variant_marker_seen": true
+        },
+        {
+          "baseline_marker_seen": true,
+          "body_sha256": "8b72d498ec239a0aa5b5a6f72d29390b5f1d043ceb6d99b005974a9ffdcdeffd",
+          "bytes_captured": 623,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 2,
+          "variant_marker_seen": false
+        }
+      ],
+      "independent_server_response_oracle_matched": true,
+      "restarted_process_GETs": 0,
+      "browser_execution_observed": false,
+      "vulnerability_confirmed": false,
+      "evidence_id": "E000003"
+    },
+    {
+      "status": "passed",
+      "mode": "fixed",
+      "condition": "unstable",
+      "GETs": 3,
+      "state": "completed",
+      "verdict": "inconclusive_control_changed",
+      "observations": [
+        {
+          "baseline_marker_seen": true,
+          "body_sha256": "8b72d498ec239a0aa5b5a6f72d29390b5f1d043ceb6d99b005974a9ffdcdeffd",
+          "bytes_captured": 623,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 0,
+          "variant_marker_seen": false
+        },
+        {
+          "baseline_marker_seen": false,
+          "body_sha256": "14cfe7a7f4c82c8d2a9320ef5b702587946c07f63f5f498a6ffd9d5c5e46ae62",
+          "bytes_captured": 626,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 1,
+          "variant_marker_seen": true
+        },
+        {
+          "baseline_marker_seen": true,
+          "body_sha256": "802215a26b0011a6b3a8504f9ac8a67a2c09466d5acc5fd39741927cb31e08a4",
+          "bytes_captured": 669,
+          "complete": true,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 2,
+          "variant_marker_seen": false
+        }
+      ],
+      "independent_server_response_oracle_matched": true,
+      "restarted_process_GETs": 0,
+      "browser_execution_observed": false,
+      "vulnerability_confirmed": false,
+      "evidence_id": "E000003"
+    },
+    {
+      "status": "passed",
+      "mode": "fixed",
+      "condition": "disconnect",
+      "GETs": 1,
+      "state": "request_outcome_unknown",
+      "verdict": null,
+      "observations": [],
+      "independent_server_response_oracle_matched": true,
+      "restarted_process_GETs": 0,
+      "browser_execution_observed": false,
+      "vulnerability_confirmed": false,
+      "evidence_id": "E000003"
+    },
+    {
+      "status": "passed",
+      "mode": "fixed",
+      "condition": "truncated",
+      "GETs": 1,
+      "state": "stopped_unusable_response",
+      "verdict": null,
+      "observations": [
+        {
+          "baseline_marker_seen": true,
+          "body_sha256": "65eed708a3659a173d34219b9922cd45f30f6c70cad782b23058f4d746f08de1",
+          "bytes_captured": 65536,
+          "complete": false,
+          "content_type_sha256": "5e30ae15588f8f014141a57300f8f4b77a0491527336d05b413fc899e803db1a",
+          "status": 200,
+          "step": 0,
+          "variant_marker_seen": false
+        }
+      ],
+      "independent_server_response_oracle_matched": true,
+      "restarted_process_GETs": 0,
+      "browser_execution_observed": false,
+      "vulnerability_confirmed": false,
+      "evidence_id": "E000003"
+    },
+    {
+      "mode": "fixed",
+      "condition": "read_scope",
+      "status": "passed",
+      "GETs": 0,
+      "scope_enforced": true
+    },
+    {
+      "status": "passed",
+      "mode": "fixed",
+      "condition": "denied",
+      "GETs": 0,
+      "state": "denied",
+      "verdict": null,
+      "observations": [],
+      "independent_server_response_oracle_matched": true,
+      "restarted_process_GETs": 0,
+      "browser_execution_observed": false,
+      "vulnerability_confirmed": false,
+      "evidence_id": "E000003"
+    }
+  ],
+  "lab_GETs": 11,
+  "limits": "Actual CLI and pinned lab HTTP; test-only adapters for unstable/truncated/disconnected responses. No browser or live provider. Python socket audit does not sandbox the Rust process."
+}

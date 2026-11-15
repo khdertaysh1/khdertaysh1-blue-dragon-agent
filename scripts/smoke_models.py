@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import time
 
-binary = Path("target/release/blue-dragon" + (".exe" if os.name == "nt" else "")).resolve()
+binary = Path(os.environ.get("BLUE_DRAGON_BINARY", "target/release/blue-dragon" + (".exe" if os.name == "nt" else ""))).resolve()
 with tempfile.TemporaryDirectory() as home:
     env = {k: v for k, v in os.environ.items() if not k.startswith(
         ("BLUE_DRAGON_", "OPENAI_", "OPENROUTER_", "ANTHROPIC_"))}

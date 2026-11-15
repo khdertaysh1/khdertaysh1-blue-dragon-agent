@@ -27,6 +27,12 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
         "path",
         "content_type",
         "reran_tool",
+        "fresh_evidence",
+        "cached",
+        "cached_result",
+        "reused_local_copy",
+        "reused_evidence_id",
+        "original_evidence_id",
     ] {
         if let Some(value) = parsed.get(key) {
             selected.insert(
@@ -197,7 +203,15 @@ pub fn build(
                 if let Some(rows) = memory.get_mut(field).and_then(Value::as_array_mut) {
                     rows.truncate(if level >= 3 { 4 } else { 8 });
                     for row in rows {
-                        for key in ["summary", "limitation", "excerpt"] {
+                        for key in [
+                            "summary",
+                            "limitation",
+                            "excerpt",
+                            "rationale",
+                            "next_test",
+                            "confirms",
+                            "refutes",
+                        ] {
                             if let Some(text) = row.get(key).and_then(Value::as_str) {
                                 row[key] = json!(clip(text, if level >= 3 { 160 } else { 400 }));
                             }
@@ -267,6 +281,17 @@ pub fn recall(history: &[Value], args: &Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn compaction_keeps_historical_evidence_markers_explicit() {
+        let content = serde_json::json!({"ok":true,"status":200,"text":"x".repeat(5000),"fresh_evidence":false,"cached_result":true,"original_evidence_id":"E000003"}).to_string();
+        let projected: serde_json::Value =
+            serde_json::from_str(&super::compact(&content, 100, 7)).unwrap();
+        assert_eq!(projected["fresh_evidence"], false);
+        assert_eq!(projected["cached_result"], true);
+        assert_eq!(projected["original_evidence_id"], "E000003");
+        assert_eq!(projected["original_message_index"], 7);
+    }
+
     use super::*;
     #[test]
     fn reduces_context_without_changing_transcript_goals_or_tool_pairing() {

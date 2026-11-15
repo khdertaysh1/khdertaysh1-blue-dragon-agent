@@ -24,21 +24,27 @@ pub enum Kind {
     HttpStatus,
 }
 
+/// Shared provenance policy for reports, coverage and native assertions.
+/// Presence of a source evidence ID denotes reuse even when its value is null.
+pub fn is_historical(result: &Value) -> bool {
+    result["cached"] == true
+        || result["cached_result"] == true
+        || result["reused_local_copy"] == true
+        || result["fresh_evidence"] == false
+        || result.get("reused_evidence_id").is_some()
+        || result.get("original_evidence_id").is_some()
+}
+
 pub fn extract(tool: &str, result: &Value) -> NativeFacts {
     let mut facts = NativeFacts::default();
     // Unknown execution and denied/cached results never establish a new observation.
-    if result["denied"] == true
-        || result["execution_status"] == "unknown"
-        || result["cached"] == true
-        || result["cached_result"] == true
-        || result["fresh_evidence"] == false
-        || result.get("reused_evidence_id").is_some()
+    if result["denied"] == true || result["execution_status"] == "unknown" || is_historical(result)
     {
         return facts;
     }
     match tool {
         "run_command" => facts.command_exit_code = result["exit_code"].as_i64(),
-        "web_fetch" => {
+        "web_fetch" | "source_artifact" => {
             facts.http_status = result["status"]
                 .as_u64()
                 .filter(|v| (100..=599).contains(v))
