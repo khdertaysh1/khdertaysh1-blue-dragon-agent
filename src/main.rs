@@ -312,9 +312,9 @@ fn run() -> Result<()> {
                 agent.model_status()
             );
             match cmd {
-                Some(Command::Run { task }) => agent.turn(&task),
-                Some(Command::Inspect { url }) => agent.turn(&url),
-                Some(Command::Url(words)) => agent.turn(&words[0]),
+                Some(Command::Run { task }) => agent.run_once(&task),
+                Some(Command::Inspect { url }) => agent.run_once(&url),
+                Some(Command::Url(words)) => agent.run_once(&words[0]),
                 None | Some(Command::Chat) => {
                     println!("Type /help for commands, /exit to quit.");
                     loop {

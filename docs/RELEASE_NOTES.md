@@ -2,6 +2,7 @@ Blue Dragon 0.9.0-alpha.5 — release candidate, pending independent review, fin
 
 - Separate the soft input traffic target from the configured/catalog context bound, reserve the actual default Kilo output limit, and preserve original instructions/evidence and tool pairing.
 - Reduce already-selected oversized schema sets, advertise browser capability for URL-bearing prompts without widening permissions, and continue analysis with explicit failed/unknown initial browser evidence.
+- Keep initial browser failure recoverable in interactive chat, but make one-shot `inspect`, URL aliases and URL-only `run` return failure without sending a model request when initial inspection is denied or fails. Preserve the failed observation and partial report.
 - Fix recurring discovery transitions: browser → file_outline → browser → file_outline now works; unchanged duplicate discovery remains blocked and turn step limits remain enforced.
 - Prevent an unchanged context-recovery request from being resent. Distinguish latest projection failure from the last successful request.
 - Add explicit opt-in concrete free-model fallback restricted to verified free/tool-capable routes with adequate known context. Keep automatic routing pinned and shared/unknown quota failures non-rotating. No paid fallback or quota bypass.

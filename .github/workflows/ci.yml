@@ -51,6 +51,7 @@ jobs:
           python scripts/smoke_review_engines.py "$binary"
           python scripts/smoke_continuity.py "$binary"
           python scripts/smoke_discovery_cycle.py "$binary"
+          python scripts/smoke_inspect_exit.py "$binary"
           python scripts/smoke_coverage.py "$binary"
           python scripts/smoke_source_refresh.py "$binary"
           python scripts/smoke_test_coverage.py "$binary"
