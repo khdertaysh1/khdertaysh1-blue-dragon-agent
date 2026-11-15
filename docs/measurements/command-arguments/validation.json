@@ -1,0 +1,37 @@
+{
+  "implementation_commit": "ad96702567a296fe72b5220d6bc737d61abf9728",
+  "implementation_tree": "db87a55ab489025fc92e641334cc0b8be2481fc1",
+  "base_commit": "68c06f61bda1f044bfda0b86eb40ed0e97be9ce4",
+  "binary_sha256": "2378747caaef986694cf93cf1c4767d1dd87d1a2c957c3374fa717d337aa48b8",
+  "binary_path": "/workspace/scratch/58a10643c600/candidate-builds/blue-dragon-command-ad96702-linux-x86_64",
+  "rust_tests_passed": 351,
+  "clippy_all_targets_warnings_denied": "passed",
+  "integrated_groups_passed": 35,
+  "cli_and_PTY_cases_passed": 13,
+  "terminal_test_size": "40 columns x 24 rows; Linux PTY, Arabic/English input",
+  "nameless_explicit_range_regression": "included, unresolved without trusted prior source",
+  "external_curl_executed": false,
+  "actual_device_Termux_tested": false,
+  "Windows_macOS_executed_here": false,
+  "live_trial": "failed acceptance at 5-step guard in discovery; no approval or command execution, 5 provider dispatches, zero observed 429s; predecessor of final inspection-only privacy adjustment",
+  "publication": "local only, no tag/asset/remote change",
+  "qualification_note": "All 35 groups passed on the final runtime. The added forced-projection command case was then run with the complete 13-case CLI/PTY suite on the same preserved executable; only harness/docs changed afterward.",
+  "logs": {
+    "command-reviewed-tests.log": {
+      "path": "/workspace/scratch/58a10643c600/command-reviewed-tests.log",
+      "sha256": "985367159e31931a86984c2309a0ba98eb04ae15ceabf7029b0c71a1577c5278"
+    },
+    "command-reviewed-clippy.log": {
+      "path": "/workspace/scratch/58a10643c600/command-reviewed-clippy.log",
+      "sha256": "351f74d35b7e6895837c09a60679427b2193b65f4ebfa03724e2d95f076d1753"
+    },
+    "command-build-reviewed.log": {
+      "path": "/workspace/scratch/58a10643c600/command-build-reviewed.log",
+      "sha256": "b2ec728250e9db13ec9a1a78eb1f7dab09433879d6f0c67f6f5ab23bef8b60ad"
+    },
+    "command-reviewed-qualification.log": {
+      "path": "/workspace/scratch/58a10643c600/command-reviewed-qualification.log",
+      "sha256": "b7c5bf2efb88365281dcdf1347682828528eb7f18bcae2e0b2119682e1f0ad4b"
+    }
+  }
+}

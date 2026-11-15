@@ -341,4 +341,35 @@ mod tests {
         let stream = format!("data: {event}\n\n");
         assert!(decode(stream.as_bytes(), false, |_| {}, || false).is_err());
     }
+    #[test]
+    fn command_fragments_preserve_raw_types_without_duplication() {
+        let original =
+            json!({"program":"fixture","args":"[\"a b\",\"مرحبا\"]","timeout_seconds":"30"})
+                .to_string();
+        let mut stream = String::new();
+        for (index, chunk) in original.chars().collect::<Vec<_>>().chunks(7).enumerate() {
+            let mut call =
+                json!({"index":0,"function":{"arguments":chunk.iter().collect::<String>()}});
+            if index == 0 {
+                call["id"] = json!("c");
+                call["function"]["name"] = json!("run_command");
+            }
+            stream.push_str(&format!(
+                "data: {}\n\n",
+                json!({"choices":[{"delta":{"tool_calls":[call]}}]})
+            ));
+        }
+        stream
+            .push_str("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n");
+        let result = decode(stream.as_bytes(), false, |_| {}, || false).unwrap();
+        assert_eq!(result["tool_calls"][0]["function"]["arguments"], original);
+        let raw: Value = serde_json::from_str(&original).unwrap();
+        assert!(raw["args"].is_string());
+        assert!(raw["timeout_seconds"].is_string());
+        let ready =
+            crate::tool_arguments::prepare("run_command", &raw, &crate::tools::definitions())
+                .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(ready.arguments["args"], json!(["a b", "مرحبا"]));
+        assert_eq!(ready.changes.len(), 2);
+    }
 }

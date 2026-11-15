@@ -1,28 +1,32 @@
-# Blue Dragon 0.9.0-alpha.5 candidate and trial plan
+# Blue Dragon 0.9.0-alpha.6 candidate and trial plan
 
-The package version is `0.9.0-alpha.5`, the prospective tag is `v0.9.0-alpha.5`, and the display
-name is **Blue Dragon 0.9.0-alpha.5**. This candidate is unpublished. The version is a
+The package version is `0.9.0-alpha.6`, the prospective tag is `v0.9.0-alpha.6`, and the display
+name is **Blue Dragon 0.9.0-alpha.6**. This candidate is unpublished. The version is a
 product naming decision, not evidence of equivalence, stability or device tests.
 Existing published releases must not be changed or deleted.
 
 ## Scope of this reliability candidate
 
-This plan follows the **alpha.5** package version in `Cargo.toml`, based on
-context-continuity commit `dcdc508` and discovery-cycle correction `7b6b747`,
-descended from published alpha.4 main `8fb0f2a`. Release preparation adds no
-further product features. It separates input traffic targets from hard context
-bounds, corrects output reservation, keeps browser schemas discoverable, allows
-recurring discovery phase changes, and rejects identical recovery dispatches.
-The existing identity, approvals, tools, user changes and published assets remain
-intact. See [release notes](RELEASE_NOTES.md) and
-[context-continuity review](context-continuity-review.md).
+This release preparation starts from frozen implementation commit `1a41627`,
+a descendant of published alpha.5 main `7da0c186`. The release-only difference
+updates package/lock versions, installer test version and release documentation;
+it adds no runtime features. The integrated changes cover continuity checkpoints,
+fresh native source reads and explicit byte ranges, command argument validation
+and bounded normalization, local redacted tool-result inspection, and exact
+quoted-name discovery repair. Original calls, approvals, user changes, licenses
+and published assets remain intact. See [release notes](RELEASE_NOTES.md),
+[command evidence](COMMAND_ARGUMENT_REPAIR.md) and
+[discovery evidence](DISCOVERY_COMMAND_REPAIR.md).
 
-The controlled local fixture completed 30 source-verified exchanges, but this is
-not a live-service result. The pinned live trial achieved only **two** successful
-fresh-source exchanges; the third missed the requested read and stopped the
-trial. It does not establish 20–30 successful live turns, sustainable capacity,
-or the absence of future 429 responses. The numeric provider TPM limit remains
-unknown. Physical Android and final platform/browser CI remain separate gates.
+The implementation candidate passed 353 Rust tests and 35 local qualification
+groups. A single live free-route local print completed with one explicit approval,
+three provider requests and no observed 429. It emitted correctly typed arguments;
+malformed input repair is supported by deterministic CLI tests, not that live run.
+An earlier live run exhausted five steps in discovery. These runs do not establish
+20–30 successful live exchanges, a reliable hour-long session, sustainable quota,
+or future absence of 429. Earlier scripted continuity exchanges are not live
+model reasoning evidence. Physical Android and final platform/browser CI remain
+separate, explicitly unverified gates for this release candidate.
 
 ## Implemented capability and remaining gaps
 
@@ -84,9 +88,9 @@ integrations remain outside this release.
    parent handles GitHub, while unavailable physical-device testing remains
    explicitly untested. Publication behavior: **a push/merge to
    main automatically publishes after all required jobs pass**. The workflow
-   packages the complete platform/extension set and creates `v0.9.0-alpha.5`. A published
+   packages the complete platform/extension set and creates `v0.9.0-alpha.6`. A published
    same-tag release is immutable; later fixes need a new version.
-7. After publication, the existing installer accepts `--version v0.9.0-alpha.5`, verifies
+7. After publication, the existing installer accepts `--version v0.9.0-alpha.6`, verifies
    SHA256 and executable version and keeps the previous binary for rollback.
    Do not invoke that tag before it exists. There has been no release from this
    local preparation work.

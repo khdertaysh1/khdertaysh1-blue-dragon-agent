@@ -24,6 +24,12 @@ pub struct Session {
     #[serde(default)]
     pub task_checks: crate::intelligence::checks::Contract,
     #[serde(default)]
+    pub fresh_source_requests: Vec<crate::intelligence::fresh::Request>,
+    #[serde(default)]
+    pub user_turns: Vec<usize>,
+    #[serde(default)]
+    pub continuity_checkpoint: Value,
+    #[serde(default)]
     pub memory_scope: Option<String>,
     #[serde(default)]
     pub vision_destination: Option<String>,
@@ -61,6 +67,9 @@ pub fn new(root: &Path, model: &str) -> Session {
         observations: Vec::new(),
         findings: Vec::new(),
         task_checks: crate::intelligence::checks::Contract::default(),
+        fresh_source_requests: Vec::new(),
+        user_turns: Vec::new(),
+        continuity_checkpoint: Value::Null,
         memory_scope: None,
         vision_destination: None,
         scope: crate::scope::Policy::default(),

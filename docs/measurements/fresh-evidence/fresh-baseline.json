@@ -1,0 +1,12 @@
+{
+  "binary_sha256": "703db0b37b089a0fc3c844c83f90a2f2d7c098803e2e056f62fa9ba6aacd9f90",
+  "cases": [
+    {
+      "mode": "missing",
+      "requests": 1,
+      "exit_code": 0,
+      "regression_reproduced": "Final prose accepted without the explicitly requested native read"
+    }
+  ],
+  "limits": "Scripted provider, real CLI and native file reads. No live reasoning or quota claim."
+}

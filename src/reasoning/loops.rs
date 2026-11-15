@@ -95,7 +95,8 @@ impl Guard {
         }
         let status = result["status"].as_str().unwrap_or("");
         let error = result["error"].as_str().unwrap_or("").to_lowercase();
-        old.denied = result["denied"] == true
+        old.denied = result["category"] == "invalid_arguments"
+            || result["denied"] == true
             || status.contains("denied")
             || result["execution_status"] == "unknown"
             || error.contains("scope denied")

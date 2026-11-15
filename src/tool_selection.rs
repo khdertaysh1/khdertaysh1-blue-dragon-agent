@@ -53,7 +53,9 @@ pub fn discover_once(
     let mut next = selected.clone();
     let result = discover(all, &mut next, args)?;
     let changed = next != *selected;
-    let key = json!([args, next]).to_string();
+    // Equivalent name encodings and reordered names expose the same phase.
+    // Paging remains keyed by its actual offset; changing phase still resets it.
+    let key = json!([args["offset"].as_u64().unwrap_or(0), next]).to_string();
     if !changed && seen.contains(&key) {
         return Ok(
             json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,"error":"This catalog page/selection was already provided in the same phase. Use the advertised tool or choose different names; no permissions changed."}),
@@ -79,8 +81,9 @@ pub fn discover(
         .unwrap_or(0);
     let offset = usize::try_from(offset)?;
     if offset > definitions.len() {
-        bail!("Tool catalog offset outside bounds");
+        bail!("Tool catalog offset outside bounds (total {}); stop paging at next_offset=null and enable exact catalog names. No selection or permission changed", definitions.len());
     }
+    let mut name_normalizations = Vec::new();
     if let Some(names) = args.get("names") {
         let names = names
             .as_array()
@@ -88,18 +91,30 @@ pub fn discover(
             .context("Enable 1..8 named tools for the next phase")?;
         let mut next = core();
         for name in names {
-            let name = name.as_str().context("Tool name must be text")?;
-            if !definitions.iter().any(|d| d["function"]["name"] == name) {
-                bail!("Unknown tool; use the paginated catalog");
-            }
-            next.insert(name.to_owned());
+            let original = name.as_str().context("Tool name must be text")?;
+            let registered = |name: &str| definitions.iter().any(|d| d["function"]["name"] == name);
+            let name = if registered(original) {
+                original.to_owned()
+            } else {
+                // Compatibility is restricted to one JSON string encoding of an
+                // exact registered name. No trimming, aliases or fuzzy matching.
+                let decoded = if original.len() <= 1024 {
+                    serde_json::from_str::<String>(original).ok()
+                } else {
+                    None
+                };
+                let decoded = decoded.filter(|name| registered(name)).context("Unknown tool name; names must contain exact registered names without extra quotes (example: {\"names\":[\"run_command\"]}). No selection or permission changed")?;
+                name_normalizations.push(json!({"original":original,"effective":decoded,"operation":"single_json_string_decode","permission_changed":false}));
+                decoded
+            };
+            next.insert(name);
         }
         *selected = Some(next);
     }
     let end = offset.saturating_add(20).min(definitions.len());
     let rows=definitions[offset..end].iter().map(|d|json!({"name":d["function"]["name"],"description":crate::reasoning::context::clip(d["function"]["description"].as_str().unwrap_or(""),160)})).collect::<Vec<_>>();
     Ok(
-        json!({"ok":true,"catalog":rows,"total":definitions.len(),"next_offset":if end<definitions.len(){Some(end)}else{None},"active_schema_names":filter(all,selected.as_ref()).as_array().unwrap().iter().map(|d|d["function"]["name"].clone()).collect::<Vec<_>>(),"permission_changed":false,"note":"names replaces optional schemas for the next phase; core discovery/recall stays available. Existing scope and human approvals still apply. No tool was executed."}),
+        json!({"ok":true,"catalog":rows,"total":definitions.len(),"next_offset":if end<definitions.len(){Some(end)}else{None},"active_schema_names":filter(all,selected.as_ref()).as_array().unwrap().iter().map(|d|d["function"]["name"].clone()).collect::<Vec<_>>(),"permission_changed":false,"name_normalizations":name_normalizations,"note":"names replaces optional schemas for the next phase; core discovery/recall stays available. Existing scope and human approvals still apply. No tool was executed."}),
     )
 }
 pub fn definition() -> Value {
@@ -191,6 +206,44 @@ mod tests {
             .any(|d| d["function"]["name"] == "tool44"));
         let before = selected.clone();
         assert!(discover(&all, &mut selected, &json!({"names":["unknown"]})).is_err());
+        assert_eq!(selected, before);
+    }
+    #[test]
+    fn quoted_registered_names_activate_once_without_permissions() {
+        let all = crate::tools::definitions();
+        let mut selected = Some(core());
+        let mut seen = BTreeSet::new();
+        let raw = json!({"names":["\"run_command\""]});
+        let result = discover_once(&all, &mut selected, &raw, &mut seen).unwrap();
+        assert_eq!(result["permission_changed"], false);
+        assert_eq!(result["name_normalizations"][0]["effective"], "run_command");
+        assert!(selected.as_ref().unwrap().contains("run_command"));
+        let repeated = discover_once(
+            &all,
+            &mut selected,
+            &json!({"names":["run_command"]}),
+            &mut seen,
+        )
+        .unwrap();
+        assert_eq!(repeated["repetition_blocked"], true);
+        assert_eq!(raw["names"][0], "\"run_command\"");
+    }
+    #[test]
+    fn malformed_or_unknown_discovery_names_cannot_change_selection() {
+        let all = crate::tools::definitions();
+        let mut selected = Some(core());
+        let before = selected.clone();
+        for name in [
+            " run_command ",
+            "\"missing_tool\"",
+            "\"run_command",
+            "[\"run_command\"]",
+            "\"\\\"run_command\\\"\"",
+        ] {
+            assert!(discover(&all, &mut selected, &json!({"names":["read_file",name]})).is_err());
+            assert_eq!(selected, before);
+        }
+        assert!(discover(&all, &mut selected, &json!({"offset":999})).is_err());
         assert_eq!(selected, before);
     }
 }

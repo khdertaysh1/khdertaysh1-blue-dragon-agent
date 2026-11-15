@@ -40,7 +40,7 @@ def main():
     home=output/'isolated-home';home.mkdir()
     env.update(HOME=str(home),USERPROFILE=str(home),XDG_CONFIG_HOME=str(home/'config'),XDG_DATA_HOME=str(home/'data'),BLUE_DRAGON_BINARY=str(binary),PYTHONDONTWRITEBYTECODE='1',NO_COLOR='1')
     groups=[]
-    for name in ['smoke_delegate_edits','smoke_provider_boundaries','smoke_continuity','smoke_coverage','smoke_test_coverage','smoke_delegates','smoke_delegate_consistency','smoke_integrated_research','smoke_mcp_resources','smoke_memory_sources','smoke_source_refresh','smoke_source_chain','smoke_review_engines']:
+    for name in ['smoke_command_arguments','smoke_fresh_source','smoke_delegate_edits','smoke_provider_boundaries','smoke_continuity','smoke_coverage','smoke_test_coverage','smoke_delegates','smoke_delegate_consistency','smoke_integrated_research','smoke_mcp_resources','smoke_memory_sources','smoke_source_refresh','smoke_source_chain','smoke_review_engines']:
         groups.append((name,[sys.executable,str(repo/'scripts'/f'{name}.py'),str(binary)],True))
     for name in ['lab_matrix','smoke_lab_runner','smoke_source_discovery','smoke_dynamic_discovery','smoke_scoped_flow','smoke_call_bridge']:
         groups.append((name,[sys.executable,str(repo/'scripts'/f'{name}.py'),str(binary),'--lab',str(lab)],True))

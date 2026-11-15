@@ -8,6 +8,38 @@ pub fn estimate(text: &str) -> usize {
     let ascii = text.chars().filter(char::is_ascii).count();
     ascii.div_ceil(3) + (text.chars().count() - ascii) * 2
 }
+/// Feedback adjusts only the next projection target, never model capacity or
+/// advertised quota. Do not transfer a sample across an opaque automatic route.
+pub fn usage_target(target: usize, metrics: &Value, model: &str) -> (usize, Value) {
+    let estimated = metrics["estimated_message_tokens"]
+        .as_u64()
+        .unwrap_or(0)
+        .saturating_add(metrics["estimated_tool_tokens"].as_u64().unwrap_or(0));
+    let actual = metrics["usage"]["prompt_tokens"]
+        .as_u64()
+        .or_else(|| metrics["usage"]["input_tokens"].as_u64());
+    let applicable = metrics["usage_reported"] == true
+        && metrics["requested_model"] == model
+        && metrics["actual_model"] == model
+        && model != crate::models::KILO_MODEL
+        && estimated > 0;
+    let adjusted = if applicable {
+        actual
+            .filter(|a| *a > estimated)
+            .map(|a| {
+                ((target as u128 * estimated as u128 / a as u128) as usize)
+                    .max(target / 4)
+                    .max(1)
+            })
+            .unwrap_or(target)
+    } else {
+        target
+    };
+    (
+        adjusted,
+        json!({"sample_reported_input_tokens":actual,"sample_estimated_input_tokens":estimated,"sample_actual_model":metrics["actual_model"],"applied_to_projection_target":adjusted!=target,"target_before_feedback":target,"target_after_feedback":adjusted,"hard_context_unchanged":true,"limits":"One same-provider-instance, same explicit model sample. Never lowers conservative token estimates or infers quotas. Cache/hidden overhead and later requests may differ; automatic-route samples are not extrapolated."}),
+    )
+}
 fn compact(content: &str, cap: usize, index: usize) -> String {
     if content.chars().count() <= cap {
         return content.into();
@@ -93,11 +125,25 @@ fn project(
     let mut i = 0;
     // In the last projection tier archive even recent completed tool rounds.
     // Huge write_file arguments otherwise survive all output-only compaction.
-    let recent = if level >= 4 {
+    let recent = if level >= 5 {
         history.len()
     } else {
         history.len().saturating_sub(18)
     };
+    // Keep the latest tool batch exact while compacting older history. The
+    // consumer may need IDs/hashes from it to choose the next action. Only
+    // emergency tiers may archive it, with explicit original-message pointers.
+    let latest_batch = history
+        .last()
+        .filter(|m| m["role"] == "tool")
+        .and_then(|_| {
+            history.iter().rposition(|m| {
+                m["role"] == "assistant"
+                    && m["tool_calls"]
+                        .as_array()
+                        .is_some_and(|calls| !calls.is_empty())
+            })
+        });
     while i < history.len() {
         let message = &history[i];
         if level >= 2
@@ -123,7 +169,7 @@ fn project(
             let complete =
                 ids.len() == calls.len() && end - i - 1 == calls.len() && ids == returned;
             if end <= recent && complete {
-                if level >= 5 && end <= history.len().saturating_sub(6) {
+                if level >= 6 && end <= history.len().saturating_sub(6) {
                     older_rounds.push(json!([i, end - 1]));
                     archived += end - i;
                     i = end;
@@ -154,7 +200,7 @@ fn project(
                         1500
                     }
                 }
-                5 => 160,
+                6 => 160,
                 _ => {
                     if i >= recent {
                         2500
@@ -164,7 +210,9 @@ fn project(
                 }
             };
             if message["role"] == "tool" {
-                item["content"] = json!(compact(content, cap, i));
+                if level >= 4 || latest_batch.is_none_or(|start| i < start) {
+                    item["content"] = json!(compact(content, cap, i));
+                }
             } else if message["role"] == "user" && automatic.contains(&i) {
                 if let Some(excerpt) = browser_excerpt(content, cap, i) {
                     item["content"] = json!(excerpt);
@@ -234,7 +282,7 @@ pub fn build_with_budget(
     let mut smallest = usize::MAX;
     let mut memory_tokens = 0;
 
-    for level in 0..=5 {
+    for level in 0..=6 {
         let (mut view, archived) = if level == 0 {
             (history.to_vec(), 0)
         } else {
@@ -247,6 +295,26 @@ pub fn build_with_budget(
             object.remove("automatic_browser_indexes");
         }
         if level > 0 {
+            if level >= 3 {
+                if let Some(checkpoint) = memory
+                    .get_mut("derived_continuity_checkpoint")
+                    .and_then(Value::as_object_mut)
+                {
+                    for key in ["historical_decisions", "hypotheses", "recent_evidence_refs"] {
+                        checkpoint.remove(key);
+                    }
+                    checkpoint.insert(
+                        "projection_omissions".into(),
+                        json!(["historical_decisions", "hypotheses", "recent_evidence_refs"]),
+                    );
+                    checkpoint.insert("retrieve_original".into(), json!("task_continuity returns the persisted extractive index; recall_context and findings retain original details. Original user/system messages are not removed."));
+                    if let Some(goal) = checkpoint.get_mut("goal").and_then(Value::as_object_mut) {
+                        if let Some(text) = goal.get("excerpt").and_then(Value::as_str) {
+                            goal.insert("excerpt".into(), json!(clip(text, 160)));
+                        }
+                    }
+                }
+            }
             if let Some(notes) = memory
                 .get_mut("historical_project_notes")
                 .and_then(|v| v.get_mut("notes"))
@@ -364,6 +432,22 @@ pub fn recall(history: &[Value], args: &Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reported_usage_tightens_only_same_model_projection_target() {
+        let metrics = json!({"usage_reported":true,"requested_model":"fixture","actual_model":"fixture","estimated_message_tokens":3000,"estimated_tool_tokens":1000,"usage":{"prompt_tokens":8000}});
+        assert_eq!(super::usage_target(8192, &metrics, "fixture").0, 4096);
+        assert_eq!(super::usage_target(8192, &metrics, "other").0, 8192);
+        let mut auto = metrics.clone();
+        auto["requested_model"] = json!(crate::models::KILO_MODEL);
+        auto["actual_model"] = json!(crate::models::KILO_MODEL);
+        assert_eq!(
+            super::usage_target(8192, &auto, crate::models::KILO_MODEL).0,
+            8192
+        );
+        let mut cheaper = metrics;
+        cheaper["usage"]["prompt_tokens"] = json!(1000);
+        assert_eq!(super::usage_target(8192, &cheaper, "fixture").0, 8192);
+    }
     #[test]
     fn thirty_arabic_turns_preserve_constraints_above_soft_target() {
         let mut history = vec![
@@ -537,7 +621,7 @@ mod tests {
         ];
         let original = history.clone();
         let (view, stats) = build(&history, &json!([]), 32768, "Scope", &Value::Null).unwrap();
-        assert_eq!(stats["projection_level"], 4);
+        assert_eq!(stats["projection_level"], 5);
         assert_eq!(history, original);
         assert!(view
             .iter()
@@ -603,7 +687,7 @@ mod tests {
             &Value::Null,
         )
         .unwrap();
-        assert_eq!(stats["projection_level"], 5);
+        assert_eq!(stats["projection_level"], 6);
         assert_eq!(history, original);
         assert!(view
             .iter()
@@ -664,5 +748,24 @@ mod tests {
             &Value::Null
         )
         .is_err());
+    }
+    #[test]
+    fn proactive_projection_keeps_latest_tool_ids_and_hashes_exact() {
+        let output = json!({"agents":[{"session_id":"child","result_sha256":"a".repeat(64),"data":"x".repeat(5000)}]}).to_string();
+        let history = vec![
+            json!({"role":"user","content":"Inspect historical captures, do not replay"}),
+            json!({"role":"assistant","tool_calls":[{"id":"c","function":{"name":"delegate_agents","arguments":"{}"}}]}),
+            json!({"role":"tool","tool_call_id":"c","content":output}),
+        ];
+        let original = history.clone();
+        let (projected, _) = project(&history, 3, &Default::default());
+        assert_eq!(projected.last().unwrap()["content"], output);
+        assert_eq!(history, original);
+        let (emergency, _) = project(&history, 4, &Default::default());
+        assert_eq!(emergency.last().unwrap()["role"], "tool");
+        assert_eq!(emergency.last().unwrap()["tool_call_id"], "c");
+        assert!(serde_json::to_string(&emergency)
+            .unwrap()
+            .contains("original_message_index"));
     }
 }

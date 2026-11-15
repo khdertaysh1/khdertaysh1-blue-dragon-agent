@@ -1,0 +1,335 @@
+{
+  "schema": 1,
+  "source_commit": "ad96702567a296fe72b5220d6bc737d61abf9728",
+  "source_dirty_at_start": false,
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "python": "3.12.14",
+  "lab_commit": "c396c90f2e7ed080f71368ce9edb5cd630098b09",
+  "binary_sha256": "2378747caaef986694cf93cf1c4767d1dd87d1a2c957c3374fa717d337aa48b8",
+  "groups": [
+    {
+      "name": "smoke_command_arguments",
+      "harness_sha256": "ea4ee7a603d0e01218a8062414da12e967522ac0d87b018cc93374661d1376f6",
+      "status": "passed",
+      "log": "smoke_command_arguments.log",
+      "exit_code": 0,
+      "seconds": 8.056,
+      "log_sha256": "bd5ed04a4e455bde5cfa25f10372f46de2a8696eed53fefeb10a564b1f996e01"
+    },
+    {
+      "name": "smoke_fresh_source",
+      "harness_sha256": "0bee6854aa798c90f16512325ce9d0b1e6984480326edab58d7946374812b524",
+      "status": "passed",
+      "log": "smoke_fresh_source.log",
+      "exit_code": 0,
+      "seconds": 7.506,
+      "log_sha256": "db94088d347d0229921c8d2e27a91d5f25d062c2c04347b168e38f94634d3d14"
+    },
+    {
+      "name": "smoke_delegate_edits",
+      "harness_sha256": "199f43550c2e9bfebe9a5f1cf59a6d2f6a211d057ae8aa8234fb0caf78b8fa8e",
+      "status": "passed",
+      "log": "smoke_delegate_edits.log",
+      "exit_code": 0,
+      "seconds": 3.344,
+      "log_sha256": "c8ac7808d026580a682d87dda0fab5162da5eaa09134cf59b2ab1032218403e4"
+    },
+    {
+      "name": "smoke_provider_boundaries",
+      "harness_sha256": "380fda44d6f61e72314c4287294886ab0d8f45df90bfdd0312299da3a98cd4bb",
+      "status": "passed",
+      "log": "smoke_provider_boundaries.log",
+      "exit_code": 0,
+      "seconds": 10.658,
+      "log_sha256": "0b40fbe5f63741fb0ba28e463fe25701787f7c0901b34539c879530dc2b7be93"
+    },
+    {
+      "name": "smoke_continuity",
+      "harness_sha256": "7b6500f769f49da6135c83acc47da66c0afe6b5cc3ce89952075535b3ec1a40b",
+      "status": "passed",
+      "log": "smoke_continuity.log",
+      "exit_code": 0,
+      "seconds": 0.666,
+      "log_sha256": "227ab239a37f5459f7a1bb7375f8bb44c7039d23ad18ca810c6acf9650d81bdd"
+    },
+    {
+      "name": "smoke_coverage",
+      "harness_sha256": "96c5779e0007ad51123933c06606ea364d5c2aa989fcded7c3b4806a984815f4",
+      "status": "passed",
+      "log": "smoke_coverage.log",
+      "exit_code": 0,
+      "seconds": 0.666,
+      "log_sha256": "51cf6dd2e9069bd73d52988c68eadb45e36fadf684a15fb2b88dcdb8c40b805a"
+    },
+    {
+      "name": "smoke_test_coverage",
+      "harness_sha256": "1539f56d097800eae5455165055a1f105cba67feb3415eb0db15b410628a1730",
+      "status": "passed",
+      "log": "smoke_test_coverage.log",
+      "exit_code": 0,
+      "seconds": 0.967,
+      "log_sha256": "fc292adfdaa6815cb221a225464e38f24fe051971cc9e7a6d8912ff0cca89986"
+    },
+    {
+      "name": "smoke_delegates",
+      "harness_sha256": "071fe414f5eb1f86c0bff2cebd3216a32602bd07e315c6cd7672ffd464397cba",
+      "status": "passed",
+      "log": "smoke_delegates.log",
+      "exit_code": 0,
+      "seconds": 1.322,
+      "log_sha256": "468fe305004d52729981e7b709385d813120fabf7fccb0f8f475a95c51741f5d"
+    },
+    {
+      "name": "smoke_delegate_consistency",
+      "harness_sha256": "b35473ef6623cf8c82b3a7221a22ed14fff337d8971be35c9b17013700955059",
+      "status": "passed",
+      "log": "smoke_delegate_consistency.log",
+      "exit_code": 0,
+      "seconds": 2.678,
+      "log_sha256": "aec7098bf91f58b2d9db9463651a87e49bd032d9decde9cecc658ba161be6e03"
+    },
+    {
+      "name": "smoke_integrated_research",
+      "harness_sha256": "6ff25e3058708b17b334019f74937ed3d156fd8e86fafa0f95b2a3a0162f7915",
+      "status": "passed",
+      "log": "smoke_integrated_research.log",
+      "exit_code": 0,
+      "seconds": 2.626,
+      "log_sha256": "1a311dc24c39881a6958a0fc081d773dd61f074fbaad1b25a494557114eef030"
+    },
+    {
+      "name": "smoke_mcp_resources",
+      "harness_sha256": "60f659929006343e54eab307250b26b12084c96f7ad1b8c69e288f4f9875fc6f",
+      "status": "passed",
+      "log": "smoke_mcp_resources.log",
+      "exit_code": 0,
+      "seconds": 0.869,
+      "log_sha256": "1a68349a80645e2014d8c3abeab9cadf45c7ce5891b1a6451f34f0b96485413c"
+    },
+    {
+      "name": "smoke_memory_sources",
+      "harness_sha256": "dea5317980e691d10295481c9e5d0c86acbe9b89224625257432027cf8cadea9",
+      "status": "passed",
+      "log": "smoke_memory_sources.log",
+      "exit_code": 0,
+      "seconds": 0.717,
+      "log_sha256": "2d121c882d37caf60897ae25348c5c43853032ad3921d6698c8d81861b5839af"
+    },
+    {
+      "name": "smoke_source_refresh",
+      "harness_sha256": "0e5193cbed08015dac52af2367b3037eabfc1963c55d91a356085f89d58d2e23",
+      "status": "passed",
+      "log": "smoke_source_refresh.log",
+      "exit_code": 0,
+      "seconds": 0.916,
+      "log_sha256": "8a89e546f7df811bfaf734a7953bc7b00a891b7756b37f53bbcfb13f57943c04"
+    },
+    {
+      "name": "smoke_source_chain",
+      "harness_sha256": "12875a979264f69652cb912e9f86f0098898b20cbd8ee9c1a86082899d07e981",
+      "status": "passed",
+      "log": "smoke_source_chain.log",
+      "exit_code": 0,
+      "seconds": 1.679,
+      "log_sha256": "a47cbd7de265d89890d8c8923a12ba8b82ca68333af82a4dd6bc3bddc33ce66a"
+    },
+    {
+      "name": "smoke_review_engines",
+      "harness_sha256": "b497724e3ba63cb64de7c93f7a2bbdecd6f1af7f0692529782584244f148505e",
+      "status": "passed",
+      "log": "smoke_review_engines.log",
+      "exit_code": 0,
+      "seconds": 10.996,
+      "log_sha256": "4e421a06e6742bf278652eab283c1ef259b1218938181fa30230f4262b6e1d2f"
+    },
+    {
+      "name": "lab_matrix",
+      "harness_sha256": "84631bb345d4f5a68e8d814605bef94f9d4cadbb7c7639d573fe4a63e11c9af2",
+      "status": "passed",
+      "log": "lab_matrix.log",
+      "exit_code": 0,
+      "seconds": 5.147,
+      "log_sha256": "4721549b76479511b766bd2c217a4aad17b2c055beaabfb5c14f8c517974a2cd"
+    },
+    {
+      "name": "smoke_lab_runner",
+      "harness_sha256": "2c0e209b30fdc4f58dc112afe0c88f9878454000d223b3d1b2e43fe9a4daf9d8",
+      "status": "passed",
+      "log": "smoke_lab_runner.log",
+      "exit_code": 0,
+      "seconds": 14.919,
+      "log_sha256": "86cd2bb868cd7fc2de20eedb3992cc26215e73ce595404fb58acef7a91de7933"
+    },
+    {
+      "name": "smoke_source_discovery",
+      "harness_sha256": "1fc1dacb71cb55240264e8bb793860788cbef5b946e28a1c11d6ff68bfd9958a",
+      "status": "passed",
+      "log": "smoke_source_discovery.log",
+      "exit_code": 0,
+      "seconds": 4.35,
+      "log_sha256": "047d4da5cae28cae2730d2f160ecea8d77d3bca892599f81ce8ceff9ef19f6dd"
+    },
+    {
+      "name": "smoke_dynamic_discovery",
+      "harness_sha256": "e4d84540a743952c39e90ad015bacfdec3c810490e8b468d9cd54c445f176acb",
+      "status": "passed",
+      "log": "smoke_dynamic_discovery.log",
+      "exit_code": 0,
+      "seconds": 4.133,
+      "log_sha256": "c4547d63addeaf705d2634fa14b33f503c208304a41896b8022231f7c93f3c4e"
+    },
+    {
+      "name": "smoke_scoped_flow",
+      "harness_sha256": "56ba555bd06f9fb633e9ac0f6149928f34c4f29ad5586e7959aaf764d2dfbc5e",
+      "status": "passed",
+      "log": "smoke_scoped_flow.log",
+      "exit_code": 0,
+      "seconds": 3.635,
+      "log_sha256": "e95212e811584997658ab44bd47db6a8b3529d66d728cbb8e7c9524aa4ff39fd"
+    },
+    {
+      "name": "smoke_call_bridge",
+      "harness_sha256": "a9fe9fab40cc05b3fda7728dd76ef4690de4a1a4a99f64b6df5601c537c1008a",
+      "status": "passed",
+      "log": "smoke_call_bridge.log",
+      "exit_code": 0,
+      "seconds": 8.335,
+      "log_sha256": "77c8aab4ed78ab59cdab95da3bd74dd45f26b6b03ba718b34eccbf6e8d386f8d"
+    },
+    {
+      "name": "models_offline",
+      "harness_sha256": "f507cce3d236a4afb965c50ad543232c4fe2ad3681865188d53916074fcb45f2",
+      "status": "passed",
+      "log": "models_offline.log",
+      "exit_code": 0,
+      "seconds": 0.116,
+      "log_sha256": "7e3556cee145961195aa41deb54494a1b4e232ac89f04109781d94ba82cbd599"
+    },
+    {
+      "name": "smoke_tui",
+      "harness_sha256": "144cc7b754f4266c4e0111e14c9f41957b2223e964a17ee5a556e6f5d3d53782",
+      "status": "passed",
+      "log": "smoke_tui.log",
+      "exit_code": 0,
+      "seconds": 0.315,
+      "log_sha256": "9c7001841b670725c0be9bcd54d9683c46572467981d746d956eb702c15fd29a"
+    },
+    {
+      "name": "smoke_job_shutdown",
+      "harness_sha256": "6bb45dbd32a35be9c0570e6567092ea2573cf6a0f9aec246222f7cfaaa0ea2ff",
+      "status": "passed",
+      "log": "smoke_job_shutdown.log",
+      "exit_code": 0,
+      "seconds": 2.78,
+      "log_sha256": "0ce757a49abeacdea134a54c07612ec68da84d8b4829c4006e3cee8ae04f83ee"
+    },
+    {
+      "name": "test_pty_shutdown",
+      "harness_sha256": "f4ea21b03ef0d3b5bd46e8c9d4a9aba6aec02499db08170d7626f69d9a48075a",
+      "status": "passed",
+      "log": "test_pty_shutdown.log",
+      "exit_code": 0,
+      "seconds": 0.167,
+      "log_sha256": "aa5027ee9b53e0f816856b3269f707e7220cd367335c22d0194ad88ead3b7cda"
+    },
+    {
+      "name": "test_installer",
+      "harness_sha256": "5f44b01a29989608bf669d453d5c4d945bbace5ef7b83f995d55730f497c783f",
+      "status": "passed",
+      "log": "test_installer.log",
+      "exit_code": 0,
+      "seconds": 0.92,
+      "log_sha256": "5527bdca4dde183f3a1e39202eef1822b917afb66afa5d906813b3de599fb5fd"
+    },
+    {
+      "name": "test_source_upgrade",
+      "harness_sha256": "8f00c49a04861197a00102c7d2c2d2f88c449160a672eaa5fd36e62a76668599",
+      "status": "passed",
+      "log": "test_source_upgrade.log",
+      "exit_code": 0,
+      "seconds": 0.114,
+      "log_sha256": "b83ab93d2994cb255cb80d3b3281c0dbae5af7d18d6323e76091d1d8d61ee493"
+    },
+    {
+      "name": "test_release_payload",
+      "harness_sha256": "4747a227dee1cb15d55bf434afe87379ff75afb64eeaae6bc8d11f9504464997",
+      "status": "passed",
+      "log": "test_release_payload.log",
+      "exit_code": 0,
+      "seconds": 0.265,
+      "log_sha256": "181fed1bdaf9cfd7efb02485105fee07f1a50a64d12e7cae82b2695247325e3a"
+    },
+    {
+      "name": "test_browser_forms",
+      "harness_sha256": "e4bc13c4216c32364bf849ea29615658917d3a3ff23c23eac877e781a44362be",
+      "status": "passed",
+      "log": "test_browser_forms.log",
+      "exit_code": 0,
+      "seconds": 0.628,
+      "log_sha256": "96a3fa2d7e8781ca660a2c793d69be2197ced28247a5543cafb5b8deb7784549"
+    },
+    {
+      "name": "test_browser_policy",
+      "harness_sha256": "e703ebaf7cc6f8271db37bf40a96b7f4190e70d36473a6fa5711a2ed9f242092",
+      "status": "passed",
+      "log": "test_browser_policy.log",
+      "exit_code": 0,
+      "seconds": 0.067,
+      "log_sha256": "930f5de07788e944f850b5bfe1889f4e9eeb9f215bf6c3697be54a54f3231f03"
+    },
+    {
+      "name": "comparison_negative_controls",
+      "harness_sha256": "e3f37f69de612c71fd54a3b3822312a5d5f926db3896827620084e8d0d206e48",
+      "status": "passed",
+      "log": "comparison_negative_controls.log",
+      "exit_code": 0,
+      "seconds": 3.736,
+      "log_sha256": "8c319cf09e2334b313f3d8f404659f6c033a7972617b23738f977733ec1562fb"
+    },
+    {
+      "name": "common_read_blue_preflight",
+      "harness_sha256": "0b659423cb78e56722a776b08ecb3232402e1e701722dd462cd619a4d5e3a8c6",
+      "status": "passed",
+      "log": "common_read_blue_preflight.log",
+      "exit_code": 0,
+      "seconds": 2.831,
+      "log_sha256": "b28efc198c8c8423effde9b46f4880a22f26e532bbdd2481270613358be37393"
+    },
+    {
+      "name": "workflow_oracle_controls",
+      "harness_sha256": "1870489d7251281bb9ab2f70e44fa2d59be3fc48b2125c64b8004769b0b92042",
+      "status": "passed",
+      "log": "workflow_oracle_controls.log",
+      "exit_code": 0,
+      "seconds": 0.114,
+      "log_sha256": "c6352adff70a6982c739a1cd77bbb43d2425eefd2dc2112b92b0ceebf2a6ca31"
+    },
+    {
+      "name": "edit_workflow_blue_preflight",
+      "harness_sha256": "1d24c3ff6e9719d65c1aa26df7c811d7a1d995c8d309fb4bdebb13d679d93704",
+      "status": "passed",
+      "log": "edit_workflow_blue_preflight.log",
+      "exit_code": 0,
+      "seconds": 3.631,
+      "log_sha256": "4827c5349b42b3d6dd7321f4a26a4e9707b62e588aafd21e906a1f0000be6d58"
+    },
+    {
+      "name": "runtime_benchmark",
+      "harness_sha256": "8818b29c152fd3bf49c487c99b6269880cb49ce5c4d33ce70e32625777327236",
+      "status": "passed",
+      "log": "runtime_benchmark.log",
+      "exit_code": 0,
+      "seconds": 15.377,
+      "log_sha256": "fbe6789029d21fd4b0d6b7cdb8d999ab7683feca73ba2ebc81a17398ff5d19f9"
+    }
+  ],
+  "limits": [
+    "Synthetic/offline fixtures and reviewed loopback lab only; no OS network isolation claim.",
+    "No real browser, physical Termux, Windows/macOS execution or live provider qualification.",
+    "No Alpha runtime comparison; deterministic runtime tests do not measure model quality.",
+    "POSIX process groups are terminated on timeout; Windows only terminates the immediate process.",
+    "Group pass means its assertions and exit code passed; no count or coverage equivalence across groups."
+  ],
+  "binary_unchanged": true,
+  "status": "passed"
+}

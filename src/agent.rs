@@ -47,7 +47,7 @@ pub enum AgentEvent {
     ModelChoices(Vec<crate::models::ModelChoice>, String),
     Finished(std::result::Result<(), String>),
     ToolStart(String),
-    ToolResult(bool),
+    ToolResult(String),
 }
 
 impl Agent {
@@ -212,12 +212,7 @@ impl Agent {
                 std::io::stdout().flush().ok();
             }
             AgentEvent::ToolStart(name) => println!("\n[tool] {name}"),
-            AgentEvent::ToolResult(ok) => {
-                println!(
-                    "[result] {}",
-                    if ok { "completed" } else { "failed or denied" }
-                );
-            }
+            AgentEvent::ToolResult(summary) => println!("[result] {summary}"),
         }
     }
 
@@ -335,6 +330,7 @@ impl Agent {
     }
 
     fn persist(&mut self) -> Result<()> {
+        self.session.continuity_checkpoint = crate::reasoning::checkpoint::derive(&self.session);
         session::save(&self.settings.sessions_dir, &mut self.session)
     }
 
@@ -376,6 +372,12 @@ impl Agent {
     }
     pub fn plan_text(&self) -> String {
         self.session.plan.display()
+    }
+    pub fn inspect_saved_tool(&self, id: &str) -> Result<Value> {
+        let (tool, original, result) = crate::audit::request_for(&self.session, id)?;
+        Ok(
+            json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" {crate::tool_arguments::summary(&result)}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_view(&original),"result":crate::tool_arguments::private_view(&result),"redaction":"All string values omitted, including commands, URLs, tokens and stdout. Structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
+        )
     }
     pub fn report_text(&self) -> String {
         let mut report = self.session.last_report.clone();
@@ -469,6 +471,14 @@ impl Agent {
         self.turn_with_browser_recovery(prompt, false)
     }
     fn turn_with_browser_recovery(&mut self, prompt: &str, recover_browser: bool) -> Result<()> {
+        let detected = crate::intelligence::fresh::detect(prompt, &self.session);
+        let continuation = matches!(
+            prompt.trim().to_lowercase().as_str(),
+            "continue" | "continue." | "go on" | "تابع" | "كمل"
+        );
+        if !detected.is_empty() || !continuation {
+            self.session.fresh_source_requests = detected;
+        }
         let started = chrono::Utc::now();
         let mut actions = Vec::new();
         self.browser.end_inspection();
@@ -485,7 +495,9 @@ impl Agent {
         let observation_start = self.session.observations.len();
         let result = self.execute_turn(prompt, &mut actions, recover_browser);
         if let Err(error) = &result {
-            self.completion_state = "interrupted".into();
+            if self.completion_state != "needs_verification" {
+                self.completion_state = "interrupted".into();
+            }
             if let Some(partial) = error.downcast_ref::<crate::provider_contract::Incomplete>() {
                 self.session.messages.push(json!({"role":"assistant","content":format!("INCOMPLETE HISTORICAL PROVIDER TEXT; not fresh evidence, no tool batch executed. Stop category: {}\n{}",partial.kind,partial.partial_text)}));
             }
@@ -533,7 +545,7 @@ impl Agent {
             }
         }
         self.browser.end_inspection();
-        self.session.last_report = json!({"started_at":started,"finished_at":chrono::Utc::now(),"finished":result.is_ok(),"error":result.as_ref().err().map(|e|e.to_string()),"provider_failure":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::rotation::ProviderFailure>()).map(crate::provider_diagnostics::metadata),"provider_partial":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::provider_contract::Incomplete>()).map(crate::provider_contract::partial_record),"cancelled":self.cancelled.load(std::sync::atomic::Ordering::Relaxed),"actions":actions,"routing":self.rotation_status(),"context":self.context_status(),"task_status":self.completion_state,"acceptance_checks":self.check_status(),"loop_guard":self.loop_guard.status(),"findings":self.session.findings,"open_plan_steps":self.session.plan.steps.iter().filter(|s|s.status!="completed").count(),"note":"Tool success records observed return status, not a guarantee that code is correct. Plan completion is model-reported."});
+        self.session.last_report = json!({"started_at":started,"finished_at":chrono::Utc::now(),"finished":result.is_ok(),"error":result.as_ref().err().map(|e|e.to_string()),"provider_failure":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::rotation::ProviderFailure>()).map(crate::provider_diagnostics::metadata),"provider_partial":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::provider_contract::Incomplete>()).map(crate::provider_contract::partial_record),"cancelled":self.cancelled.load(std::sync::atomic::Ordering::Relaxed),"actions":actions,"routing":self.rotation_status(),"context":self.context_status(),"task_status":self.completion_state,"fresh_source_checks":crate::intelligence::fresh::status(&self.session.fresh_source_requests,&self.session,&self.tools),"acceptance_checks":self.check_status(),"loop_guard":self.loop_guard.status(),"findings":self.session.findings,"open_plan_steps":self.session.plan.steps.iter().filter(|s|s.status!="completed").count(),"note":"Tool success records observed return status, not a guarantee that code is correct. Plan completion is model-reported."});
         self.persist()?;
         result
     }
@@ -546,6 +558,7 @@ impl Agent {
         if prompt.len() > 25_000 {
             anyhow::bail!("Task prompt exceeds 25KiB limit");
         }
+        self.session.user_turns.push(self.session.messages.len());
         self.session
             .messages
             .push(json!({"role":"user","content":prompt}));
@@ -624,6 +637,9 @@ impl Agent {
             Value::Null
         };
         let mut completion_reviews = 0;
+        let mut fresh_reviews = 0;
+        let mut invalid_arguments = 0;
+        let mut unresolved_arguments = std::collections::BTreeSet::new();
         let mut empty_continuations = 0;
         let mut context_recovery_used = false;
         for step in 0..self.settings.max_steps {
@@ -632,9 +648,11 @@ impl Agent {
             }
             let mut emitted = false;
             let mut stream_received = false;
-            let buffer_for_review =
-                !self.session.task_checks.checks.is_empty() || self.changed_sources;
+            let buffer_for_review = !self.session.task_checks.checks.is_empty()
+                || self.changed_sources
+                || !self.session.fresh_source_requests.is_empty();
             let mut previous_projection = None;
+            let mut advertised_definitions: Value;
             let message = loop {
                 if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                     anyhow::bail!("Cancelled before provider request; no retry sent");
@@ -671,12 +689,17 @@ impl Agent {
                     self.output(AgentEvent::Notice("Capacity mode: bounded input and core schemas; discover_tools enables additional tools without changing permissions. Original history remains saved.".into()));
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
-                let memory = json!({"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
+                let memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
+                let (projection_target, usage_feedback) = crate::reasoning::context::usage_target(
+                    input_target.unwrap_or(limit.saturating_mul(4) / 5),
+                    &self.provider.metrics(),
+                    self.provider.model(),
+                );
                 let projection = crate::reasoning::context::build_with_budget(
                     &self.session.messages,
                     &definitions,
                     limit,
-                    input_target,
+                    Some(projection_target),
                     crate::provider_traffic::output_limit(&self.settings.base_url, false)
                         .unwrap_or(4096) as usize,
                     crate::reasoning::briefing(prompt),
@@ -704,9 +727,13 @@ impl Agent {
                 };
                 self.last_projection_failure = Value::Null;
                 stats["context_limit_source"] = json!(limit_source);
+                stats["traffic_input_target_tokens"] = json!(input_target);
+                stats["usage_feedback"] = usage_feedback;
                 stats["soft_target_source"] =
                     json!(if std::env::var_os("BLUE_DRAGON_INPUT_BUDGET").is_some() {
                         "user_configured_traffic_target"
+                    } else if input_target.is_none() {
+                        "proactive_context_headroom_not_provider_quota"
                     } else {
                         "provider_default_traffic_target_not_tpm_or_context"
                     });
@@ -734,6 +761,7 @@ impl Agent {
                 previous_projection = Some(projection_fingerprint);
                 let sender = self.output.clone();
                 let token = self.cancelled.clone();
+                advertised_definitions = definitions.clone();
                 let response = if self.settings.stream {
                     self.provider.stream(
                         &request_messages,
@@ -863,6 +891,33 @@ impl Agent {
                     }
                     return Err(crate::provider_contract::incomplete("empty_response", ""));
                 }
+                if !unresolved_arguments.is_empty() {
+                    self.session.messages.push(message.clone());
+                    self.completion_state = "needs_verification".into();
+                    anyhow::bail!("Invalid tool arguments were not successfully corrected; no successful execution established. Inspect saved tool diagnostics.");
+                }
+                let fresh = crate::intelligence::fresh::status(
+                    &self.session.fresh_source_requests,
+                    &self.session,
+                    &self.tools,
+                );
+                if fresh["required"] == true && fresh["all_observed"] != true {
+                    self.session.messages.push(message.clone());
+                    if fresh_reviews == 0
+                        && fresh["checks"].as_array().unwrap().iter().any(|r| {
+                            r["state"] == "missing"
+                                || r["state"] == "stale"
+                                || r["state"] == "inconclusive"
+                        })
+                    {
+                        fresh_reviews += 1;
+                        self.session.messages.push(json!({"role":"user","content":format!("Runtime acceptance review: the user's requested fresh source read has not been observed. {}. Use read_file_window for each required local path if permitted. If expected_window is present, cover that byte interval; otherwise choose the relevant bounded source window. Cached data, recall and prose cannot satisfy this request. Do not repeat denied or unknown actions or widen scope. If blocked, explain the exact blocker. One corrective continuation is allowed.", fresh)}));
+                        self.persist()?;
+                        continue;
+                    }
+                    self.completion_state = "needs_verification".into();
+                    anyhow::bail!("Requested fresh source verification remains missing, stale, failed or unknown; partial analysis only. No automatic tool replay.");
+                }
                 if !self.session.task_checks.checks.is_empty()
                     || self.changed_sources
                     || self.tools.has_active_jobs()
@@ -927,6 +982,13 @@ impl Agent {
                     .as_ref()
                     .cloned()
                     .unwrap_or_else(|_| json!({"invalid_json":call["function"]["arguments"]}));
+                let prepared =
+                    crate::tool_arguments::prepare(name, &guard_args, &advertised_definitions);
+                let argument_error = prepared.as_ref().err().cloned();
+                let normalization = prepared.as_ref().ok().filter(|p| !p.changes.is_empty()).map(|p| json!({"changes":p.changes,"effective_arguments":p.arguments,"original_preserved_in_tool_call":true,"grants_permission":false}));
+                let args = prepared
+                    .map(|p| p.arguments)
+                    .map_err(|_| anyhow::anyhow!("Invalid arguments"));
                 self.output(AgentEvent::ToolStart(format!("{name} (step {})", step + 1)));
                 let delegated_edit = name == "delegate_agents"
                     && matches!(
@@ -965,6 +1027,8 @@ impl Agent {
                     Ok(json!({"ok":false,"error":"Task cancelled; tool not executed"}))
                 } else if let Some(blocked) = self.loop_guard.before(name, &guard_args) {
                     Ok(blocked)
+                } else if let Some(error) = &argument_error {
+                    Ok(error.clone())
                 } else {
                     match args {
                         Err(error) => Err(anyhow::anyhow!("Invalid tool JSON: {error}")),
@@ -984,6 +1048,8 @@ impl Agent {
                                     &self.session,
                                     &self.tools.jobs_command("")?,
                                 );
+                                report["derived_continuity_checkpoint"] =
+                                    self.session.continuity_checkpoint.clone();
                                 let browser = self.browser.status();
                                 report["delegates"] = self.delegates.status();
                                 report["delegate_evidence"] = self.delegates.evidence_report();
@@ -1177,6 +1243,16 @@ impl Agent {
                     Ok(value) => value,
                     Err(error) => json!({"ok":false,"error":error.to_string()}),
                 };
+                if argument_error.is_some() {
+                    unresolved_arguments.insert(name.to_owned());
+                } else if result["ok"] != false && result["repetition_blocked"] != true {
+                    unresolved_arguments.remove(name);
+                }
+                if let Some(normalization) = normalization {
+                    if result.is_object() {
+                        result["argument_normalization"] = normalization;
+                    }
+                }
                 crate::test_coverage::stamp(&self.session.scope, name, &guard_args, &mut result);
                 if snapshot_needed && result["repetition_blocked"] != true {
                     let refreshed = self.code_index.refresh(&self.settings.root).is_ok();
@@ -1264,12 +1340,26 @@ impl Agent {
                 if name == "update_plan" && ok {
                     self.output(AgentEvent::Plan(self.plan_text()));
                 }
-                self.output(AgentEvent::ToolResult(ok));
+                self.output(AgentEvent::ToolResult(
+                    if name == "run_command" || argument_error.is_some() {
+                        crate::tool_arguments::summary(&result)
+                    } else if result["ok"] == false {
+                        "Tool failed; inspect saved result locally".into()
+                    } else {
+                        "Completed".into()
+                    },
+                ));
                 actions.push(json!({"tool":name,"ok":ok,"step":step+1,"execution_status":result["execution_status"],"cached_result":result["cached_result"]==true}));
                 self.session
                     .messages
                     .push(json!({"role":"tool","tool_call_id":id,"content":result.to_string()}));
                 self.persist()?;
+                if argument_error.is_some() {
+                    invalid_arguments += 1;
+                    if invalid_arguments >= 2 {
+                        anyhow::bail!("Invalid tool arguments persisted after one corrective opportunity; no invalid command executed. Inspect saved tool results.");
+                    }
+                }
             }
             if self.loop_guard.stalled() {
                 anyhow::bail!("Agent stopped after repeated unchanged/blocked actions. Evidence and session saved; a different strategy or new user instruction is required.");

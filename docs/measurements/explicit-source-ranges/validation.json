@@ -1,0 +1,17 @@
+{
+  "base_commit": "66c926a8959c107c9066421501c0dd6e98d081bc",
+  "binary_sha256": "1185642f1dd4601b7202912fc485340629c5633b266434450e10e1ed79d349d0",
+  "rust_tests_passed": 346,
+  "cli_cases_passed": 10,
+  "clippy_all_targets_warnings_denied": "passed",
+  "phone_tested": false,
+  "run_command_executed": false,
+  "command_diagnosis": "Nested string args reproduce Missing args array, not Missing or invalid program. Exact phone wire shape/version remains unknown.",
+  "logs": {
+    "range-final-tests.log": "fa8b1eaa296dac0fec65ed5b7f3a93426683bbc20e928394422bc24bc004a9ef",
+    "range-eof-tests.log": "b9784a56676f77333a4fa4846a3fc8dcba4c3e00a981d63374d219a085c49b2c",
+    "range-clippy.log": "1b52a24e888ee13e093a3d6441afd1e4f7ef7b65e6d0c90fb9a492eacbd4d4c2",
+    "range-build.log": "3b75204418d2271b6aa281066026f6f6a7ab9ffeace39b51f71c74ed655557c1"
+  },
+  "limits": "Narrow explicit half-open byte syntax, not general natural-language or union-of-windows verification. Original review candidate remains unchanged; no upload/publication."
+}
