@@ -1,0 +1,116 @@
+{
+  "before": {
+    "binary_sha256": "4c2be68760dec3331e290bca76113502a728f720d6440c066940aa2527ca000c",
+    "mode": "before",
+    "synthetic_input_tpm": 1000000,
+    "requests": 6,
+    "http_429": 0,
+    "useful_verified_rounds": 3,
+    "estimated_input_tokens_sent": 158822,
+    "elapsed_seconds": 0.133,
+    "unchanged_file": true,
+    "original_history_preserved": true,
+    "packets": [
+      {
+        "estimated_input_tokens": 26198,
+        "schemas_bytes": 27099,
+        "history_bytes": 53024,
+        "max_output_tokens": null,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 27087,
+        "schemas_bytes": 27099,
+        "history_bytes": 55710,
+        "max_output_tokens": null,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 27158,
+        "schemas_bytes": 27099,
+        "history_bytes": 55932,
+        "max_output_tokens": null,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 26453,
+        "schemas_bytes": 27099,
+        "history_bytes": 53839,
+        "max_output_tokens": null,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 25917,
+        "schemas_bytes": 27099,
+        "history_bytes": 52240,
+        "max_output_tokens": null,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 26009,
+        "schemas_bytes": 27099,
+        "history_bytes": 52537,
+        "max_output_tokens": null,
+        "status": 200
+      }
+    ],
+    "limits": "Scripted model decisions and synthetic input TPM accounting; not live model reasoning, billing tokens, or real-service capacity."
+  },
+  "after": {
+    "binary_sha256": "6ef3d4d3b218649824993dc865a03c8e362c15e2c4a0985060521d6054e5b183",
+    "mode": "after",
+    "synthetic_input_tpm": 1000000,
+    "requests": 6,
+    "http_429": 0,
+    "useful_verified_rounds": 3,
+    "estimated_input_tokens_sent": 40300,
+    "elapsed_seconds": 0.056,
+    "unchanged_file": true,
+    "original_history_preserved": true,
+    "packets": [
+      {
+        "estimated_input_tokens": 5506,
+        "schemas_bytes": 3955,
+        "history_bytes": 12836,
+        "max_output_tokens": 2048,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 6266,
+        "schemas_bytes": 3955,
+        "history_bytes": 15120,
+        "max_output_tokens": 2048,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 6337,
+        "schemas_bytes": 3955,
+        "history_bytes": 15342,
+        "max_output_tokens": 2048,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 7097,
+        "schemas_bytes": 3955,
+        "history_bytes": 17627,
+        "max_output_tokens": 2048,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 7167,
+        "schemas_bytes": 3955,
+        "history_bytes": 17846,
+        "max_output_tokens": 2048,
+        "status": 200
+      },
+      {
+        "estimated_input_tokens": 7927,
+        "schemas_bytes": 3955,
+        "history_bytes": 20131,
+        "max_output_tokens": 2048,
+        "status": 200
+      }
+    ],
+    "limits": "Scripted model decisions and synthetic input TPM accounting; not live model reasoning, billing tokens, or real-service capacity."
+  }
+}

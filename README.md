@@ -28,6 +28,8 @@
 > [!IMPORTANT]
 > **[Blue Dragon 0.9.0-alpha.3 — published developer preview](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.3).** [Release CI passed](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/43715146909); physical Termux testing remains unverified. The integrated package includes provider diagnostics and shared cooldowns, bounded file research, independent agents with parent-approved edit proposals, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
+> **Next candidate: Blue Dragon 0.9.0-alpha.4**, prepared from reviewed model-capacity work `def2469`. It is not published yet; the alpha.3 release above remains unchanged. See [release notes](docs/RELEASE_NOTES.md) and [capacity evidence and limits](docs/provider-capacity-review.md).
+
 ## The Dragon Mind
 
 <div align="center">
@@ -56,7 +58,7 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
 | **Real browser** | Local CDP or own paired Firefox/Chromium extension: page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
-| **Blue Free** | Keyless verified free pool, visible bounded automatic rotation; concrete model choices stay pinned |
+| **Blue Free** | Keyless gateway automatic routing; automatic alias and concrete model choices stay pinned in the client |
 
 <details>
 <summary><b>See all 20 built-in agent tools</b></summary>
@@ -108,7 +110,7 @@ Version 0.7 adds local structural code search, historical notes scoped to the ca
 
 After installation, run `blue-dragon 'https://example.com'`, or paste a URL into chat/TUI. The agent prepares the browser and collects DOM, forms, JavaScript indicators, network and console before model analysis. Relevant URL inputs receive at most two benign DOM execution checks, with observed proof separated from static hints. Termux first use installs official Chromium automatically and runs it in the background unless X11 is available; no ADB setup is required for this path. Initial inspection reads need no individual confirmations; further interactions still require approval. See [URL inspection and platform limits](docs/URL_INSPECTION.md). Physical Android validation remains pending.
 
-Use `/model blue-free` for automatic free-model rotation and `/rotation` for its status. Firefox extension pairing and advanced Chrome ADB attachment remain available: [browser instructions](docs/BROWSER.md), [free routing policy](docs/FREE_ROTATION.md).
+Use `/model blue-free` for gateway automatic free-model routing and `/rotation` for its status. Firefox extension pairing and advanced Chrome ADB attachment remain available: [browser instructions](docs/BROWSER.md), [free routing policy](docs/FREE_ROTATION.md).
 
 ## Quick Start
 
@@ -130,7 +132,7 @@ Run the **same installer command to update**. It selects a published release for
 
 See [installation, supported systems, rollback and developer source builds](docs/INSTALL.md). [Published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases) contain persistent downloads and checksums; Actions artifacts are temporary developer outputs.
 
-This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects **Blue Free** (Kilo automatic free route with bounded client rotation). Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
+This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects **Blue Free** (Kilo automatic free route preserved by the client). Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
 
 Select and save a provider from the terminal:
 
@@ -144,6 +146,8 @@ Select and save a provider from the terminal:
 ```
 
 Or use `blue-dragon model free` before launching. `/models refresh` updates Kilo's keyless free catalog. `/models openrouter` separately lists OpenRouter free models, which require your own `OPENROUTER_API_KEY`. Switching changes where subsequent conversation context is sent. See [model setup and live validation](docs/MODELS.md).
+
+This source candidate bounds free-route request input, exposes metadata-only provider traffic auditing, and preserves completed reasoning/source evidence without retransmitting full envelopes. See the [code comparison, capacity measurements, configuration and remaining limits](docs/provider-capacity-review.md). These candidate changes are not installed by the published release installer until a coordinated release includes them.
 
 To use a hosted, OpenAI-compatible endpoint with your own key:
 
@@ -272,7 +276,7 @@ Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect
 <details>
 <summary><b>Planned — Beyond the terminal</b></summary>
 
-- [x] Browser CDP/extension transport and bounded automatic free-model rotation
+- [x] Browser CDP/extension transport and gateway automatic free-model routing
 - [ ] Physical Android browser verification and signed Firefox distribution
 - [ ] Desktop automation, remote MCP transports and isolated worktrees
 - [ ] Parallel agents, evidence-driven verification and security analysis modules

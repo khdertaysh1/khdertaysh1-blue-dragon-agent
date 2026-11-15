@@ -1,4 +1,19 @@
-Blue Dragon 0.9.0-alpha.3 — release candidate, pending review and CI.
+Blue Dragon 0.9.0-alpha.4 — release candidate, pending final CI and coordinated publication.
+
+- Preserve the selected `kilo-auto/free` gateway route instead of replacing it with concrete model IDs after failures. No paid fallback or shared-quota bypass.
+- Share cached catalog refreshes and suppress duplicate concurrent requests. Record bounded metadata-only provider traffic, separating estimates/reservations from reported usage and program-default cooldown from provider Retry-After.
+- Bound free-route input/output budgets and initially advertise focused, discoverable tools. Preserve original instructions/evidence, archive completed reasoning envelopes and older tool rounds, and retain source text/offsets in compacted windows. Pending tool batches cannot be hidden to fit context.
+- Coordinate optional known RPM/TPM and local free-hourly admission across sessions using the same application state. Keep high-RPM storage readable with equal bounded read/write limits, atomic oversized-write rejection and expiry recovery.
+- Require successful, nonempty, relevant source reads in the live-trial verifier. Failed/denied/not-executed/cancelled results and empty or irrelevant windows cannot establish a fresh comparison.
+- Preserve PR18's published alpha.3 status, existing functionality, user approvals and licenses. No new scanner, credentials, paid service or device-validation claim.
+
+Historical controlled measurements reduced estimated input from 158,822 to 40,300 for the same completed workload. A historical live trial observed ten requests without 429, but only three of four rounds performed the requested fresh read and some model-authored byte spans were wrong. These measurements do not establish this tag's live capacity, quota scope, full reasoning reliability or AlphaCode parity. The original TPM limit remains numerically unknown. See [full evidence and limitations](provider-capacity-review.md).
+
+Platform/real-browser CI remain publication gates. Physical Android has not been tested. The version bump does not replace published alpha.3 assets. The coordinating parent handles GitHub; this local preparation does not publish anything.
+
+---
+
+Blue Dragon 0.9.0-alpha.3 — historical published developer-preview notes.
 
 - Preserve redacted HTTP status, provider reason/code/request ID and cooldown provenance. Redact bounded complete fields before clipping to prevent partial credential disclosure.
 - Validate tool identities and complete arguments before dispatch; reject explicit incomplete or unknown streamed stops. Retain partial text as historical data, never executable results.

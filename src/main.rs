@@ -22,6 +22,7 @@ mod provider;
 mod provider_budget;
 mod provider_contract;
 mod provider_diagnostics;
+mod provider_traffic;
 mod reasoning;
 mod rotation;
 mod scope;

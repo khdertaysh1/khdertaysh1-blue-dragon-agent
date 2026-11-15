@@ -1,0 +1,36 @@
+{
+  "network_requests": 0,
+  "saved_trials": {
+    "before": {
+      "fresh_rechecks": 2,
+      "rounds": 4,
+      "unchanged_classification": true
+    },
+    "configured": {
+      "fresh_rechecks": 3,
+      "rounds": 4,
+      "unchanged_classification": true
+    },
+    "final": {
+      "fresh_rechecks": 2,
+      "rounds": 3,
+      "unchanged_classification": true
+    },
+    "final2": {
+      "fresh_rechecks": 3,
+      "rounds": 6,
+      "unchanged_classification": true
+    },
+    "window": {
+      "fresh_rechecks": 2,
+      "rounds": 2,
+      "unchanged_classification": true
+    },
+    "source": {
+      "fresh_rechecks": 3,
+      "rounds": 4,
+      "unchanged_classification": true
+    }
+  },
+  "negative_test_cases": "5 unittest methods including all reported failed/denied/not_executed/cancelled/empty cases"
+}

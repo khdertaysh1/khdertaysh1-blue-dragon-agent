@@ -1,0 +1,78 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "cli_finished": true,
+      "new_native_reads": [
+        {
+          "tool": "read_file",
+          "evidence_id": "E000005",
+          "native_source_match": true
+        }
+      ],
+      "fresh_source_recheck_verified": true,
+      "comparison_terms_present": true
+    },
+    {
+      "round": 1,
+      "cli_finished": true,
+      "new_native_reads": [
+        {
+          "tool": "read_file_window",
+          "evidence_id": "E000009",
+          "native_source_match": true
+        }
+      ],
+      "fresh_source_recheck_verified": true,
+      "comparison_terms_present": true
+    },
+    {
+      "round": 2,
+      "cli_finished": true,
+      "new_native_reads": [
+        {
+          "tool": "read_file_window",
+          "evidence_id": "E000013",
+          "native_source_match": true
+        },
+        {
+          "tool": "read_file_window",
+          "evidence_id": "E000015",
+          "native_source_match": true
+        },
+        {
+          "tool": "read_file_window",
+          "evidence_id": "E000017",
+          "native_source_match": true
+        }
+      ],
+      "fresh_source_recheck_verified": true,
+      "comparison_terms_present": true
+    },
+    {
+      "round": 3,
+      "cli_finished": true,
+      "new_native_reads": [],
+      "fresh_source_recheck_verified": false,
+      "comparison_terms_present": true
+    },
+    {
+      "round": 4,
+      "cli_finished": true,
+      "new_native_reads": [],
+      "fresh_source_recheck_verified": false,
+      "comparison_terms_present": true
+    },
+    {
+      "round": 5,
+      "cli_finished": true,
+      "new_native_reads": [],
+      "fresh_source_recheck_verified": false,
+      "comparison_terms_present": true
+    }
+  ],
+  "full_file_reads_despite_window_only_prompt": 1,
+  "original_constraint_retained": true,
+  "native_results_verified": true,
+  "limits": "A finished CLI round is not semantic success. Fresh reads require explicit success, matching disk/hash and coverage of both complete fixture functions. Absent native status is accepted only with a successful saved observation. Comparison-term checks are not a reasoning-quality oracle; narrative conclusions require review. Full-file reads violate the window-only test instruction even if later provider projection is bounded."
+}

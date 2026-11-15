@@ -18,6 +18,7 @@ pub struct Provider {
 
 impl Provider {
     pub fn new(base_url: &str, model: String, key: Option<String>) -> Result<Self> {
+        crate::provider_traffic::validate_env()?;
         let parsed = reqwest::Url::parse(base_url).context("Invalid provider URL")?;
         if parsed.host_str() == Some("api.jarvisclaw.ai")
             && (model != crate::models::FREE_MODEL || key.is_some())
@@ -120,10 +121,32 @@ impl Provider {
             .as_u64()
             .unwrap_or(0)
             + 1;
-        *metrics = json!({"provider_instance_requests_sent":count,"requested_model":self.model,
+        *metrics = json!({"provider_instance_requests_sent":count,"requested_model":crate::provider_diagnostics::scrub(&self.model,self.key.as_deref(),&[]),
+            "history_bytes":messages.iter().map(|m|m.to_string().len()).sum::<usize>(),
+            "tool_result_bytes":messages.iter().filter(|m|m["role"]=="tool").map(|m|m["content"].as_str().unwrap_or("").len()).sum::<usize>(),
+            "max_output_tokens":crate::provider_traffic::output_limit(&self.url,self.delegated),
             "tool_definition_bytes":tools.to_string().len(),"estimated_tool_tokens":crate::reasoning::context::estimate(&tools.to_string()),
             "estimated_message_tokens":messages.iter().map(|m|crate::reasoning::context::estimate(&m.to_string())).sum::<usize>(),
             "usage_reported":false,"actual_model":null,"scope":"This provider instance only; children have separate instance counters and shared admission budgets. Estimates are not billed usage."});
+    }
+    fn audit_start(&self, kind: &str, stream: bool) {
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics["dispatch_id"] = json!(format!(
+            "{}-{}-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+            std::process::id(),
+            SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        metrics["unix_ms"] = json!(chrono::Utc::now().timestamp_millis());
+        metrics["kind"] = json!(kind);
+        metrics["stream"] = json!(stream);
+        metrics["attempts"] = json!(1);
+        metrics["provider_origin"] = json!(reqwest::Url::parse(&self.url)
+            .ok()
+            .map(|u| u.origin().ascii_serialization()));
+        metrics["outcome"] = json!("dispatch_started_outcome_unknown");
+        crate::provider_traffic::record(metrics.clone());
     }
     fn response_metadata(&self, value: &Value) {
         let mut metrics = self.metrics.lock().unwrap();
@@ -183,6 +206,41 @@ impl Provider {
         self.send_image_request(&payload)
     }
     fn send_image_request(&self, payload: &Value) -> Result<String> {
+        let started = chrono::Utc::now().timestamp_millis();
+        let before = self.metrics()["provider_instance_requests_sent"]
+            .as_u64()
+            .unwrap_or(0);
+        let result = self.send_image_request_inner(payload);
+        let mut event = self.metrics();
+        let sent = event["provider_instance_requests_sent"]
+            .as_u64()
+            .unwrap_or(0)
+            > before;
+        if !sent {
+            event = json!({});
+        }
+        event["kind"] = json!("image_completion");
+        event["unix_ms"] = json!(started);
+        event["elapsed_ms"] = json!(chrono::Utc::now().timestamp_millis() - started);
+        event["attempts"] = json!(u8::from(sent));
+        event["provider_origin"] = json!(reqwest::Url::parse(&self.url)?
+            .origin()
+            .ascii_serialization());
+        event["max_output_tokens"] = payload["max_tokens"].clone();
+        event["outcome"] = json!(if !sent {
+            "blocked_before_dispatch"
+        } else if result.is_ok() {
+            "completed"
+        } else {
+            "failed_or_incomplete"
+        });
+        if sent {
+            *self.metrics.lock().unwrap() = event.clone();
+        }
+        crate::provider_traffic::record(event);
+        result
+    }
+    fn send_image_request_inner(&self, payload: &Value) -> Result<String> {
         let mut req = self.client.post(&self.url).json(payload);
         if self.anthropic {
             req = req.header("anthropic-version", "2023-06-01");
@@ -195,7 +253,10 @@ impl Provider {
             };
         }
         if let Some(coordinator) = &self.coordinator {
-            coordinator.admit()?;
+            coordinator.admit_tokens(
+                crate::reasoning::context::estimate(&payload.to_string()) as u64
+                    + payload["max_tokens"].as_u64().unwrap_or(4096),
+            )?;
         }
         self.sent(
             payload["messages"]
@@ -203,9 +264,13 @@ impl Provider {
                 .map_or(&[][..], Vec::as_slice),
             &json!([]),
         );
+        self.metrics.lock().unwrap()["max_output_tokens"] = payload["max_tokens"].clone();
+        self.audit_start("image_completion", false);
         let response = req
             .send()
             .context("Image request failed; transmission may have occurred, no automatic retry")?;
+        self.metrics.lock().unwrap()["rate_limit_headers"] =
+            crate::provider_traffic::headers(response.headers());
         self.metrics.lock().unwrap()["http_status"] = json!(response.status().as_u16());
         if !response.status().is_success() {
             return Err(self.http_failure(
@@ -247,6 +312,77 @@ impl Provider {
         delta: impl FnMut(&str),
         cancelled: impl FnMut() -> bool,
     ) -> Result<Value> {
+        let start = chrono::Utc::now().timestamp_millis();
+        let before = self.metrics()["provider_instance_requests_sent"]
+            .as_u64()
+            .unwrap_or(0);
+        let result = self.request_inner(messages, tools, stream, delta, cancelled);
+        let mut event = self.metrics();
+        let sent = event["provider_instance_requests_sent"]
+            .as_u64()
+            .unwrap_or(0)
+            > before;
+        if !sent {
+            event = json!({});
+        }
+        event["unix_ms"] = json!(start);
+        event["elapsed_ms"] = json!(chrono::Utc::now().timestamp_millis().saturating_sub(start));
+        event["kind"] = json!(if self.delegated {
+            "delegate_completion"
+        } else {
+            "completion"
+        });
+        event["provider_origin"] = json!(reqwest::Url::parse(&self.url)?
+            .origin()
+            .ascii_serialization());
+        event["stream"] = json!(stream);
+        event["attempts"] = json!(u8::from(sent));
+        event["outcome"] = json!(if !sent {
+            "blocked_before_dispatch"
+        } else if result.is_ok() {
+            "completed"
+        } else {
+            "failed_or_incomplete"
+        });
+        if let Some(failure) = result
+            .as_ref()
+            .err()
+            .and_then(|e| e.downcast_ref::<crate::rotation::ProviderFailure>())
+        {
+            event["rate_limit_dimension"] = json!(if failure.code.as_deref()
+                == Some("tpm_rate_limit_exceeded")
+            {
+                "tokens_per_minute"
+            } else {
+                "unknown"
+            });
+            event["limit_scope"] = json!(if failure.model_specific {
+                "explicit_model"
+            } else {
+                "unknown_or_shared"
+            });
+            event["cooldown_seconds"] = json!(failure.retry_after);
+            event["cooldown_source"] = json!(failure.retry_after_source);
+        }
+        event["estimated_output_tokens"] = result
+            .as_ref()
+            .ok()
+            .map(|value| json!(crate::reasoning::context::estimate(&value.to_string())))
+            .unwrap_or(Value::Null);
+        if sent {
+            *self.metrics.lock().unwrap() = event.clone();
+        }
+        crate::provider_traffic::record(event);
+        result
+    }
+    fn request_inner(
+        &self,
+        messages: &[Value],
+        tools: Value,
+        stream: bool,
+        delta: impl FnMut(&str),
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<Value> {
         crate::provider_contract::preflight(messages, &tools, &self.model)?;
         let mut payload = if self.anthropic {
             crate::anthropic::request_body(messages, &tools, &self.model)?
@@ -267,6 +403,9 @@ impl Provider {
         if self.delegated {
             payload["max_tokens"] = json!(2048);
         }
+        if let Some(limit) = crate::provider_traffic::output_limit(&self.url, self.delegated) {
+            payload["max_tokens"] = json!(limit);
+        }
         if stream {
             payload["stream"] = json!(true);
         }
@@ -282,12 +421,30 @@ impl Provider {
             };
         }
         if let Some(coordinator) = &self.coordinator {
-            coordinator.admit()?;
+            let input = messages
+                .iter()
+                .map(|m| crate::reasoning::context::estimate(&m.to_string()) as u64)
+                .sum::<u64>()
+                + crate::reasoning::context::estimate(&tools.to_string()) as u64;
+            coordinator.admit_tokens(
+                input.saturating_add(payload["max_tokens"].as_u64().unwrap_or(4096)),
+            )?;
         }
         self.sent(messages, &tools);
+        self.metrics.lock().unwrap()["max_output_tokens"] = payload["max_tokens"].clone();
+        self.audit_start(
+            if self.delegated {
+                "delegate_completion"
+            } else {
+                "completion"
+            },
+            stream,
+        );
         let response = req.send().map_err(|_| {
             crate::provider_contract::incomplete("connection_failed_outcome_unknown", "")
         })?;
+        self.metrics.lock().unwrap()["rate_limit_headers"] =
+            crate::provider_traffic::headers(response.headers());
         let code = response.status();
         self.metrics.lock().unwrap()["http_status"] = json!(code.as_u16());
         if !code.is_success() {
@@ -609,6 +766,7 @@ mod telemetry_tests {
         let metrics = provider.metrics();
         assert_eq!(metrics["actual_model"], "actual-model");
         assert_eq!(metrics["usage"]["prompt_tokens"], 17);
+        assert_eq!(metrics["outcome"], "completed");
         assert_eq!(metrics["provider_instance_requests_sent"], 1);
         assert!(!metrics.to_string().contains("DO_NOT_KEEP"));
         assert_eq!(worker.join().unwrap().len(), 1);

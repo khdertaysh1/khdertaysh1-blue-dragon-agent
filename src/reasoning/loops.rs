@@ -17,9 +17,18 @@ pub struct Guard {
     fetches: BTreeMap<String, Value>,
     cached_reuses: usize,
     consecutive_cached: usize,
+    recall_reads: usize,
 }
 impl Guard {
     fn key(name: &str, args: &Value) -> String {
+        if name == "recall_context" {
+            return format!(
+                "recall:{}:{}:{}",
+                args["message_index"],
+                args["offset"].as_u64().unwrap_or(0),
+                args["count"].as_u64().unwrap_or(6000)
+            );
+        }
         format!("{name}:{}", args)
     }
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
@@ -27,6 +36,12 @@ impl Guard {
             return None;
         }
         let key = Self::key(name, args);
+        if name == "recall_context" && (self.recall_reads >= 8 || self.seen.contains_key(&key)) {
+            self.blocked += 1;
+            return Some(
+                json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","error":"This history page was already recalled, or the eight-page turn budget was reached. Use the existing excerpt, narrow the investigation, or request another user turn; original history is preserved."}),
+            );
+        }
         if self
             .seen
             .get(&key)
@@ -66,6 +81,9 @@ impl Guard {
             return false;
         }
         self.consecutive_cached = 0;
+        if name == "recall_context" && result["ok"] == true {
+            self.recall_reads += 1;
+        }
         let key = Self::key(name, args);
         let text = result.to_string();
         let old = self.seen.entry(key.clone()).or_default();
@@ -99,6 +117,35 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recall_blocks_same_page_even_when_interleaved_and_bounds_distinct_pages() {
+        let mut guard = super::Guard::default();
+        let args = serde_json::json!({"message_index":3,"offset":0,"count":6000});
+        assert!(guard.before("recall_context", &args).is_none());
+        guard.after(
+            "recall_context",
+            &args,
+            &serde_json::json!({"ok":true,"excerpt":"old source"}),
+        );
+        guard.after(
+            "file_info",
+            &serde_json::json!({"path":"a"}),
+            &serde_json::json!({"ok":true}),
+        );
+        assert!(guard
+            .before(
+                "recall_context",
+                &serde_json::json!({"message_index":3,"ignored":"different"})
+            )
+            .is_some());
+        for index in 4..11 {
+            let args = serde_json::json!({"message_index":index});
+            guard.after("recall_context", &args, &serde_json::json!({"ok":true}));
+        }
+        assert!(guard
+            .before("recall_context", &serde_json::json!({"message_index":100}))
+            .is_some());
+    }
     #[test]
     fn live_job_polling_is_not_cached_or_classified_as_a_stall() {
         let mut guard = Guard::default();

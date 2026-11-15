@@ -1,18 +1,20 @@
-# Blue Dragon 0.9.0-alpha.3 candidate and trial plan
+# Blue Dragon 0.9.0-alpha.4 candidate and trial plan
 
-The package version is `0.9.0-alpha.3`, the prospective tag is `v0.9.0-alpha.3`, and the display
-name is **Blue Dragon 0.9.0-alpha.3**. This candidate is unpublished. The version is a
+The package version is `0.9.0-alpha.4`, the prospective tag is `v0.9.0-alpha.4`, and the display
+name is **Blue Dragon 0.9.0-alpha.4**. This candidate is unpublished. The version is a
 product naming decision, not evidence of equivalence, stability or device tests.
 Existing published releases must not be changed or deleted.
 
 ## Scope of this reliability candidate
 
-This plan follows the **alpha.3** package version in `Cargo.toml`, based on
-integrated development commit `ec8426e` plus the approval-display review fix.
-It retains the approved Abyss identity and adds provider reliability, shared
-admission/cooldowns, bounded tool discovery, lossless supported Anthropic text
-history conversion and supervised edit proposals. Existing published releases
-remain unchanged. See [release notes](RELEASE_NOTES.md).
+This plan follows the **alpha.4** package version in `Cargo.toml`, based on
+reviewed provider-capacity commit `def2469`, descended from main `a35626b` and
+retaining PR18's published alpha.3 documentation. It adds no further product
+features during release preparation. It includes automatic-route preservation,
+shared catalog refresh, bounded context/source/ reasoning projection, request
+traffic accounting and the independently reviewed oracle/budget-storage fixes.
+The existing Abyss identity, approvals, tools and published assets remain intact.
+See [release notes](RELEASE_NOTES.md) and [provider-capacity review](provider-capacity-review.md).
 
 ## Implemented capability and remaining gaps
 
@@ -74,9 +76,9 @@ integrations remain outside this release.
    parent handles GitHub, while unavailable physical-device testing remains
    explicitly untested. Publication behavior: **a push/merge to
    main automatically publishes after all required jobs pass**. The workflow
-   packages the complete platform/extension set and creates `v0.9.0-alpha.3`. A published
+   packages the complete platform/extension set and creates `v0.9.0-alpha.4`. A published
    same-tag release is immutable; later fixes need a new version.
-7. After publication, the existing installer accepts `--version v0.9.0-alpha.3`, verifies
+7. After publication, the existing installer accepts `--version v0.9.0-alpha.4`, verifies
    SHA256 and executable version and keeps the previous binary for rollback.
    Do not invoke that tag before it exists. There has been no release from this
    local preparation work.

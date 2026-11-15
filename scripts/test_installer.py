@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 installer = Path("scripts/install.sh").resolve()
-tag = os.environ.get("TEST_RELEASE_TAG", "v0.9.0-alpha.3")
+tag = os.environ.get("TEST_RELEASE_TAG", "v0.9.0-alpha.4")
 repo = "khdertaysh1/khdertaysh1-blue-dragon-agent"
 
 
