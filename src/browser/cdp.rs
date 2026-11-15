@@ -206,11 +206,20 @@ impl Cdp {
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.id += 1;
         let id = self.id;
-        self.ws.send(Message::Text(
-            json!({"id":id,"method":method,"params":params})
-                .to_string()
-                .into(),
-        ))?;
+        if self
+            .ws
+            .send(Message::Text(
+                json!({"id":id,"method":method,"params":params})
+                    .to_string()
+                    .into(),
+            ))
+            .is_err()
+        {
+            self.alive = false;
+            anyhow::bail!(
+                "Browser connection interrupted while sending; action outcome unknown; no retry"
+            );
+        }
         let until = Instant::now() + Duration::from_secs(30);
         while Instant::now() < until {
             match self.ws.read() {
@@ -247,7 +256,8 @@ impl Cdp {
                 }
             }
         }
-        anyhow::bail!("Browser action deadline exceeded; outcome unknown; inspect before retry")
+        self.alive = false;
+        anyhow::bail!("Browser action deadline exceeded; outcome unknown; reconnect explicitly and inspect before retry")
     }
     fn evaluate(&mut self, expression: String) -> Result<Value> {
         let result=self.call("Runtime.evaluate",json!({"expression":expression,"returnByValue":true,"awaitPromise":true,"timeout":15000}))?;
@@ -284,7 +294,7 @@ impl Cdp {
             }
             "screenshot" => self.call("Page.captureScreenshot",json!({"format":"jpeg","quality":60,"captureBeyondViewport":false})),
             "close" => { self.call("Page.close",json!({}))?; self.alive=false; Ok(json!({"closed":true})) }
-            "snapshot"|"click"|"fill"|"evaluate" => {
+            "snapshot"|"click"|"fill"|"select"|"set_checked"|"evaluate" => {
                 self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,args))
             }
             _ => anyhow::bail!("Unsupported CDP action"),

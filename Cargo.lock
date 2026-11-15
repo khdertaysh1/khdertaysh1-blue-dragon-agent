@@ -181,6 +181,7 @@ dependencies = [
  "dirs",
  "getrandom 0.4.3",
  "ignore",
+ "libc",
  "ratatui",
  "reqwest",
  "serde",

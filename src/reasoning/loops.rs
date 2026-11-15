@@ -1,4 +1,5 @@
-//! Detect stalled observations without caching potentially changing browser/file data.
+//! Detect stalled observations and reuse per-turn HTTP evidence references.
+//! Live browser/file tools are never cached.
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 #[derive(Default)]
@@ -13,12 +14,18 @@ pub struct Guard {
     last: String,
     blocked: usize,
     repetitions: usize,
+    fetches: BTreeMap<String, Value>,
+    cached_reuses: usize,
+    consecutive_cached: usize,
 }
 impl Guard {
     fn key(name: &str, args: &Value) -> String {
         format!("{name}:{}", args)
     }
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
+        if matches!(name, "job_status" | "job_output") {
+            return None;
+        }
         let key = Self::key(name, args);
         if self
             .seen
@@ -30,9 +37,35 @@ impl Guard {
                 json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,"error":"This identical call was denied/uncertain or repeatedly returned unchanged results. Do not re-request the same approval. Inspect different evidence or change inputs/strategy. A new user turn resets this guard."}),
             );
         }
+        if name == "web_fetch" {
+            if let Some(reference) = self.fetches.get(&key) {
+                self.cached_reuses += 1;
+                self.consecutive_cached += 1;
+                return Some(reference.clone());
+            }
+        }
         None
     }
+    /// Reuse only within one turn. Never label the old response as a fresh check.
+    pub fn record_fetch(&mut self, args: &Value, result: &Value, message_index: usize) {
+        if result["cached_result"] == true || result["repetition_blocked"] == true {
+            return;
+        }
+        if result["status"].as_u64().is_none() {
+            return;
+        }
+        self.fetches.insert(Self::key("web_fetch", args), json!({
+            "ok":result["ok"], "cached_result":true, "fresh_evidence":false,
+            "execution_status":"not_executed", "status":result["status"],
+            "original_evidence_id":result["evidence_id"], "original_message_index":message_index,
+            "note":"This URL was already fetched during this turn. No network request or approval was repeated. Use recall_context with original_message_index to inspect its exact response. A new user turn permits a fresh fetch."
+        }));
+    }
     pub fn after(&mut self, name: &str, args: &Value, result: &Value) -> bool {
+        if matches!(name, "job_status" | "job_output") {
+            return false;
+        }
+        self.consecutive_cached = 0;
         let key = Self::key(name, args);
         let text = result.to_string();
         let old = self.seen.entry(key.clone()).or_default();
@@ -56,15 +89,25 @@ impl Guard {
         old.unchanged >= 2
     }
     pub fn stalled(&self) -> bool {
-        self.blocked >= 3 || self.repetitions >= 8
+        self.blocked >= 3 || self.repetitions >= 8 || self.consecutive_cached >= 3
     }
     pub fn status(&self) -> Value {
-        json!({"blocked_identical_calls":self.blocked,"unchanged_observations":self.repetitions,"note":"No cached tool output is presented as a fresh observation."})
+        json!({"blocked_identical_calls":self.blocked,"unchanged_observations":self.repetitions,"cached_fetch_reuses":self.cached_reuses,"note":"No cached tool output is presented as a fresh observation."})
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_job_polling_is_not_cached_or_classified_as_a_stall() {
+        let mut guard = Guard::default();
+        let args = json!({"job_id":"test"});
+        for _ in 0..12 {
+            assert!(guard.before("job_status", &args).is_none());
+            assert!(!guard.after("job_status", &args, &json!({"ok":true,"state":"running"})));
+        }
+        assert!(!guard.stalled());
+    }
     #[test]
     fn blocks_denied_actions_but_rechecks_live_reads_until_unchanged() {
         let mut g = Guard::default();
@@ -83,5 +126,50 @@ mod tests {
         assert!(g
             .before("read_file", &json!({"path":"different"}))
             .is_none());
+    }
+}
+
+#[cfg(test)]
+mod fetch_tests {
+    use super::*;
+    #[test]
+    fn productive_turn_is_not_stalled_by_interleaved_cached_fetches() {
+        let mut guard = Guard::default();
+        let args = json!({"url":"https://example.com/app.js"});
+        guard.record_fetch(
+            &args,
+            &json!({"ok":true,"status":200,"evidence_id":"E1"}),
+            8,
+        );
+        for i in 0..10 {
+            assert!(guard.before("web_fetch", &args).is_some());
+            guard.after(
+                "read_file",
+                &json!({"path":format!("file{i}")}),
+                &json!({"ok":true,"content":i}),
+            );
+            assert!(!guard.stalled());
+        }
+        for _ in 0..3 {
+            guard.before("web_fetch", &args);
+        }
+        assert!(guard.stalled(), "a pure cached-result loop still stops");
+    }
+    #[test]
+    fn fetch_reference_survives_interleaved_tools_without_replaying_body() {
+        let mut guard = Guard::default();
+        let args = json!({"url":"https://example.com/app.js"});
+        guard.record_fetch(
+            &args,
+            &json!({"ok":true,"status":200,"text":"body","evidence_id":"E1"}),
+            8,
+        );
+        guard.after("read_file", &json!({"path":"other"}), &json!({"ok":true}));
+        let result = guard.before("web_fetch", &args).unwrap();
+        assert_eq!(result["original_message_index"], 8);
+        assert_eq!(result["original_evidence_id"], "E1");
+        assert_eq!(result["fresh_evidence"], false);
+        assert!(result.get("text").is_none());
+        assert!(Guard::default().before("web_fetch", &args).is_none());
     }
 }

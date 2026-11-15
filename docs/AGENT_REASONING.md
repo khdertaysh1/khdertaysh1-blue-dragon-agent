@@ -20,21 +20,23 @@ Only architectural ideas were used. These new modules are independently written;
 
 Default `--context-tokens 32768` reserves4096 reply tokens plus tool-schema and safety margins. Cached Kilo metadata can lower the limit for the active model without another catalog request. `/context` shows estimated usage and projection level. The estimate is a conservative character heuristic, not a model tokenizer; provider behavior can still differ.
 
-When the request would exceed the budget, the engine first excerpts large observed outputs, then replaces older **complete** tool rounds with labeled historical digests. Recent tool-call/result envelopes remain paired. Original user requests and system instructions are not silently discarded. Only app-tagged automatic browser evidence is treated as excerptable user-role data; structured execution proof flags are retained. Untagged user messages are never mistaken for app evidence. Legacy sessions with untagged large browser packs may need a larger supported window or a fresh session. Large working notes are also bounded. The saved transcript is not rewritten or deleted by projection.
+When the request would exceed the budget, the engine first excerpts large observed outputs, then replaces older **complete** tool rounds with labeled historical digests. A final projection tier also archives recent complete rounds when their tool arguments are too large. Tool-call/result envelopes remain paired. Original user requests and system instructions are not silently discarded. Only app-tagged automatic browser evidence is treated as excerptable user-role data; structured execution proof flags are retained. Untagged user messages are never mistaken for app evidence. Legacy sessions with untagged large browser packs may need a larger supported window or a fresh session. Large working notes are also bounded. The saved transcript is not rewritten or deleted by projection.
 
-`recall_context` reads exact character ranges by original `message_index`, `offset` and `count` (at most12000 characters). It does not rerun commands, refetch sites or reuse stale output as a fresh observation. Compacted observations expose original indexes. No filesystem path or arbitrary other session can be requested through this tool.
+`recall_context` reads exact character ranges by original `message_index`, `offset` and `count` (at most12000 characters). It does not rerun commands, refetch sites or reuse stale output as a fresh observation. Compacted observations expose original indexes. No filesystem path or arbitrary other session can be requested through this tool. For messages containing tool calls, the recalled text is the complete JSON message envelope, including any assistant text and exact tool arguments; offsets refer to Unicode code points in that serialized envelope. Ordinary text messages retain offsets into their content.
 
 Explicit pre-stream HTTP400/413/422 context-window codes allow **one** same-provider recovery per user turn with a smaller budget, down to8192. It is not free-model rotation and never replays completed tools. Interrupted streams, auth/shared-quota errors and generic request errors retain their existing stop policy. The learned smaller ceiling lasts for the current agent/model selection; it is not a guarantee that every provider context error is recognized.
 
-If essential instructions or recent arguments still cannot fit, the task stops explicitly with the original history preserved. Larger windows require a model that supports them. Existing session loading remains bounded to16MB. This is not unlimited memory, a semantic memory graph or an embeddings search engine.
+If essential instructions still cannot fit, the task stops explicitly with a partial report and the original history preserved. User constraints are never silently dropped to force a request through. Larger windows require a model that supports them. Existing session loading remains bounded to16MB. This is not unlimited memory, a semantic memory graph or an embeddings search engine.
 
 ## Stalled loops and unknown outcomes
 
 Tool arguments are compared as parsed JSON, so formatting/key-order differences do not bypass the guard. A denied or uncertain operation is not automatically attempted again in the same turn. Read/file/browser output is **not cached and returned as new evidence**: live reads can run again, but repeated identical observations prompt a different approach.
 
+Identical `web_fetch` URLs are fetched only once per user turn. Reuse returns the original evidence ID and message index, not another response body or a fresh verification; use `recall_context` to read it. Live browser/file tools are not cached. Three consecutive cache-only repeats stop a stuck loop, while interleaved productive work resets that streak.
+
 Three consecutive identical observations block another identical call. Three blocked attempts or eight repeated unchanged observations stop the turn after completing all tool-result envelopes. A new user turn resets the guard. This does not prevent every possible oscillation or semantically equivalent command; the existing step limit remains a final bound. It does not retry timed-out side effects merely because the model asks again.
 
-An empty final response after tools receives one request to summarize the existing results; a second empty response fails explicitly. Tools are not rerun to manufacture a final answer. Plain questions do not get an automatic extra review/model call.
+An empty final response after tools receives one request to summarize the existing results; a second empty response fails explicitly. Tools are not rerun to manufacture a final answer. Plain questions do not get an automatic extra review/model call. Any interruption (including exhausted steps, context overflow, cancellation or provider failure) also produces a deterministic partial report with the stop reason, current-turn evidence references, recorded findings and acceptance-check status. It is saved to the transcript and explicitly does not claim task completion.
 
 ## Evidence and findings
 
@@ -53,3 +55,25 @@ Invented evidence IDs and support consisting solely of failed results are reject
 Offline integration fixtures exercise actual agent/provider/tool sequences: a denied write followed by an identical request, switching to a legitimate read, a long transcript with exact recall and retained user constraints, evidence citations surviving resume, empty-response continuation and same-model context-overflow recovery without repeating a completed tool. Existing URL-only browser fixtures and all platform CI checks remain release gates.
 
 These tests establish runtime behavior, not a general model-quality benchmark. A fair model-quality comparison still requires repeated representative tasks with identical models/settings and independent scoring.
+
+## Long task prompts and project memory
+
+Memory lookup uses a UTF-8-safe excerpt of at most 2000 bytes, preserving the beginning and end of a long prompt. The full task remains in the transcript and model context; only the historical-note search hint is bounded. Search results expose `query_excerpted` so this limitation is visible. Invalid result limits still fail explicitly.
+
+### Bounded native assertions
+
+`record_finding` accepts up to 12 optional `assertions`, each containing an
+`evidence_id`, `kind` (`command_exit_code` or `http_status`) and integer `value`.
+Each ID must also appear in `evidence_ids`. Assertions compare exact recorded
+native metadata, not prose excerpts, stdout, or a model-supplied success claim.
+Missing metadata (including older sessions) fails closed. HTTP error status
+assertions can describe a failed request; that does not make the request successful.
+The returned `assertion_verification` label is generated by the engine and cannot
+be supplied to establish proof. No assertions means citation-only checking.
+
+This is **not** a general semantic claim checker: it does not prove that all tests
+ran, the right target was tested, a security weakness is exploitable, or a summary
+is accurate. Metadata reflects the observation time, not present state; a later
+edit or request may change the result. Existing task acceptance checks continue
+to handle code-change invalidation. Old project notes are not imported as native
+measurements, and cached results do not create fresh measurements.

@@ -70,7 +70,13 @@ fn project(
     let mut result = Vec::new();
     let mut archived = 0;
     let mut i = 0;
-    let recent = history.len().saturating_sub(18);
+    // In the last projection tier archive even recent completed tool rounds.
+    // Huge write_file arguments otherwise survive all output-only compaction.
+    let recent = if level >= 4 {
+        history.len()
+    } else {
+        history.len().saturating_sub(18)
+    };
     while i < history.len() {
         let message = &history[i];
         if level >= 2
@@ -158,7 +164,7 @@ pub fn build(
         .iter()
         .map(|m| estimate(&m.to_string()))
         .sum::<usize>();
-    for level in 0..=3 {
+    for level in 0..=4 {
         let (mut view, archived) = if level == 0 {
             (history.to_vec(), 0)
         } else {
@@ -236,10 +242,20 @@ pub fn recall(history: &[Value], args: &Value) -> Result<Value> {
     if count == 0 || count > 12000 {
         bail!("count must be 1..12000 characters");
     }
-    let content = item["content"]
-        .as_str()
-        .map(str::to_owned)
-        .unwrap_or_else(|| item.to_string());
+    // Archived tool rounds refer to the assistant message for exact arguments.
+    // Providers may send a string (even an empty one) alongside tool_calls.
+    // Preserve that whole envelope instead of hiding its calls behind content.
+    let content = if item["tool_calls"]
+        .as_array()
+        .is_some_and(|calls| !calls.is_empty())
+    {
+        item.to_string()
+    } else {
+        item["content"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| item.to_string())
+    };
     let total = content.chars().count();
     if offset > total {
         bail!("Offset exceeds original message size");
@@ -323,6 +339,63 @@ mod tests {
             true
         );
         assert_eq!(history[2]["content"], content);
+    }
+    #[test]
+    fn huge_recent_arguments_are_archived_as_complete_rounds() {
+        let arguments = json!({"path":"large.txt", "content":"source ".repeat(50000)}).to_string();
+        let history = vec![
+            json!({"role":"system","content":"Keep every approval boundary"}),
+            json!({"role":"user","content":"Fix only large.txt; do not publish"}),
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"big","function":{"name":"write_file","arguments":arguments}}]}),
+            json!({"role":"tool","tool_call_id":"big","content":"{\"ok\":true}"}),
+        ];
+        let original = history.clone();
+        let (view, stats) = build(&history, &json!([]), 32768, "Scope", &Value::Null).unwrap();
+        assert_eq!(stats["projection_level"], 4);
+        assert_eq!(history, original);
+        assert!(view
+            .iter()
+            .any(|m| m["content"] == "Fix only large.txt; do not publish"));
+        assert!(!view.iter().any(|m| m["role"] == "tool"));
+        assert!(view.iter().any(|m| m["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("archived_tool_round")));
+        assert!(
+            recall(&history, &json!({"message_index":2})).unwrap()["excerpt"]
+                .as_str()
+                .unwrap()
+                .contains("source source")
+        );
+    }
+    #[test]
+    fn recall_retains_tool_arguments_when_assistant_content_is_present() {
+        for content in ["", "Writing the requested file", "نص مساعد"] {
+            let message = json!({"role":"assistant","content":content,"tool_calls":[{"id":"write1","function":{"name":"write_file","arguments":"{\"path\":\"example.txt\",\"content\":\"original source\"}"}}]});
+            let history = vec![message.clone()];
+            let result = recall(&history, &json!({"message_index":0})).unwrap();
+            let recovered: Value =
+                serde_json::from_str(result["excerpt"].as_str().unwrap()).unwrap();
+            assert_eq!(recovered, message);
+            assert_eq!(result["reran_tool"], false);
+            let page = recall(&history, &json!({"message_index":0,"offset":5,"count":9})).unwrap();
+            assert_eq!(
+                page["excerpt"],
+                message
+                    .to_string()
+                    .chars()
+                    .skip(5)
+                    .take(9)
+                    .collect::<String>()
+            );
+            assert_eq!(history[0], message);
+        }
+    }
+    #[test]
+    fn recall_plain_messages_keeps_content_character_offsets() {
+        let history = vec![json!({"role":"user","content":"أهلاً dragon"})];
+        let result = recall(&history, &json!({"message_index":0,"offset":2,"count":3})).unwrap();
+        assert_eq!(result["excerpt"], "لاً");
     }
     #[test]
     fn never_silently_discards_large_user_instructions() {

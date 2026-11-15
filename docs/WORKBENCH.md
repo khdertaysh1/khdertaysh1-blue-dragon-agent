@@ -10,7 +10,7 @@ Build with the current stable Rust toolchain (locally validated with rustc 1.100
 Set BLUE_DRAGON_API_KEY, BLUE_DRAGON_MODEL and optionally BLUE_DRAGON_BASE_URL for your provider. Native OpenAI-compatible and Anthropic streaming are supported. The built-in `free`/`kilo` preset uses Kilo Gateway's free catalog without credentials; the old JarvisClaw selection remains available as `jarvis`; no paid credentials are bundled. Provider/model selection is documented in [MODELS.md](MODELS.md). A server that does not implement SSE can use --no-stream.
 
 Commands: /help, /map, /status, /diff, /session, /skills, /skill NAME, /plan, /report, /mcp, /connect NAME, /clear, /exit.
-The wide terminal includes a task-plan pane. Small screens keep a single conversation pane. Input supports left/right/home/end, delete/backspace, Unicode code points and bracketed paste. Text shaping/grapheme-aware editing is not a full terminal text editor.
+The terminal uses a dark, high-contrast workbench with role-colored transcript entries and rounded panels. Phone-sized windows use a compact header and a two-line status/model strip to leave more space for the conversation. Approval controls stay pinned below scrollable details; scrolling cannot hide the approve/deny choices. Model search displays an explicit empty state. The wide terminal includes a task-plan pane. Small screens keep a single conversation pane. Input supports left/right/home/end, delete/backspace, Unicode code points and bracketed paste. Text shaping/grapheme-aware editing is not a full terminal text editor.
 
 Ctrl+C requests cancellation while working; when idle it exits. Esc exits. Active direct subprocesses are killed on cancellation. Provider cancellation is cooperative: blocked network I/O can wait for the request timeout (120 seconds). MCP requests have a 30-second wait budget and an input-queue limit. Process descendants are not an OS sandbox and do not have a cross-platform process-tree guarantee.
 
@@ -72,3 +72,14 @@ Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or
 `code_search` locates fresh local text and Tree-sitter symbols/references without running the project or contacting an embedding service. `project_memory` stores historical notes under app data, scoped by canonical workspace and explicit URL target; follow-up turns retain that scope and multiple targets have a distinct scope. New sessions begin with project scope; resumed sessions retain saved target scope. `/memory` searches the current scope, `/memory URL` selects that origin for the lookup, and `/memory forget ID` deletes a note. `--no-project-memory` disables reading/writing project notes, not ordinary session persistence.
 
 `set_task_checks` binds a requested check to exact `run_command` or `file_info` arguments and native result metadata. It does not run commands or grant approval. `/checks` and `/report` expose observed/missing/stale states. A source mutation invalidates previous proof; native output must be observed after declaration. Finalization permits one review continuation, then explicitly reports `needs_verification` when checks are missing. The protocol report's `finished` means the turn returned normally; inspect `task_status` for acceptance status. A successful exit code and model-authored criteria do not prove semantic correctness. See [limits and audit](PROJECT_INTELLIGENCE.md).
+
+### Atomic single-file edits
+
+`read_file` returns a SHA-256 digest. `multi_edit_file` requires this digest and
+1–64 sequential exact replacements. All replacements are validated in memory
+before one combined diff approval and an atomic file replacement. Ambiguity,
+stale content, denial, oversized output, or a content change during approval
+writes nothing. Existing Unix mode bits are preserved; ownership, ACLs and
+Windows security attributes are not guaranteed to be retained. This is not a multi-file
+transaction or protection against a malicious concurrent filesystem writer;
+the last content check and rename are not a filesystem compare-and-swap.
