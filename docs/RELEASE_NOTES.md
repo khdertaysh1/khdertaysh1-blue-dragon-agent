@@ -1,9 +1,10 @@
-Blue Dragon 0.7.0-alpha.1 adds local project intelligence and explicit verification state around the chosen model.
+Blue Dragon 0.7.0-alpha.2 improves reliability, browser interaction and the terminal workbench.
 
-- New code_search tool: bounded ignore-aware content-hashed index; real Tree-sitter structures for Rust, Python, JavaScript and TypeScript/TSX; ranked lexical retrieval and syntactic references. Parser/coverage limits are explicit. No remote embeddings or source execution.
-- New project_memory tool and /memory commands: local workspace/explicit-target notes across sessions, qualified evidence references, locked atomic persistence, bounded capacity and manual forget. --no-project-memory disables note reading/saving. Historical notes cannot count as fresh evidence or grant permission.
-- New set_task_checks tool and /checks: exact native tool/input/result checks, source-fingerprint freshness, invalidation after edits/resume, one completion review and explicit needs_verification reports. A matching declared check is not semantic proof of the whole task.
-- Existing budgeted context, exact recall, loop handling, browser auto-inspection, approvals and Blue Free rotation remain in place. Three new tools bring the built-in count to 20.
-- Regression cases cover true syntax vs comment text, equal-length source edits, multiple grammars, symlinks, scoped cross-session memory, fake references, native-result acceptance, an unmet check and approved source edits invalidating earlier proof. Binary distributions include the new parser/search dependency license notices.
+- Bounds memory queries, reduces oversized tool context, reuses fetched content and preserves partial reports on interruption.
+- Restores browser connection preferences with explicit setup consent; adds select and checkbox actions. Page event handlers may have side effects.
+- Adds supervised background jobs on Unix-like systems, with bounded output and cancellation. Windows background jobs are not supported.
+- Adds exact native HTTP-status and command-exit assertions; these do not establish exploitability or verify all prose.
+- Adds staged single-file multi-edit with conflict checks and a refreshed terminal interface.
+- Fixes recall of tool-call details when assistant messages also contain text.
 
-This remains alpha. No model-quality parity percentage, resolved semantic call graph or all-platform physical-device validation is claimed. Android ARM64 is cross-built; actual Android browser validation and Firefox signing remain pending. See docs/PROJECT_INTELLIGENCE.md for the inspected AlphaCode reference and remaining gaps.
+This is an alpha release. Android ARM64 is cross-built, not verified on a physical phone. Browser extensions are unsigned. Very long accumulated instructions can still exceed a model context window. Background jobs cannot guarantee cleanup of processes that deliberately escape their process group.
