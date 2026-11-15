@@ -1,87 +1,106 @@
-Blue Dragon 0.9.0-alpha.6 — release candidate, pending independent review, final CI and coordinated publication.
+# Release notes
 
-- Preserve recent tool context before archiving paired rounds, retain original history, and expose bounded derived continuity checkpoints without treating them as fresh evidence or instructions.
-- Require native fresh-source evidence for supported explicit reread requests, including byte ranges and nameless range requests. Missing, stale, denied or wrong-range observations do not establish verification. Unsupported ranges remain unresolved.
-- Validate advertised tool arguments before dispatch. For run_command only, decode a JSON-string args array once and parse a canonical numeric timeout string within bounds. Preserve original arguments and record normalization separately; never guess a program, invoke a shell implicitly or grant approval through normalization.
-- Show distinct argument, denial, spawn, nonzero-exit, timeout and cancellation outcomes. Provide redacted local /tool-result inspection without provider calls or command replay. Bound malformed-call correction and block unchanged invalid repetitions.
-- Accept one JSON-string encoding of an exact registered discovery name, record the conversion and retain human approvals. Equivalent unchanged selections remain repetition-blocked; changing tool phases still works. Step limits are unchanged.
+## 1.1.9.0 — unreleased candidate
 
-The frozen implementation candidate 1a41627 passed 353 Rust tests, 15 command CLI/PTY cases and 35 pinned local qualification groups. These are implementation measurements, not substitutes for checks on the release commit. A subsequent single live free-route print task required one specific approval and produced native stdout with exit code 0 in three requests (14.48 seconds, no observed 429). That live model emitted correct argument types; malformed-name and command-type repair were demonstrated with scripted local providers. The earlier live trial stalled at five discovery steps. Model outputs differed, so this is not a controlled performance comparison or evidence of sustained service capacity.
+Review and final platform/browser CI are pending. The published baseline remains
+[0.9.0-alpha.6](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.6).
+The installer does not deliver these changes until a release is published.
 
-No physical Termux, long-session reliability, new Windows/macOS execution or real-browser validation is claimed by this preparation. Narrow 40x24 Linux PTY tests are not phone tests. Existing alpha.5 tags/assets stay unchanged; the coordinating parent handles GitHub after independent review and required CI. See [continuity evidence](CONTINUITY_EVIDENCE_AUDIT.md), [command repair](COMMAND_ARGUMENT_REPAIR.md), [discovery repair](DISCOVERY_COMMAND_REPAIR.md) and [candidate gates](CANDIDATE_TRIAL_PLAN.md).
+### Changes
 
----
+- Inspect saved tool calls locally without sending another model request or
+  replaying an action. Diagnostics expose bounded argument shapes, field paths
+  and error codes rather than arbitrary values or potentially sensitive prose.
+- Give each tool a bounded argument-correction allowance. Discovery cannot clear
+  a failed command; approvals, step limits and protection against replay remain.
+- Recognize successful native file reads even when their results lack `ok=true`.
+  Validate hashes and window metadata; reject failed, denied, stale, cached,
+  uncertain or malformed results instead of reporting false success.
+- Use public version **1.1.9.0** from `VERSION` with internal Cargo SemVer
+  **1.1.9**. The installer verifies the version manifest and executable before
+  replacing a binary. Existing releases and rollback remain available.
+- Simplify the project overview and release documentation while preserving
+  attribution and the distinction between demonstrated behavior and open limits.
 
-Blue Dragon 0.9.0-alpha.5 — historical preparation notes for the published baseline.
+### Validation and limits
 
-- Separate the soft input traffic target from the configured/catalog context bound, reserve the actual default Kilo output limit, and preserve original instructions/evidence and tool pairing.
-- Reduce already-selected oversized schema sets, advertise browser capability for URL-bearing prompts without widening permissions, and continue analysis with explicit failed/unknown initial browser evidence.
-- Keep initial browser failure recoverable in interactive chat, but make one-shot `inspect`, URL aliases and URL-only `run` return failure without sending a model request when initial inspection is denied or fails. Preserve the failed observation and partial report.
-- Fix recurring discovery transitions: browser → file_outline → browser → file_outline now works; unchanged duplicate discovery remains blocked and turn step limits remain enforced.
-- Prevent an unchanged context-recovery request from being resent. Distinguish latest projection failure from the last successful request.
-- Add explicit opt-in concrete free-model fallback restricted to verified free/tool-capable routes with adequate known context. Keep automatic routing pinned and shared/unknown quota failures non-rotating. No paid fallback or quota bypass.
+A live-model local `curl` trial on diagnostic commit `2450357` completed one
+approved HEAD request, with verified native headers and exit code 0. It used
+three provider requests in 17.64 seconds with no observed 429. That commit later
+needed the read-correction fix `9691a34`, so this trial is not qualification of
+the final release, a phone test, an external-site test or proof of long-session
+reliability. The original phone call arguments were unavailable; discovery-list
+hypotheses must not be presented as reproduced phone inputs.
 
-Controlled local acceptance achieved 30/30 fresh-source exchanges versus 7/30 on alpha.4; it is scripted loopback evidence, not a service-capacity claim. The pinned live trial achieved only two successful fresh-source exchanges; the third omitted the required read and failed acceptance. There is no demonstrated 20–30-turn live stability, no guarantee against 429, no measured numerical TPM ceiling and no physical Android qualification. A normal CLI return is not semantic task success. See [source comparison and evidence](context-continuity-review.md).
+See [diagnostic recovery evidence](COMMAND_DIAGNOSTIC_RECOVERY.md),
+[version mapping and upgrade checks](PUBLIC_VERSION.md), and
+[acceptance requirements](CANDIDATE_TRIAL_PLAN.md). Publication requires review,
+final CI and a previously unused tag. Version numbering does not establish
+AlphaCode equivalence or unlimited provider capacity.
 
-The coordinating parent handles GitHub after review and required CI. Existing tags/assets are unchanged. Cross-builds do not count as phone testing; final Chromium/Firefox and platform CI remain required. Exact local release-candidate evidence is recorded separately.
+## Previous releases
 
----
+These summaries describe published changes. Linked engineering reports retain
+their original test scope and limitations; historical local results are not
+substitutes for validation of a newer release.
 
-Blue Dragon 0.9.0-alpha.4 — historical published developer-preview preparation notes.
+### 0.9.0-alpha.6
 
-- Preserve the selected `kilo-auto/free` gateway route instead of replacing it with concrete model IDs after failures. No paid fallback or shared-quota bypass.
-- Share cached catalog refreshes and suppress duplicate concurrent requests. Record bounded metadata-only provider traffic, separating estimates/reservations from reported usage and program-default cooldown from provider Retry-After.
-- Bound free-route input/output budgets and initially advertise focused, discoverable tools. Preserve original instructions/evidence, archive completed reasoning envelopes and older tool rounds, and retain source text/offsets in compacted windows. Pending tool batches cannot be hidden to fit context.
-- Coordinate optional known RPM/TPM and local free-hourly admission across sessions using the same application state. Keep high-RPM storage readable with equal bounded read/write limits, atomic oversized-write rejection and expiry recovery.
-- Require successful, nonempty, relevant source reads in the live-trial verifier. Failed/denied/not-executed/cancelled results and empty or irrelevant windows cannot establish a fresh comparison.
-- Preserve PR18's published alpha.3 status, existing functionality, user approvals and licenses. No new scanner, credentials, paid service or device-validation claim.
+Fresh-source acceptance and bounded continuity checkpoints; validated command
+arguments; explicit command failure outcomes; local result inspection; bounded
+discovery-name correction. Original history and approval boundaries remain.
 
-Historical controlled measurements reduced estimated input from 158,822 to 40,300 for the same completed workload. A historical live trial observed ten requests without 429, but only three of four rounds performed the requested fresh read and some model-authored byte spans were wrong. These measurements do not establish this tag's live capacity, quota scope, full reasoning reliability or AlphaCode parity. The original TPM limit remains numerically unknown. See [full evidence and limitations](provider-capacity-review.md).
+The implementation candidate passed 353 Rust tests, 15 command CLI/PTY cases and
+35 local qualification groups. A separate live print task completed in three
+requests, but an earlier trial stalled at discovery. These are not controlled
+performance comparisons or long-session proof. See [continuity evidence](CONTINUITY_EVIDENCE_AUDIT.md),
+[command repair](COMMAND_ARGUMENT_REPAIR.md) and [discovery repair](DISCOVERY_COMMAND_REPAIR.md).
 
-Platform/real-browser CI remain publication gates. Physical Android has not been tested. The version bump does not replace published alpha.3 assets. The coordinating parent handles GitHub; this local preparation does not publish anything.
+### 0.9.0-alpha.5
 
----
+Separated soft traffic targets from context bounds, preserved tool-call pairs,
+bounded discovery repetition, exposed failed projection separately from the last
+successful request, and added opt-in free-model fallback without shared-quota
+bypass. One-shot URL inspection now fails when inspection is denied or fails.
 
-Blue Dragon 0.9.0-alpha.3 — historical published developer-preview notes.
+Scripted local acceptance reached 30/30 fresh-source exchanges versus 7/30 on
+alpha.4. The live trial passed two exchanges and failed the third; it did not
+prove 20–30-turn live stability. See [context continuity evidence](context-continuity-review.md).
 
-- Preserve redacted HTTP status, provider reason/code/request ID and cooldown provenance. Redact bounded complete fields before clipping to prevent partial credential disclosure.
-- Validate tool identities and complete arguments before dispatch; reject explicit incomplete or unknown streamed stops. Retain partial text as historical data, never executable results.
-- Coordinate local request admission and provider cooldowns across parent/child sessions sharing the same home, origin and credential identity. Never replay uncertain requests or evade shared limits by switching models.
-- Preserve long-session constraints and original history, use bounded discoverable tool selection, and preserve supported text blocks in Anthropic translation instead of silently discarding constraints.
-- Add bounded child edit proposals with pinned evidence, parent diff approval, version/conflict checks, durable journals, conditional rollback and independent final readback. Children cannot directly write. Multi-file replacement is not filesystem-atomic.
-- Reject bare carriage returns in proposed/existing text; display CRLF and literal backslashes explicitly in approval diffs without changing file bytes.
-- Retain the approved Abyss identity and existing browser, source, evidence, memory, coverage and MCP capabilities. No external vulnerability scanners added.
+### 0.9.0-alpha.4
 
-Exact release-candidate validation is recorded separately. Development-source tests do not establish this tag's CI status. Local fixtures do not prove live-model capability, Alpha equivalence, real-browser behavior or physical Android execution. Platform and real-browser CI remain publication gates; unavailable device testing remains explicitly untested. Existing tags and published assets are unchanged.
+Pinned gateway automatic routing, shared catalog caching, bounded provider
+traffic accounting and coordinated admission/cooldowns. Historical controlled
+measurements reduced estimated input from 158,822 to 40,300 tokens. Ten live
+requests showed no 429, but only three of four rounds performed the requested
+fresh read. See [capacity review](provider-capacity-review.md).
 
-See [candidate and trial plan](CANDIDATE_TRIAL_PLAN.md), [provider reliability](PROVIDER_RELIABILITY.md), [provider review fixes](PROVIDER_BOUNDARY_FIXES.md), and [supervised edit limits](SUPERVISED_EDIT_PROPOSALS.md).
+### 0.9.0-alpha.3
 
----
+Redacted provider diagnostics, complete-argument validation, shared cooldowns,
+long-session constraint preservation and supervised multi-file edit proposals.
+Approval diffs explicitly represent CRLF and reject bare carriage returns.
+See [provider reliability](PROVIDER_RELIABILITY.md), [boundary fixes](PROVIDER_BOUNDARY_FIXES.md)
+and [edit proposal limits](SUPERVISED_EDIT_PROPOSALS.md).
 
-Blue Dragon 0.9.0-alpha.2 — historical Abyss identity notes.
+### 0.9.0-alpha.2
 
-- Integrate the selected full-wing geometric dragon into README as a genuine GIF, with a static SVG alternative and reproducible rendering script.
-- Keep the banner static with cyan BLUE and white DRAGON; apply the same palette and split wordmark in the terminal.
-- Offer opt-in decorative terminal energy using BLUE_DRAGON_MOTION=1; suppress it for approval prompts, compact layouts, NO_COLOR and reduced-motion preference. Ordinary Termux text terminals do not display the README bitmap mascot.
-- Make the PTY title oracle SGR-aware without removing cursor controls, retaining the required BLUE DRAGON title assertion and adding ANSI/chunk-boundary regression cases.
-- This is a new release candidate, not a replacement of the 0.9.0-alpha.1 tag. No model/tool/approval-policy behavior changes. Physical Android validation remains separate.
+Abyss visual identity, README animation and optional terminal motion. The GIF is
+decorative; ordinary Termux text terminals do not display the bitmap mascot.
+See [identity and motion controls](ABYSS_IDENTITY.md).
 
----
+### 0.9.0-alpha.1
 
-Blue Dragon 0.9.0-alpha.1 — historical integrated package notes.
+Bounded large-file reading/search, scoped historical memory, independently
+sessioned read-only agents, evidence-linked reports and retests, approved MCP
+resources, syntactic outlines and bounded browser scrolling.
+See [integrated comparison](INTEGRATED_ALPHA_COMPARISON.md),
+[delegated agents](DELEGATED_AGENTS.md), [coverage ledger](TEST_COVERAGE_LEDGER.md)
+and [file windows](LOCAL_FILE_WINDOWS.md).
 
-- Read large local UTF-8 files with bounded byte windows and streaming search, including long lines and safe continuation offsets. Preserve the existing small-file editing contract and remote source cache.
-- Track explicitly planned path/method/account/scenario test cells with pinned evidence versions and derived not-tested/blocked/inconclusive/tested states. No coverage percentages or implied vulnerability/authentication proof.
-- Link existing hypotheses to checked case evidence, preserve earlier observations after inconclusive retests, and reconstruct bounded retest recipes without automatic execution.
-- Recover research context, scope changes and evidence references after restart; preserve the parent browser's sole mutable ownership and distinguish current connection state from historical page evidence.
-- Run real independent read-only model agents with separate sessions/evidence, parent and peer messages, two-child concurrency, durable shared request/tool/output quotas, short waits, cancellation and collected results. No child shell, writes, external fetch, browser, MCP or self-approval. Contradictory summaries remain reviewable, not automatically resolved.
-- Restore interrupted child activity as unknown after process death; never replay uncertain requests. Existing background shell jobs remain separate from delegation.
+## Scope of evidence
 
-See INTEGRATED_ALPHA_COMPARISON.md, DELEGATED_AGENTS.md, TEST_COVERAGE_LEDGER.md and LOCAL_FILE_WINDOWS.md for evidence boundaries. This is not Alpha parity, a live-provider benchmark, or physical Android verification. Platform CI and actual device trials must cover the final candidate before making those claims.
-
-- Inspect bounded child evidence with mandatory result pins, revalidate reports and memory sources without replay, and distinguish historical captures from current truth.
-- Use approved stdio MCP tools and exact catalog resource URIs; resource text remains untrusted and is not automatically secret-redacted.
-- Navigate local syntactic outlines and bounded browser scrolling with explicit scope and visibility checks.
-- Obtain a separate CI device-trial kit with deterministic loopback fixtures and per-binary evidence. This does not replace real browser CI or actual Android trials.
-
-See [the candidate and trial plan](CANDIDATE_TRIAL_PLAN.md) for remaining gaps and publication gates. `0.9.0-alpha.1` is a naming decision, not a benchmark result or guarantee.
+Physical Android testing and sustained live-provider reliability remain
+unverified. Scripted fixtures, cross-builds, historical captures and illustrative
+screenshots do not establish those results. Provider quotas remain external;
+there is no guarantee of avoiding HTTP 429 or of equivalence to AlphaCode.

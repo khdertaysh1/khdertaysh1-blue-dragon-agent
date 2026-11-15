@@ -11,6 +11,8 @@ pub use crate::tools::ApprovalMode;
 
 pub struct Agent {
     provider: Provider,
+    synchronous_chat_input: bool,
+    deferred_model_failure: Option<(String, crate::rotation::ProviderFailure, std::time::Instant)>,
     delegates: crate::delegates::Manager,
     sources: crate::artifacts::Store,
     tools: ToolBox,
@@ -140,6 +142,8 @@ impl Agent {
             delegates,
             sources,
             provider,
+            synchronous_chat_input: false,
+            deferred_model_failure: None,
             tools,
             settings,
             session,
@@ -171,6 +175,10 @@ impl Agent {
         }
         agent.persist()?;
         Ok(agent)
+    }
+
+    pub fn set_synchronous_chat_input(&mut self) {
+        self.synchronous_chat_input = true;
     }
 
     pub fn set_output(&mut self, sender: std::sync::mpsc::SyncSender<AgentEvent>) {
@@ -275,6 +283,7 @@ impl Agent {
         }
         crate::models::save(home, &selection)?;
         self.provider = provider;
+        self.deferred_model_failure = None;
         self.context_ceiling = None;
         self.settings.base_url = selection.base().into();
         self.settings.model = selection.model.clone();
@@ -367,8 +376,54 @@ impl Agent {
     }
     pub fn rotation_status(&self) -> Value {
         let mut status = self.rotation.status(self.provider.model());
-        status["concrete_free_fallback_opt_in"] = json!(self.settings.free_model_fallback);
+        status["concrete_free_fallback_enabled"] = json!(self.settings.free_model_fallback);
         status
+    }
+    fn eligible_model_recovery(&self, failure: &crate::rotation::ProviderFailure) -> bool {
+        self.session.vision_destination.is_none()
+            && self.provider.model() != crate::models::KILO_MODEL
+            && self.rotation.enabled
+            && failure.model_specific
+    }
+    fn recover_free_model(
+        &mut self,
+        failure: &crate::rotation::ProviderFailure,
+        limit: usize,
+    ) -> Result<bool> {
+        if !self.eligible_model_recovery(failure) {
+            return Ok(false);
+        }
+        let (choices, _) = self.kilo_models(false)?;
+        let home = self
+            .settings
+            .sessions_dir
+            .parent()
+            .context("Missing catalog directory")?;
+        if !crate::models::fallback_catalog_is_recent(home) {
+            return Ok(false);
+        }
+        if !choices.iter().any(|c| c.id == self.provider.model()) {
+            return Ok(false);
+        }
+        let ids = crate::models::fallback_ids(&choices, limit);
+        let previous = self.provider.model().to_owned();
+        let Some(next) = self.rotation.next(&previous, failure, &ids) else {
+            return Ok(false);
+        };
+        self.provider = Provider::new(&self.settings.base_url, next.clone(), None)?.coordinated(
+            self.settings
+                .sessions_dir
+                .parent()
+                .context("Missing provider budget directory")?,
+        )?;
+        self.context_ceiling = None;
+        self.deferred_model_failure = None;
+        self.settings.model = next.clone();
+        self.session.model = next.clone();
+        self.persist()?;
+        self.output(AgentEvent::Notice(format!("Blue Free: {previous} → {next} after explicit model-scoped HTTP {}. Same verified free tool-capable provider; context is recomputed, no tool replay.",failure.status)));
+        self.output(AgentEvent::Model(self.model_status()));
+        Ok(true)
     }
     pub fn plan_text(&self) -> String {
         self.session.plan.display()
@@ -376,7 +431,7 @@ impl Agent {
     pub fn inspect_saved_tool(&self, id: &str) -> Result<Value> {
         let (tool, original, result) = crate::audit::request_for(&self.session, id)?;
         Ok(
-            json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" {crate::tool_arguments::summary(&result)}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_view(&original),"result":crate::tool_arguments::private_view(&result),"redaction":"All string values omitted, including commands, URLs, tokens and stdout. Structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
+            json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" || result["category"]=="invalid_arguments" {crate::tool_arguments::summary(&crate::tool_arguments::diagnostic_view(&tool, &result))}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_argument_view(&original),"original_argument_shape":crate::tool_arguments::argument_shape(&tool, &original),"result":crate::tool_arguments::diagnostic_view(&tool, &result),"redaction":"User string values omitted, including commands, URLs, tokens and stdout. Only fixed diagnostic vocabulary and native schema paths may be displayed; structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
         )
     }
     pub fn report_text(&self) -> String {
@@ -563,6 +618,21 @@ impl Agent {
             .messages
             .push(json!({"role":"user","content":prompt}));
         self.persist()?;
+        if let Some((model, failure, until)) = self.deferred_model_failure.clone() {
+            if model == self.provider.model() {
+                if std::time::Instant::now() < until {
+                    anyhow::bail!("Model cooldown remains active; new instruction saved before any request/action. Wait for Retry-After, then continue; /scope and cancellation remain available.");
+                }
+                self.deferred_model_failure = None;
+                if !self.recover_free_model(&failure, self.settings.context_tokens)? {
+                    return Err(anyhow::Error::new(failure).context(
+                        "No verified compatible free fallback; original investigation preserved",
+                    ));
+                }
+            } else {
+                self.deferred_model_failure = None;
+            }
+        }
         if let Some(selected) = &mut self.selected_tools {
             selected.extend(crate::tool_selection::for_prompt(prompt));
         }
@@ -638,10 +708,11 @@ impl Agent {
         };
         let mut completion_reviews = 0;
         let mut fresh_reviews = 0;
-        let mut invalid_arguments = 0;
+        let mut invalid_arguments = std::collections::BTreeMap::<String, usize>::new();
         let mut unresolved_arguments = std::collections::BTreeSet::new();
         let mut empty_continuations = 0;
         let mut context_recovery_used = false;
+        let mut quota_recovery_used = false;
         for step in 0..self.settings.max_steps {
             if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                 anyhow::bail!("Task cancelled; session saved");
@@ -749,6 +820,15 @@ impl Agent {
                 {
                     self.output(AgentEvent::Notice("Context projected to fit the model. Original transcript and evidence remain available through recall_context; no actions were repeated.".into()));
                 }
+                if stats["user_detail_messages_omitted"].as_u64().unwrap_or(0) > 0
+                    && self.context_stats["user_detail_messages_omitted"]
+                        .as_u64()
+                        .unwrap_or(0)
+                        == 0
+                {
+                    self.output(AgentEvent::Notice("Older opaque observation details are omitted from the current request. This projection is not lossless or complete memory. Original message indexes and character ranges remain available through recall_context; retrieve omitted values before citing them. User directives and scope are not replaced by this index.".into()));
+                }
+                stats["bounded_quota_recovery_used"] = json!(quota_recovery_used);
                 self.context_stats = stats;
                 let projection_fingerprint = crate::intelligence::code::hash(
                     json!([self.provider.model(), request_messages, definitions])
@@ -808,6 +888,66 @@ impl Agent {
                         else {
                             return Err(error);
                         };
+                        let model_recovery = self.eligible_model_recovery(failure);
+                        if failure.status == 429 && model_recovery {
+                            self.deferred_model_failure = std::time::Instant::now()
+                                .checked_add(std::time::Duration::from_secs(
+                                    failure.retry_after.saturating_add(1),
+                                ))
+                                .map(|until| {
+                                    (self.provider.model().to_owned(), failure.clone(), until)
+                                });
+                        }
+                        if failure.status == 429 && self.synchronous_chat_input {
+                            // The CLI owns stdin synchronously, including approvals.
+                            // Do not retry behind unread stop/scope-changing input.
+                            self.persist()?;
+                            self.output(AgentEvent::Notice("Provider cooldown active. Returning to the chat prompt to read your next instruction before any further request; no automatic retry in synchronous chat. Original turn and results remain saved.".into()));
+                            return Err(error);
+                        }
+                        if failure.status == 429 && quota_recovery_used {
+                            // One root-turn retry, never multiplied by model rotation.
+                            return Err(error);
+                        }
+                        if failure.status == 429
+                            && failure.retry_after_source != "program_default"
+                            && failure.retry_after <= 60
+                        {
+                            quota_recovery_used = true;
+                            let seconds = failure.retry_after.saturating_add(1);
+                            self.persist()?;
+                            let recovery = if model_recovery {
+                                "one verified same-provider free-model recovery"
+                            } else {
+                                "one retry on the same provider/model"
+                            };
+                            self.output(AgentEvent::Notice(format!("Provider rejected this request with HTTP 429. Waiting {seconds}s (Retry-After={}s, source={}); {recovery}, shared quota admission remains active. Cancel to stop; completed tools will not be replayed.",failure.retry_after,failure.retry_after_source)));
+                            let deadline =
+                                std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+                            while std::time::Instant::now() < deadline {
+                                if token.load(std::sync::atomic::Ordering::Relaxed) {
+                                    anyhow::bail!("Cancelled during provider cooldown; no retry sent, session preserved");
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                            }
+                            // Only an explicit pre-stream HTTP rejection permits an
+                            // identical request. Unknown transmission/partial output
+                            // errors never enter this branch; no tool is replayed.
+                            previous_projection = None;
+                            if !model_recovery {
+                                continue;
+                            }
+                            if self.recover_free_model(failure, limit)? {
+                                continue;
+                            }
+                            return Err(error.context(
+                                "No verified compatible free fallback; no model-name cycling",
+                            ));
+                        }
+                        if failure.status == 429 {
+                            // Long/default cooldowns are not bypassed by a route change.
+                            return Err(error);
+                        }
                         if failure.context_exceeded && !context_recovery_used {
                             let lower = (limit / 2).max(8192);
                             if lower < limit {
@@ -817,34 +957,10 @@ impl Agent {
                                 continue;
                             }
                         }
-                        if self.session.vision_destination.is_some()
-                            || self.provider.model() == crate::models::KILO_MODEL
-                            || !self.rotation.enabled
-                            || !failure.model_specific
-                        {
+                        if !self.recover_free_model(failure, limit)? {
                             return Err(error);
                         }
-                        let (choices, _) = self.kilo_models(false)?;
-                        // Catalog choices already require zero price and advertised tool support.
-                        // Unknown or smaller windows cannot safely inherit this session.
-                        if !choices.iter().any(|c| c.id == self.provider.model()) {
-                            return Err(error.context("Current route is not verified in the free tool-capable catalog; no fallback"));
-                        }
-                        let ids = crate::models::fallback_ids(&choices, limit);
-                        let previous = self.provider.model().to_owned();
-                        let Some(next) = self.rotation.next(&previous, failure, &ids) else {
-                            return Err(error.context("Blue Free eligible pool/budget exhausted"));
-                        };
-                        self.provider = Provider::new(&self.settings.base_url, next.clone(), None)?
-                            .coordinated(
-                                self.settings
-                                    .sessions_dir
-                                    .parent()
-                                    .context("Missing provider budget directory")?,
-                            )?;
-                        self.context_ceiling = None;
-                        self.output(AgentEvent::Notice(format!("Blue Free: {previous} → {next} after HTTP {}. Completed tool actions are not replayed.", failure.status)));
-                        self.output(AgentEvent::Model(self.model_status()));
+                        previous_projection = None;
                     }
                 }
             };
@@ -1023,6 +1139,7 @@ impl Agent {
                 } else {
                     None
                 };
+                let mut correction_origin = crate::tool_arguments::CorrectionOrigin::NotDispatched;
                 let outcome = if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                     Ok(json!({"ok":false,"error":"Task cancelled; tool not executed"}))
                 } else if let Some(blocked) = self.loop_guard.before(name, &guard_args) {
@@ -1033,6 +1150,7 @@ impl Agent {
                     match args {
                         Err(error) => Err(anyhow::anyhow!("Invalid tool JSON: {error}")),
                         Ok(args) => {
+                            correction_origin = crate::tool_arguments::CorrectionOrigin::Native;
                             if name == "run_local_lab" {
                                 crate::lab_runner::run(
                                     &self.tools,
@@ -1232,20 +1350,34 @@ impl Agent {
                             } else if name == "mcp_resource_context" {
                                 self.mcp.resource_context(&args, &self.tools)
                             } else if self.mcp.has(name) {
+                                correction_origin =
+                                    crate::tool_arguments::CorrectionOrigin::External;
                                 self.mcp.call(name, &args, &self.tools)
                             } else {
-                                Ok(tools::invoke(&self.tools, name, &args))
+                                tools::invoke_result(&self.tools, name, &args)
                             }
                         }
                     }
                 };
+                if outcome.is_err() {
+                    correction_origin = crate::tool_arguments::CorrectionOrigin::NotDispatched;
+                }
                 let mut result = match outcome {
                     Ok(value) => value,
-                    Err(error) => json!({"ok":false,"error":error.to_string()}),
+                    Err(error) => json!({"ok":false,"error":format!("{error:#}")}),
                 };
                 if argument_error.is_some() {
                     unresolved_arguments.insert(name.to_owned());
-                } else if result["ok"] != false && result["repetition_blocked"] != true {
+                    let count = invalid_arguments.entry(name.to_owned()).or_default();
+                    *count += 1;
+                    result["correction_attempt"] = json!(*count);
+                    result["correction_limit"] = json!(2);
+                } else if crate::tool_arguments::correction_succeeded_from_dispatch(
+                    name,
+                    &guard_args,
+                    &result,
+                    correction_origin,
+                ) {
                     unresolved_arguments.remove(name);
                 }
                 if let Some(normalization) = normalization {
@@ -1354,11 +1486,10 @@ impl Agent {
                     .messages
                     .push(json!({"role":"tool","tool_call_id":id,"content":result.to_string()}));
                 self.persist()?;
-                if argument_error.is_some() {
-                    invalid_arguments += 1;
-                    if invalid_arguments >= 2 {
-                        anyhow::bail!("Invalid tool arguments persisted after one corrective opportunity; no invalid command executed. Inspect saved tool results.");
-                    }
+                if argument_error.is_some()
+                    && invalid_arguments.get(name).copied().unwrap_or(0) >= 2
+                {
+                    anyhow::bail!("Invalid arguments for the same tool persisted after one corrective opportunity; no invalid call executed. Inspect saved tool results.");
                 }
             }
             if self.loop_guard.stalled() {
@@ -2183,7 +2314,7 @@ mod tests {
         std::fs::write(workspace.path().join("once.txt"), "kept").unwrap();
         std::fs::write(state.path().join("kilo-models.json"), json!({"fetched_at":chrono::Utc::now().timestamp(),"choices":[{"id":"test/healthy:free","name":"Healthy","context_length":32000}]}).to_string()).unwrap();
         let call = json!({"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"read_once","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"once.txt\"}"}}]}}]});
-        let limit = json!({"error":{"limit_source":"upstream_model","provider_error_code":"model_rate_limit_exceeded","retry_after_seconds":60}});
+        let limit = json!({"error":{"limit_source":"upstream_model","provider_error_code":"model_rate_limit_exceeded","retry_after_seconds":61}});
         let (url, server) = crate::test_support::http_status(vec![
             (200, "application/json", call.to_string()),
             (429, "application/json", limit.to_string()),
@@ -2219,6 +2350,63 @@ mod tests {
         );
         assert_eq!(agent.rotation.history.len(), 0);
         assert_eq!(agent.settings.model, crate::models::KILO_MODEL);
+    }
+    #[test]
+    fn quota_wait_is_cancelled_without_a_second_request() {
+        let workspace = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let sessions = state.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let (url, server) = crate::test_support::http_status(vec![(
+            429,
+            "application/json",
+            json!({"error":{"code":"tpm_rate_limit_exceeded","retry_after_seconds":60}})
+                .to_string(),
+        )]);
+        let settings = Settings {
+            root: workspace.path().canonicalize().unwrap(),
+            base_url: url,
+            model: "fixture".into(),
+            api_key: None,
+            sessions_dir: sessions,
+            mcp_config: None,
+            stream: false,
+            free_rotation: false,
+            free_model_fallback: false,
+            context_tokens: 32768,
+            project_memory: true,
+            max_steps: 4,
+        };
+        let (tx, rx) = std::sync::mpsc::sync_channel(64);
+        let mut agent = Agent::new(settings, ApprovalMode::ReadOnly, None).unwrap();
+        agent.set_output(tx);
+        let cancel = agent.cancelled.clone();
+        let worker = std::thread::spawn(move || {
+            while let Ok(event) = rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                if matches!(event,AgentEvent::Notice(ref text) if text.contains("Waiting 61s")) {
+                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    return;
+                }
+            }
+            panic!("cooldown notice not observed");
+        });
+        let started = std::time::Instant::now();
+        let error = agent
+            .turn("Keep every constraint; never execute commands")
+            .unwrap_err();
+        worker.join().unwrap();
+        assert!(error
+            .to_string()
+            .contains("Cancelled during provider cooldown"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert_eq!(server.join().unwrap().len(), 1);
+        assert_eq!(agent.session.last_report["cancelled"], true);
+        assert!(agent
+            .session
+            .messages
+            .iter()
+            .any(|m| m["content"] == "Keep every constraint; never execute commands"));
+        assert!(agent.session.observations.is_empty());
     }
     #[test]
     fn partial_stream_failure_never_rotates_or_replays_output() {
@@ -2281,6 +2469,245 @@ mod tests {
         assert!(agent.turn("Test").is_err());
         assert!(agent.rotation.history.is_empty());
         assert_eq!(server.join().unwrap().len(), 1);
+    }
+    fn free_recovery_fixture(
+        responses: Vec<(u16, &'static str, String)>,
+    ) -> (
+        Agent,
+        tempfile::TempDir,
+        tempfile::TempDir,
+        std::thread::JoinHandle<Vec<Value>>,
+    ) {
+        let workspace = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        std::fs::write(workspace.path().join("once.txt"), "ORIGINAL_FREE_EVIDENCE").unwrap();
+        std::fs::create_dir_all(state.path().join("sessions")).unwrap();
+        let (url, server) = crate::test_support::http_status(responses);
+        let choices = crate::models::kilo_choices(&json!({"data":[
+            {"id":"fixture/start:free","pricing":{"prompt":"0","completion":"0"},"supported_parameters":["tools"],"context_length":32768},
+            {"id":"fixture/next:free","pricing":{"prompt":"0","completion":"0"},"supported_parameters":["tools"],"context_length":65536},
+            {"id":"fixture/small:free","pricing":{"prompt":"0","completion":"0"},"supported_parameters":["tools"],"context_length":8192},
+            {"id":"fixture/paid:free","pricing":{"prompt":"1","completion":"0"},"supported_parameters":["tools"],"context_length":65536},
+            {"id":"fixture/no-tools:free","pricing":{"prompt":"0","completion":"0"},"supported_parameters":[],"context_length":65536}
+        ]}));
+        assert_eq!(choices.len(), 3);
+        std::fs::write(state.path().join("kilo-models.json"),json!({"fetched_at":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),"choices":choices}).to_string()).unwrap();
+        let settings = Settings {
+            root: workspace.path().canonicalize().unwrap(),
+            base_url: url,
+            model: "fixture/start:free".into(),
+            api_key: None,
+            sessions_dir: state.path().join("sessions"),
+            mcp_config: None,
+            stream: false,
+            free_rotation: true,
+            free_model_fallback: true,
+            context_tokens: 32768,
+            project_memory: false,
+            max_steps: 5,
+        };
+        let mut agent = Agent::new(settings, ApprovalMode::ReadOnly, None).unwrap();
+        // Enable the production routing state only for this isolated loopback fixture.
+        agent.rotation = crate::rotation::Rotation::new(true);
+        (agent, workspace, state, server)
+    }
+    #[test]
+    fn verified_free_model_recovery_preserves_tool_evidence_and_shared_limits() {
+        for scope in ["model", "account", "unknown"] {
+            let failure = json!({"error":{"limit_source":scope,"code":if scope=="model" {"model_rate_limit_exceeded"} else {"tpm_rate_limit_exceeded"},"retry_after_seconds":0}});
+            let (mut agent,workspace,_state,server)=free_recovery_fixture(vec![
+                (200,"application/json",tool_call("read_once","read_file",json!({"path":"once.txt"})).to_string()),
+                (429,"application/json",failure.to_string()),
+                (200,"application/json",completion(json!({"role":"assistant","content":"Historical file evidence retained; no new action."})).to_string())]);
+            let scope_before = agent.session.scope.clone();
+            agent
+                .turn("Analyze once.txt; never modify it or contact a website.")
+                .unwrap();
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert_eq!(
+                requests[2]["model"],
+                if scope == "model" {
+                    "fixture/next:free"
+                } else {
+                    "fixture/start:free"
+                }
+            );
+            assert_eq!(agent.rotation.history.len(), usize::from(scope == "model"));
+            assert_eq!(agent.session.observations.len(), 1);
+            assert_eq!(
+                serde_json::to_value(scope_before).unwrap(),
+                serde_json::to_value(&agent.session.scope).unwrap()
+            );
+            assert_eq!(
+                std::fs::read_to_string(workspace.path().join("once.txt")).unwrap(),
+                "ORIGINAL_FREE_EVIDENCE"
+            );
+            assert!(requests[2].to_string().contains("ORIGINAL_FREE_EVIDENCE"));
+            assert!(requests[2].to_string().contains("never modify"));
+            assert_eq!(
+                requests[2]["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|m| m["role"] == "tool")
+                    .count(),
+                1
+            );
+        }
+    }
+    #[test]
+    fn synchronous_free_recovery_reads_new_instruction_and_scope_before_switching() {
+        let (mut agent,_workspace,_state,server)=free_recovery_fixture(vec![
+            (429,"application/json",json!({"error":{"limit_source":"model","code":"model_rate_limit_exceeded","retry_after_seconds":0}}).to_string()),
+            (200,"application/json",completion(json!({"role":"assistant","content":"Updated scope retained. No actions."})).to_string())]);
+        agent.set_synchronous_chat_input();
+        agent
+            .scope_command("allow http://127.0.0.1:12345/ read")
+            .unwrap();
+        assert!(agent.turn("Analyze only; never execute commands.").is_err());
+        assert!(agent
+            .turn("New instruction during cooldown: do not access any website.")
+            .is_err());
+        agent.scope_command("clear").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        agent
+            .turn("Continue analysis under the narrowed scope; no commands.")
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1]["model"], "fixture/next:free");
+        assert!(requests[1]
+            .to_string()
+            .contains("New instruction during cooldown"));
+        assert!(requests[1].to_string().contains("never execute commands"));
+        assert!(agent.session.observations.is_empty());
+        assert!(
+            serde_json::to_value(&agent.session.scope).unwrap()["grants"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn model_transition_never_replays_an_approved_command() {
+        let (mut agent, workspace, _state, server) = free_recovery_fixture(vec![
+            (
+                200,
+                "application/json",
+                tool_call(
+                    "command_once",
+                    "run_command",
+                    json!({"program":"sh","args":["counter.sh"],"timeout_seconds":5}),
+                )
+                .to_string(),
+            ),
+            (
+                429,
+                "application/json",
+                json!({"error":{"limit_source":"model","retry_after_seconds":0}}).to_string(),
+            ),
+            (
+                200,
+                "application/json",
+                completion(
+                    json!({"role":"assistant","content":"The original command completed once."}),
+                )
+                .to_string(),
+            ),
+            (200,"application/json",completion(json!({"role":"assistant","content":"Counter execution observed once; no further operation."})).to_string()),
+        ]);
+        std::fs::write(
+            workspace.path().join("counter.sh"),
+            "printf x >> counter.txt\nprintf observed\n",
+        )
+        .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let approval = std::thread::spawn(move || {
+            let request = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+            let detail: Value = serde_json::from_str(&request.detail).unwrap();
+            assert_eq!(detail["program"], "sh");
+            assert_eq!(detail["args"], json!(["counter.sh"]));
+            request.respond_to.send(true).unwrap();
+        });
+        agent.tools = ToolBox::new(
+            workspace.path().canonicalize().unwrap(),
+            ApprovalMode::Tui(tx),
+        );
+        agent
+            .turn("Execute the local counter once with approval and report its result.")
+            .unwrap();
+        approval.join().unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[2]["model"], "fixture/next:free");
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("counter.txt")).unwrap(),
+            "x"
+        );
+        assert_eq!(agent.session.observations.len(), 1);
+        assert!(requests[2].to_string().contains("observed"));
+    }
+    #[test]
+    fn cancellation_stops_model_transition_before_catalog_or_request() {
+        let (mut agent, _workspace, _state, server) = free_recovery_fixture(vec![(
+            429,
+            "application/json",
+            json!({"error":{"limit_source":"model","retry_after_seconds":60}}).to_string(),
+        )]);
+        let (tx, rx) = std::sync::mpsc::sync_channel(64);
+        agent.set_output(tx);
+        let cancel = agent.cancelled.clone();
+        let worker = std::thread::spawn(move || {
+            while let Ok(event) = rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                if matches!(event,AgentEvent::Notice(ref text) if text.contains("Waiting 61s")) {
+                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    return;
+                }
+            }
+            panic!("model cooldown notice missing");
+        });
+        assert!(agent
+            .turn("Never execute an action without approval.")
+            .is_err());
+        worker.join().unwrap();
+        assert_eq!(server.join().unwrap().len(), 1);
+        assert!(agent.rotation.history.is_empty());
+        assert_eq!(agent.session.last_report["cancelled"], true);
+        assert!(agent.session.messages.iter().any(|m| m["content"]
+            .as_str()
+            .is_some_and(|s| s.contains("Never execute an action"))));
+    }
+    #[test]
+    fn no_compatible_free_model_returns_partial_without_a_second_request() {
+        let (mut agent, _workspace, state, server) = free_recovery_fixture(vec![(
+            429,
+            "application/json",
+            json!({"error":{"limit_source":"model","retry_after_seconds":0}}).to_string(),
+        )]);
+        let cache = state.path().join("kilo-models.json");
+        let mut value: Value = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+        value["choices"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|c| c["id"] != "fixture/next:free");
+        std::fs::write(cache, value.to_string()).unwrap();
+        assert!(agent.turn("Keep the investigation and evidence.").is_err());
+        assert_eq!(server.join().unwrap().len(), 1);
+        assert!(agent.rotation.history.is_empty());
+        assert_eq!(agent.session.last_report["finished"], false);
+    }
+    #[test]
+    fn extreme_model_retry_after_never_panics_or_switches() {
+        let (mut agent, _workspace, _state, server) = free_recovery_fixture(vec![(
+            429,
+            "application/json",
+            json!({"error":{"limit_source":"model","retry_after_seconds":u64::MAX}}).to_string(),
+        )]);
+        assert!(agent.turn("Analyze only.").is_err());
+        assert_eq!(server.join().unwrap().len(), 1);
+        assert!(agent.rotation.history.is_empty());
     }
     #[test]
     fn reads_text_response() {

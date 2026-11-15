@@ -8,6 +8,7 @@ requested=''
 bin_dir=''
 stage=''
 fail() { printf 'Blue Dragon: %s\n' "$*" >&2; exit 1; }
+valid_tag() { [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.0|-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]]; }
 cleanup() { if [[ -n "$stage" ]]; then rm -rf -- "$stage"; fi; }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -18,7 +19,7 @@ while (($#)); do
     --version) (($# >= 2)) || fail '--version needs a release tag'; requested="$2"; shift 2 ;;
     --bin-dir) (($# >= 2)) || fail '--bin-dir needs a directory'; bin_dir="$2"; shift 2 ;;
     --help|-h)
-      printf 'Usage: bash install.sh [--version vX.Y.Z[-prerelease]] [--bin-dir DIR]\nRun again to update. No Git, Rust, root or API key required.\n'
+      printf 'Usage: bash install.sh [--version vA.B.C.0 or legacy vX.Y.Z[-prerelease]] [--bin-dir DIR]\nRun again to update. No Git, Rust, root or API key required.\n'
       exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac
@@ -49,7 +50,7 @@ else
   esac
   bin_dir="${bin_dir:-$HOME/.local/bin}"
 fi
-[[ -z "$requested" || "$requested" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]] || fail 'Invalid version tag'
+[[ -z "$requested" ]] || valid_tag "$requested" || fail 'Invalid version tag'
 asset="blue-dragon-$platform"
 mkdir -p -- "$bin_dir"
 bin_dir=$(cd -- "$bin_dir" && pwd -P)
@@ -74,8 +75,8 @@ download() {
 
 printf 'Blue Dragon: checking published releases for %s...\n' "$platform"
 if [[ -n "$requested" ]]; then
-  download "$api/releases/tags/$requested" "$stage/release.json"
-  jq -e 'type == "object" and .draft == false' "$stage/release.json" >/dev/null || fail 'Release is not published'
+  download "$api/releases/tags/$requested" "$stage/api-release.json"
+  jq -e 'type == "object" and .draft == false' "$stage/api-release.json" >/dev/null || fail 'Release is not published'
 else
   # /releases/latest excludes prereleases; include compatible historical prereleases as well.
   download "$api/releases?per_page=30" "$stage/releases.json"
@@ -83,12 +84,19 @@ else
     select(any(.assets[]; .name == $asset)) |
     select(any(.assets[]; .name == "SHA256SUMS.txt")) |
     select(any(.assets[]; .name == "LICENSES.txt"))][0] // error("No compatible published release")' \
-    "$stage/releases.json" > "$stage/release.json" || fail 'No compatible release is ready; existing installation was not changed'
+    "$stage/releases.json" > "$stage/api-release.json" || fail 'No compatible release is ready; existing installation was not changed'
 fi
-tag=$(jq -er '.tag_name' "$stage/release.json")
-[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]] || fail 'Release contains an invalid version tag'
-for name in "$asset" SHA256SUMS.txt LICENSES.txt; do
-  url=$(jq -er --arg name "$name" '.assets[] | select(.name == $name) | .browser_download_url' "$stage/release.json") || fail "Release asset missing: $name"
+tag=$(jq -er '.tag_name' "$stage/api-release.json")
+valid_tag "$tag" || fail 'Release contains an invalid version tag'
+[[ -z "$requested" || "$tag" == "$requested" ]] || fail 'Returned release tag does not match the requested version'
+verify_names=("$asset" LICENSES.txt)
+download_names=("$asset" SHA256SUMS.txt LICENSES.txt)
+if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  verify_names+=(release.json)
+  download_names+=(release.json)
+fi
+for name in "${download_names[@]}"; do
+  url=$(jq -er --arg name "$name" '.assets[] | select(.name == $name) | .browser_download_url' "$stage/api-release.json") || fail "Release asset missing: $name"
   [[ "$url" == "https://github.com/$repo/releases/download/$tag/$name" ]] || fail 'Asset does not belong to the selected release'
   download "$url" "$stage/$name"
 done
@@ -97,7 +105,7 @@ hash_of() {
   if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi
 }
 printf 'Blue Dragon: verifying SHA256 checksums...\n' >&2
-for name in "$asset" LICENSES.txt; do
+for name in "${verify_names[@]}"; do
   expected=''
   while read -r digest filename remainder; do
     if [[ "$filename" == "$name" ]]; then expected+="$digest"; fi
@@ -106,6 +114,13 @@ for name in "$asset" LICENSES.txt; do
   actual=$(hash_of "$stage/$name"); actual=${actual%% *}
   [[ "$actual" == "$expected" ]] || fail "SHA256 mismatch for $name; installation not changed"
 done
+if [[ -f "$stage/release.json" ]]; then
+  public="${tag#v}"
+  package="${public%.*}"
+  jq -e --arg version "$public" --arg package "$package" --arg tag "$tag" \
+    '.version == $version and .package_version == $package and .tag == $tag and .version_scheme == "four-part-public"' \
+    "$stage/release.json" >/dev/null || fail 'Release manifest version mapping mismatch; installation not changed'
+fi
 chmod 755 "$stage/$asset"
 printf 'Blue Dragon: checking binary compatibility...\n' >&2
 reported=$("$stage/$asset" --version) || fail 'Downloaded binary cannot run on this device; installation not changed'

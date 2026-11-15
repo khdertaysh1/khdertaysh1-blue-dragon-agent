@@ -1,32 +1,27 @@
-# Blue Dragon 0.9.0-alpha.6 candidate and trial plan
+# Blue Dragon 1.1.9.0 candidate and trial plan
 
-The package version is `0.9.0-alpha.6`, the prospective tag is `v0.9.0-alpha.6`, and the display
-name is **Blue Dragon 0.9.0-alpha.6**. This candidate is unpublished. The version is a
+The public version is `1.1.9.0` (Cargo package SemVer `1.1.9`), the prospective tag is `v1.1.9.0`, and the display
+name is **Blue Dragon 1.1.9.0**. This candidate is unpublished. The version is a
 product naming decision, not evidence of equivalence, stability or device tests.
 Existing published releases must not be changed or deleted.
 
 ## Scope of this reliability candidate
 
-This release preparation starts from frozen implementation commit `1a41627`,
-a descendant of published alpha.5 main `7da0c186`. The release-only difference
-updates package/lock versions, installer test version and release documentation;
-it adds no runtime features. The integrated changes cover continuity checkpoints,
-fresh native source reads and explicit byte ranges, command argument validation
-and bounded normalization, local redacted tool-result inspection, and exact
-quoted-name discovery repair. Original calls, approvals, user changes, licenses
-and published assets remain intact. See [release notes](RELEASE_NOTES.md),
-[command evidence](COMMAND_ARGUMENT_REPAIR.md) and
-[discovery evidence](DISCOVERY_COMMAND_REPAIR.md).
+This preparation includes diagnostic commit `2450357` and its independent-review
+read-correction fix `9691a34`, descended from published alpha.6 main `eb53e0a`.
+The public number is read from VERSION, validated against Cargo SemVer, and used
+for CLI output, release tags/manifests and the trial kit. The installer accepts
+both historical three-part releases and four-part public releases, verifies the
+new manifest mapping and actual binary version, and preserves sessions/settings
+and the previous executable. See [version policy](PUBLIC_VERSION.md).
 
-The implementation candidate passed 353 Rust tests and 35 local qualification
-groups. A single live free-route local print completed with one explicit approval,
-three provider requests and no observed 429. It emitted correctly typed arguments;
-malformed input repair is supported by deterministic CLI tests, not that live run.
-An earlier live run exhausted five steps in discovery. These runs do not establish
-20–30 successful live exchanges, a reliable hour-long session, sustainable quota,
-or future absence of 429. Earlier scripted continuity exchanges are not live
-model reasoning evidence. Physical Android and final platform/browser CI remain
-separate, explicitly unverified gates for this release candidate.
+One live-model curl task on the diagnostic implementation reached approval and
+native completion at a controlled local site. It is not phone or external-site
+evidence, and the original phone arguments remain unavailable. Separate review
+found and corrected a native-read recovery regression. Final candidate testing
+must include that correction and the new version mapping; earlier implementation
+results do not certify the release. No 20–30-turn live reliability, hour-long
+session or guarantee against 429 is claimed. Physical Android remains untested.
 
 ## Implemented capability and remaining gaps
 
@@ -84,16 +79,15 @@ integrations remain outside this release.
    and must not replay an uncertain action. The kit alone does not prove these
    device behaviors, real browser behavior, or live-provider performance.
 6. Resolve CI/device failures and repeat the affected checks on the final commit.
-   The user authorized publication after review and required CI; the coordinating
-   parent handles GitHub, while unavailable physical-device testing remains
-   explicitly untested. Publication behavior: **a push/merge to
+   Publication requires review and required CI. Unavailable physical-device
+   testing remains explicitly untested. Publication behavior: **a push/merge to
    main automatically publishes after all required jobs pass**. The workflow
-   packages the complete platform/extension set and creates `v0.9.0-alpha.6`. A published
+   packages the complete platform/extension set and creates `v1.1.9.0`. A published
    same-tag release is immutable; later fixes need a new version.
-7. After publication, the existing installer accepts `--version v0.9.0-alpha.6`, verifies
+7. After publication, the existing installer accepts `--version v1.1.9.0`, verifies
    SHA256 and executable version and keeps the previous binary for rollback.
-   Do not invoke that tag before it exists. There has been no release from this
-   local preparation work.
+   Do not invoke that tag before it exists. Confirm the published asset and
+   checksum before recommending the version-specific install command.
 
 Release metadata deliberately retains `physical_android_tested: false` until
 verified device evidence is explicitly incorporated. Cross-compilation and host

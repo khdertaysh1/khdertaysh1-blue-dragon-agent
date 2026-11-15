@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
-import tomllib
+from release_version import load_version
 import zipfile
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -16,8 +16,9 @@ names = ['smoke_continuity', 'smoke_delegates', 'smoke_delegate_consistency',
          'smoke_integrated_research', 'smoke_mcp_resources', 'smoke_memory_sources']
 files = ['scripts/device_trial.py', 'tests/fixtures/mcp_resource_server.py', 'LICENSE']
 files += [f'scripts/{name}.py' for name in names]
-files += ['docs/CANDIDATE_TRIAL_PLAN.md']
-manifest = {'version': tomllib.loads((root / 'Cargo.toml').read_text())['package']['version'],
+files += ['docs/CANDIDATE_TRIAL_PLAN.md', 'VERSION']
+version, package_version = load_version(root)
+manifest = {'version': version, 'package_version': package_version,
             'source_commit': subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
             'source_dirty': bool(subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain'], text=True).strip()),
             'groups': names,

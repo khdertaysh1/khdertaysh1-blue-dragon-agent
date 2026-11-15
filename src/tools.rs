@@ -150,7 +150,12 @@ impl ToolBox {
     fn resolve(&self, path: &str, writing: bool) -> Result<PathBuf> {
         let rel = Self::validated_parts(path)?;
         let wanted = self.root.join(rel);
-        if writing && !wanted.exists() {
+        let absent = match fs::symlink_metadata(&wanted) {
+            Ok(_) => false, // Dangling links are existing entries, never new files.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+            Err(error) => return Err(error.into()),
+        };
+        if writing && absent {
             let parent = wanted
                 .parent()
                 .context("Missing parent directory")?
@@ -159,7 +164,9 @@ impl ToolBox {
             if !parent.starts_with(&self.root) {
                 anyhow::bail!("Path escapes workspace");
             }
-            Ok(wanted)
+            Self::validated_parts(&parent.strip_prefix(&self.root)?.to_string_lossy())?;
+            // Use the checked canonical parent instead of following the alias again.
+            Ok(parent.join(wanted.file_name().context("Missing file name")?))
         } else {
             let real = wanted
                 .canonicalize()
@@ -167,6 +174,7 @@ impl ToolBox {
             if !real.starts_with(&self.root) {
                 anyhow::bail!("Path escapes workspace via symlink");
             }
+            Self::validated_parts(&real.strip_prefix(&self.root)?.to_string_lossy())?;
             Ok(real)
         }
     }
@@ -233,10 +241,7 @@ impl ToolBox {
     }
 
     pub(crate) fn local_file_path(&self, path: &str) -> Result<PathBuf> {
-        let full = self.resolve(path, false)?;
-        // Also reject an allowed alias that resolves to an excluded secret path.
-        Self::validated_parts(&full.strip_prefix(&self.root)?.to_string_lossy())?;
-        Ok(full)
+        self.resolve(path, false)
     }
 
     pub fn file_outline(&self, path: &str, args: &Value) -> Result<Value> {
@@ -326,7 +331,7 @@ impl ToolBox {
             .output()
             .context("Git not available")?;
         if !output.status.success() {
-            return Ok("Not a Git working tree, or git diff failed.".to_string());
+            anyhow::bail!("Not a Git working tree, or git diff failed.");
         }
         let text = String::from_utf8_lossy(&output.stdout);
         Ok(text.chars().take(MAX_OUTPUT_BYTES).collect())
@@ -760,12 +765,20 @@ pub fn definitions() -> Value {
 }
 
 pub fn invoke(boxes: &ToolBox, name: &str, args: &Value) -> Value {
+    match invoke_result(boxes, name, args) {
+        Ok(value) => value,
+        Err(error) => json!({"ok":false,"error":format!("{error:#}")}),
+    }
+}
+/// Keep the native Result boundary available to the root dispatcher. A JSON
+/// object returned by a provider or a cache cannot manufacture this completion.
+pub(crate) fn invoke_result(boxes: &ToolBox, name: &str, args: &Value) -> Result<Value> {
     let arg = |key: &str| -> Result<&str> {
         args.get(key)
             .and_then(Value::as_str)
             .context(format!("Missing or invalid {key}"))
     };
-    let result = match name {
+    match name {
         "create_directory" => arg("path").and_then(|p| boxes.create_directory(p)),
         "file_info" => arg("path").and_then(|p| boxes.file_info(p)),
         "web_fetch" => arg("url").and_then(|p| boxes.web_fetch(p)),
@@ -874,10 +887,6 @@ pub fn invoke(boxes: &ToolBox, name: &str, args: &Value) -> Value {
             }
         })(),
         _ => Err(anyhow::anyhow!("Unknown tool: {name}")),
-    };
-    match result {
-        Ok(value) => value,
-        Err(error) => json!({"ok":false,"error":format!("{error:#}")}),
     }
 }
 
@@ -924,6 +933,99 @@ mod tests {
         (tmp, tools)
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn canonical_secret_aliases_are_rejected_before_reads_or_approval() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(root.path().join(".env"), "PRIVATE_NATIVE_SECRET").unwrap();
+        fs::create_dir(root.path().join(".ssh")).unwrap();
+        fs::write(root.path().join(".ssh/data.txt"), "PRIVATE_NATIVE_SECRET").unwrap();
+        fs::write(root.path().join("allowed.txt"), "public text").unwrap();
+        fs::write(outside.path().join("outside.txt"), "PRIVATE_NATIVE_SECRET").unwrap();
+        symlink(".env", root.path().join("alias.txt")).unwrap();
+        symlink(".ssh", root.path().join("alias-dir")).unwrap();
+        symlink("allowed.txt", root.path().join("safe.txt")).unwrap();
+        symlink(outside.path(), root.path().join("outside")).unwrap();
+        symlink(
+            outside.path().join("new.txt"),
+            root.path().join("dangling.txt"),
+        )
+        .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        for path in ["alias.txt", "alias-dir/data.txt", "outside/outside.txt"] {
+            assert!(tools.read_file(path).is_err());
+            assert!(tools.read_lines(path, 1, 2).is_err());
+            assert!(tools.read_file_window(path, 0, 32).is_err());
+            assert!(tools.search_file(path, "PRIVATE", 0, 1024, 5).is_err());
+            assert!(tools.file_outline(path, &json!({})).is_err());
+            assert!(tools.file_info(path).is_err());
+            assert!(tools.write_file(path, "replacement").is_err());
+            assert!(tools.edit_file(path, "PRIVATE", "replacement").is_err());
+        }
+        assert!(tools.list_files("alias-dir").is_err());
+        for path in ["alias-dir/new.txt", "outside/new.txt", "dangling.txt"] {
+            assert!(tools.write_file(path, "replacement").is_err());
+            assert!(tools.create_directory(path).is_err());
+        }
+        assert!(
+            rx.try_recv().is_err(),
+            "secret path must fail before diff approval"
+        );
+        assert_eq!(
+            tools.read_file("safe.txt").unwrap()["content"],
+            "public text"
+        );
+        let approval =
+            std::thread::spawn(move || rx.recv().unwrap().respond_to.send(true).unwrap());
+        assert_eq!(
+            tools.write_file("safe.txt", "approved change").unwrap()["ok"],
+            true
+        );
+        approval.join().unwrap();
+        assert_eq!(
+            fs::read_to_string(root.path().join("allowed.txt")).unwrap(),
+            "approved change"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join(".env")).unwrap(),
+            "PRIVATE_NATIVE_SECRET"
+        );
+        assert!(!outside.path().join("new.txt").exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn alias_changed_to_secret_during_approval_cannot_write() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("safe.txt"), "public").unwrap();
+        fs::write(root.path().join(".env"), "PRIVATE_NATIVE_SECRET").unwrap();
+        symlink("safe.txt", root.path().join("alias.txt")).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
+        let tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let alias = root.path().join("alias.txt");
+        let worker = std::thread::spawn(move || {
+            let request = rx.recv().unwrap();
+            assert!(!request.detail.contains("PRIVATE_NATIVE_SECRET"));
+            fs::remove_file(&alias).unwrap();
+            symlink(".env", &alias).unwrap();
+            request.respond_to.send(true).unwrap();
+        });
+        assert!(tools
+            .write_file("alias.txt", "approved new public text")
+            .is_err());
+        worker.join().unwrap();
+        assert_eq!(
+            fs::read_to_string(root.path().join(".env")).unwrap(),
+            "PRIVATE_NATIVE_SECRET"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("safe.txt")).unwrap(),
+            "public"
+        );
+    }
     #[test]
     fn stringified_command_fields_are_rejected_without_execution() {
         let (_tmp, tools) = setup();

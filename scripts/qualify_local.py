@@ -40,10 +40,14 @@ def main():
     home=output/'isolated-home';home.mkdir()
     env.update(HOME=str(home),USERPROFILE=str(home),XDG_CONFIG_HOME=str(home/'config'),XDG_DATA_HOME=str(home/'data'),BLUE_DRAGON_BINARY=str(binary),PYTHONDONTWRITEBYTECODE='1',NO_COLOR='1')
     groups=[]
-    for name in ['smoke_command_arguments','smoke_fresh_source','smoke_delegate_edits','smoke_provider_boundaries','smoke_continuity','smoke_coverage','smoke_test_coverage','smoke_delegates','smoke_delegate_consistency','smoke_integrated_research','smoke_mcp_resources','smoke_memory_sources','smoke_source_refresh','smoke_source_chain','smoke_review_engines']:
+    for name in ['smoke_recall_projection','smoke_marked_review','smoke_cooldown_steering','smoke_quota_resume','smoke_canonical_file_policy','smoke_resume_reference_migration','smoke_long_user_projection','smoke_native_correction_contracts','smoke_read_argument_correction','smoke_diagnostic_recovery','smoke_command_arguments','smoke_fresh_source','smoke_delegate_edits','smoke_provider_boundaries','smoke_continuity','smoke_coverage','smoke_test_coverage','smoke_delegates','smoke_delegate_consistency','smoke_integrated_research','smoke_mcp_resources','smoke_memory_sources','smoke_source_refresh','smoke_source_chain','smoke_review_engines']:
         groups.append((name,[sys.executable,str(repo/'scripts'/f'{name}.py'),str(binary)],True))
+    groups.append(('marked_natural_user_recall',[sys.executable,str(repo/'scripts/smoke_long_user_projection.py'),str(binary),'--marked'],True))
+    groups.append(('distinct_user_recall',[sys.executable,str(repo/'scripts/smoke_long_user_projection.py'),str(binary),'--distinct'],True))
+    groups.append(('structured_user_projection',[sys.executable,str(repo/'scripts/smoke_long_user_projection.py'),str(binary),'--structured'],True))
     for name in ['lab_matrix','smoke_lab_runner','smoke_source_discovery','smoke_dynamic_discovery','smoke_scoped_flow','smoke_call_bridge']:
         groups.append((name,[sys.executable,str(repo/'scripts'/f'{name}.py'),str(binary),'--lab',str(lab)],True))
+    groups.append(('public_version',[sys.executable,str(repo/'scripts/test_public_version.py'),'--binary',str(binary)],True))
     groups.append(('models_offline',[sys.executable,str(repo/'scripts/smoke_models.py')],True))
     for name in ['smoke_tui','smoke_job_shutdown','test_pty_shutdown','test_installer','test_source_upgrade','test_release_payload']:
         groups.append((name,[sys.executable,str(repo/'scripts'/f'{name}.py')],os.name=='posix'))

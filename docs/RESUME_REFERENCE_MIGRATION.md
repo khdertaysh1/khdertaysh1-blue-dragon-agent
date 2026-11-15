@@ -1,0 +1,7 @@
+# Resume index migration
+
+The independent CLI reproducer on 3e298d5 inserted an unknown tool result at index 2, moving a later user message from 2 to 3, while `user_turns` and `fresh_source_requests.after_message` still pointed to 2. `recover_tool_history` now applies its existing insertion map to both typed relationships, as it already did to observations and acceptance proofs. Invalid user references are not retargeted to arbitrary messages; invalid freshness boundaries fail closed at usize::MAX. The end-of-history boundary maps to the new end. Stable evidence IDs and original message bodies remain unchanged.
+
+The derived continuity checkpoint is rebuilt from repaired typed references. Prior report contents remain historical; when unknown results were inserted they are marked `transcript_indexes_invalidated_by_recovery`, unfinished and interrupted. Embedded historical tool results and user-authored JSON are not recursively rewritten or promoted to fresh evidence. Coverage/finding relationships use stable evidence IDs. Automatic browser indexes are derived from repaired observations. No provider or tool operation is replayed.
+
+`scripts/smoke_resume_reference_migration.py` runs the actual CLI before/after and twice after recovery, verifies the exact user goal, byte-range requirement, unchanged original messages, one unknown envelope, zero provider calls and no filesystem effects. Rust regression also checks stable evidence identities and acceptance proof migration. This is local Linux validation, not an actual Android process-kill test.

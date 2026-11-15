@@ -138,7 +138,34 @@ pub fn recover_tool_history(session: &mut Session) -> usize {
             }
         }
     }
+    // Typed live references must follow the same insertion map as observations.
+    // Never retarget an invalid reference to a different message or manufacture
+    // a new freshness baseline from an unknown tool result.
+    session.user_turns = session
+        .user_turns
+        .iter()
+        .filter_map(|old| {
+            positions
+                .get(*old)
+                .copied()
+                .filter(|new| *old < old_len && fixed[*new]["role"] == "user")
+        })
+        .collect();
+    for request in &mut session.fresh_source_requests {
+        request.after_message = positions
+            .get(request.after_message)
+            .copied()
+            .unwrap_or(usize::MAX);
+    }
     session.messages = fixed;
+    session.continuity_checkpoint = crate::reasoning::checkpoint::derive(session);
+    if count > 0 && session.last_report.is_object() {
+        // A prior report is a historical snapshot, not a live index. Keep its
+        // contents for review but never label it a current completed outcome.
+        session.last_report["transcript_indexes_invalidated_by_recovery"] = serde_json::json!(true);
+        session.last_report["finished"] = serde_json::json!(false);
+        session.last_report["task_status"] = serde_json::json!("interrupted");
+    }
     count
 }
 
@@ -431,6 +458,17 @@ mod tests {
             "web_fetch",
             &serde_json::json!({"ok":true,"status":200}),
         ));
+        s.user_turns = vec![1];
+        s.fresh_source_requests
+            .push(crate::intelligence::fresh::Request {
+                path: Some("source.js".into()),
+                after_message: 1,
+                requested_at: "fixture".into(),
+                bounded_only: true,
+                expected_window: Some((1000, 1100)),
+                explicit_window: true,
+            });
+        s.last_report = serde_json::json!({"finished":true,"summary":"historical"});
         s.task_checks.declared_at = 2;
         s.task_checks
             .observations
@@ -447,6 +485,22 @@ mod tests {
             s.messages[s.observations[0].message_index]["tool_call_id"],
             "observed"
         );
+        assert_eq!(s.user_turns, vec![2]);
+        assert_eq!(s.fresh_source_requests[0].after_message, 2);
+        assert_eq!(
+            s.fresh_source_requests[0].expected_window,
+            Some((1000, 1100))
+        );
+        assert_eq!(s.continuity_checkpoint["goal"]["message_index"], 2);
+        assert_eq!(
+            s.continuity_checkpoint["goal"]["excerpt"],
+            "inspect before retry"
+        );
+        assert_eq!(s.last_report["finished"], false);
+        assert_eq!(
+            s.last_report["transcript_indexes_invalidated_by_recovery"],
+            true
+        );
         assert_eq!(s.task_checks.declared_at, 3);
         assert_eq!(
             s.task_checks.observations[0]
@@ -461,6 +515,8 @@ mod tests {
         );
         assert_eq!(recover_tool_history(&mut s), 0);
         assert_eq!(s.observations[0].message_index, 4);
+        assert_eq!(s.user_turns, vec![2]);
+        assert_eq!(s.fresh_source_requests[0].after_message, 2);
     }
     #[test]
     fn interrupted_tools_get_unknown_results_before_next_user() {

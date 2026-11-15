@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib
 import json
 import os
-import tomllib
+from release_version import load_version
 import zipfile
 
 folder = Path("release-payload")
@@ -22,13 +22,13 @@ for name in required:
         continue
     if (folder / name).stat().st_size < 100_000:
         raise SystemExit(f"Unexpectedly small binary: {name}")
-version = tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"]
+version, package_version = load_version()
 (folder / "LICENSES.txt").write_text(
     Path("LICENSE").read_text() + "\n\n--- Third-party attribution ---\n" +
     Path("third_party/NOTICE.md").read_text() + "\n" +
     "\n\n".join(f"--- {p.name} ---\n{p.read_text()}" for p in sorted(Path("third_party").glob("*-LICENSE"))), encoding="utf-8")
 (folder / "release.json").write_text(json.dumps({
-    "version": version, "commit": os.environ["GITHUB_SHA"],
+    "version": version, "package_version": package_version, "tag": f"v{version}", "version_scheme": "four-part-public", "commit": os.environ["GITHUB_SHA"],
     "browser_extension_signed": False,
     "android_min_api": 26, "physical_android_tested": False,
     "assets": sorted(required),
