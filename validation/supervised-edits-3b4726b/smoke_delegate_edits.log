@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "mode": "success",
+      "child_model_requests": 2,
+      "approved_workspace_writes": true,
+      "restart_replayed_actions": 0
+    },
+    {
+      "mode": "denied",
+      "child_model_requests": 2,
+      "approved_workspace_writes": false,
+      "restart_replayed_actions": 0
+    },
+    {
+      "mode": "conflict",
+      "child_model_requests": 2,
+      "approved_workspace_writes": false,
+      "restart_replayed_actions": 0
+    }
+  ],
+  "provider": "deterministic_loopback",
+  "physical_android_tested": false
+}

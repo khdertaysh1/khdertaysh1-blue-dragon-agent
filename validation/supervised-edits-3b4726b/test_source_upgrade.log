@@ -1,0 +1,1 @@
+Legacy source upgrade reproduced the checkout conflict, preserved the generated lockfile, reached main, kept --locked, and refused dirty tracked files

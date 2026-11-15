@@ -238,7 +238,7 @@ pub fn build(
         if tokens <= available {
             return Ok((
                 view,
-                json!({"effective_context_tokens":limit,"estimated_message_tokens":tokens,"reserved_schema_reply_margin_tokens":reserved,"original_estimated_message_tokens":original,"projection_level":level,"archived_messages":archived,"original_transcript_preserved":true,"estimator":"conservative character heuristic, not a model tokenizer"}),
+                json!({"effective_context_tokens":limit,"estimated_message_tokens":tokens,"reserved_schema_reply_margin_tokens":reserved,"tool_definition_bytes":definitions.to_string().len(),"estimated_tool_definition_tokens":estimate(&definitions.to_string()),"advertised_tools":definitions.as_array().map_or(0,Vec::len),"original_estimated_message_tokens":original,"projection_level":level,"archived_messages":archived,"original_transcript_preserved":true,"estimator":"conservative character heuristic, not a model tokenizer"}),
             ));
         }
     }

@@ -1,4 +1,20 @@
-Blue Dragon 0.9.0-alpha.2 — Abyss identity candidate (unpublished).
+Blue Dragon 0.9.0-alpha.3 — release candidate, pending review and CI.
+
+- Preserve redacted HTTP status, provider reason/code/request ID and cooldown provenance. Redact bounded complete fields before clipping to prevent partial credential disclosure.
+- Validate tool identities and complete arguments before dispatch; reject explicit incomplete or unknown streamed stops. Retain partial text as historical data, never executable results.
+- Coordinate local request admission and provider cooldowns across parent/child sessions sharing the same home, origin and credential identity. Never replay uncertain requests or evade shared limits by switching models.
+- Preserve long-session constraints and original history, use bounded discoverable tool selection, and preserve supported text blocks in Anthropic translation instead of silently discarding constraints.
+- Add bounded child edit proposals with pinned evidence, parent diff approval, version/conflict checks, durable journals, conditional rollback and independent final readback. Children cannot directly write. Multi-file replacement is not filesystem-atomic.
+- Reject bare carriage returns in proposed/existing text; display CRLF and literal backslashes explicitly in approval diffs without changing file bytes.
+- Retain the approved Abyss identity and existing browser, source, evidence, memory, coverage and MCP capabilities. No external vulnerability scanners added.
+
+Exact release-candidate validation is recorded separately. Development-source tests do not establish this tag's CI status. Local fixtures do not prove live-model capability, Alpha equivalence, real-browser behavior or physical Android execution. Platform and real-browser CI remain publication gates; unavailable device testing remains explicitly untested. Existing tags and published assets are unchanged.
+
+See [candidate and trial plan](CANDIDATE_TRIAL_PLAN.md), [provider reliability](PROVIDER_RELIABILITY.md), [provider review fixes](PROVIDER_BOUNDARY_FIXES.md), and [supervised edit limits](SUPERVISED_EDIT_PROPOSALS.md).
+
+---
+
+Blue Dragon 0.9.0-alpha.2 — historical Abyss identity notes.
 
 - Integrate the selected full-wing geometric dragon into README as a genuine GIF, with a static SVG alternative and reproducible rendering script.
 - Keep the banner static with cyan BLUE and white DRAGON; apply the same palette and split wordmark in the terminal.
@@ -8,7 +24,7 @@ Blue Dragon 0.9.0-alpha.2 — Abyss identity candidate (unpublished).
 
 ---
 
-Blue Dragon 0.9.0-alpha.1 — integrated package candidate (unpublished).
+Blue Dragon 0.9.0-alpha.1 — historical integrated package notes.
 
 - Read large local UTF-8 files with bounded byte windows and streaming search, including long lines and safe continuation offsets. Preserve the existing small-file editing contract and remote source cache.
 - Track explicitly planned path/method/account/scenario test cells with pinned evidence versions and derived not-tested/blocked/inconclusive/tested states. No coverage percentages or implied vulnerability/authentication proof.

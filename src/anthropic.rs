@@ -3,6 +3,29 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
+// Preserve supported text blocks or reject locally; never discard constraints
+// while adapting the internal message representation to another provider.
+fn content_text(value: &Value, nullable: bool) -> Result<String> {
+    match value {
+        Value::String(text) => Ok(text.clone()),
+        Value::Null if nullable => Ok(String::new()),
+        Value::Array(blocks) => blocks
+            .iter()
+            .map(|block| {
+                if block["type"] != "text" {
+                    anyhow::bail!("Unsupported Anthropic history content block; nothing sent")
+                }
+                block["text"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .context("Text block missing text; nothing sent")
+            })
+            .collect::<Result<Vec<_>>>()
+            .map(|parts| parts.join("\n")),
+        _ => anyhow::bail!("Unsupported Anthropic history content; nothing sent"),
+    }
+}
+
 pub fn request_body(messages: &[Value], tools: &Value, model: &str) -> Result<Value> {
     let mut system = Vec::new();
     let mut history: Vec<Value> = Vec::new();
@@ -11,22 +34,19 @@ pub fn request_body(messages: &[Value], tools: &Value, model: &str) -> Result<Va
         let role = msg["role"].as_str().context("Message missing role")?;
         match role {
             "system" => {
-                if let Some(text) = msg["content"].as_str() {
-                    system.push(text.to_string());
-                }
+                system.push(content_text(&msg["content"], false)?);
             }
             "user" => {
                 history.push(json!({
                     "role": "user",
-                    "content": msg["content"].as_str().context("User message not text")?
+                    "content": content_text(&msg["content"], false)?
                 }));
             }
             "assistant" => {
                 let mut blocks = Vec::new();
-                if let Some(text) = msg["content"].as_str() {
-                    if !text.is_empty() {
-                        blocks.push(json!({"type":"text","text":text}));
-                    }
+                let text = content_text(&msg["content"], true)?;
+                if !text.is_empty() {
+                    blocks.push(json!({"type":"text","text":text}));
                 }
                 if let Some(calls) = msg["tool_calls"].as_array() {
                     for call in calls {
@@ -131,6 +151,30 @@ pub fn decode_response(value: &Value) -> Result<Value> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn preserves_text_block_constraints_and_rejects_unknown_blocks_without_rewriting_history() {
+        let messages = vec![
+            json!({"role":"system","content":[{"type":"text","text":"Never widen scope"},{"type":"text","text":"لا تعدّل الملفات"}]}),
+            json!({"role":"user","content":[{"type":"text","text":"Inspect only"}]}),
+            json!({"role":"assistant","content":[{"type":"text","text":"Historical result, not new evidence"}]}),
+        ];
+        let before = messages.clone();
+        let body = request_body(&messages, &json!([]), "fixture").unwrap();
+        assert_eq!(body["system"], "Never widen scope\nلا تعدّل الملفات");
+        assert_eq!(body["messages"][0]["content"], "Inspect only");
+        assert_eq!(
+            body["messages"][1]["content"][0]["text"],
+            "Historical result, not new evidence"
+        );
+        for index in 0..3 {
+            let mut bad = messages.clone();
+            bad[index]["content"][0] = json!({"type":"image","source":"private"});
+            let unchanged = bad.clone();
+            assert!(request_body(&bad, &json!([]), "fixture").is_err());
+            assert_eq!(bad, unchanged);
+        }
+        assert_eq!(messages, before);
+    }
     #[test]
     fn translates_tool_roundtrip() {
         let messages = vec![

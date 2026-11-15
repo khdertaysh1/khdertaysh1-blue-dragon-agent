@@ -48,6 +48,13 @@ impl ToolBox {
         }
     }
 
+    pub(crate) fn workspace_root(&self) -> &Path {
+        &self.root
+    }
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn set_progress(&mut self, callback: impl Fn(String) + Send + Sync + 'static) {
         self.progress = Some(Box::new(callback));
     }
@@ -514,6 +521,7 @@ impl ToolBox {
         if !self.approve(&format!("Write {relative}"), &diff)? {
             return Ok(json!({"ok":false,"status":"denied by user"}));
         }
+        let _write_lock = crate::edit_proposals::WriteLock::acquire(&self.root)?;
         let parent = path.parent().context("Missing file parent")?;
         let mut temp = tempfile::NamedTempFile::new_in(parent)?;
         temp.write_all(new_content.as_bytes())?;
@@ -549,6 +557,7 @@ impl ToolBox {
         if !self.approve("Create project directory", relative)? {
             return Ok(json!({"ok":false,"status":"denied by user"}));
         }
+        let _write_lock = crate::edit_proposals::WriteLock::acquire(&self.root)?;
         // Resolve again after approval in case the path was swapped while the user reviewed.
         let path = self.resolve(relative, true)?;
         fs::create_dir(path)?;

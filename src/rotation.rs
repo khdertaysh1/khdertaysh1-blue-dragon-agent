@@ -11,22 +11,16 @@ pub struct ProviderFailure {
     pub model_specific: bool,
     pub retry_after: u64,
     pub context_exceeded: bool,
+    pub retry_after_source: &'static str,
+    pub code: Option<String>,
+    pub reason: Option<String>,
+    pub request_id: Option<String>,
 }
 impl std::fmt::Display for ProviderFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Provider HTTP {} ({}); retry-after {} seconds",
-            self.status,
-            if self.context_exceeded {
-                "context window exceeded; no model rotation"
-            } else if self.model_specific {
-                "model-specific"
-            } else {
-                "shared or unknown scope; no rotation"
-            },
-            self.retry_after
-        )
+        write!(f, "Provider HTTP {}; category={}; code={}; reason={}; request_id={}; cooldown={}s source={}; no same-request retry",
+            self.status, if self.context_exceeded {"context_limit"} else if self.status == 400 {"invalid_request"} else if self.model_specific {"explicit_model_failure"} else {"unclassified_scope"},
+            self.code.as_deref().unwrap_or("unreported"),self.reason.as_deref().unwrap_or("unreported"),self.request_id.as_deref().unwrap_or("unreported"),self.retry_after,self.retry_after_source)
     }
 }
 impl std::error::Error for ProviderFailure {}
@@ -34,7 +28,11 @@ impl std::error::Error for ProviderFailure {}
 impl ProviderFailure {
     pub fn from_response(status: u16, retry_after: Option<u64>, body: &str) -> Self {
         let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        let error = &parsed["error"];
+        let error = if parsed["error"].is_object() {
+            &parsed["error"]
+        } else {
+            &parsed
+        };
         let source = error["limit_source"]
             .as_str()
             .or_else(|| error["metadata"]["limit_source"].as_str())
@@ -61,15 +59,39 @@ impl ProviderFailure {
                         || matches!(source, "model" | "upstream_model" | "model_rate_limit")
                 }
                 404 => matches!(code, "model_not_found" | "model_unavailable"),
-                502 | 503 => true,
+                502 | 503 => {
+                    matches!(source, "model" | "upstream_model")
+                        || matches!(code, "model_unavailable" | "model_overloaded")
+                }
                 _ => false,
             };
+        let retry_after_source = if retry_after.is_some() {
+            "provider_header"
+        } else if error["retry_after_seconds"].as_u64().is_some() {
+            "provider_body"
+        } else {
+            "program_default"
+        };
         let retry_after = retry_after
             .or_else(|| error["retry_after_seconds"].as_u64())
-            .unwrap_or(if status == 429 { 300 } else { 60 })
-            .clamp(1, 86400);
+            .unwrap_or(if status == 429 {
+                300
+            } else if model_specific || matches!(status, 502 | 503) {
+                60
+            } else {
+                0
+            });
         Self {
             status,
+            retry_after_source,
+            code: (!code.is_empty())
+                .then(|| code.to_owned())
+                .or_else(|| error["code"].as_i64().map(|v| v.to_string())),
+            reason: error["message"]
+                .as_str()
+                .or_else(|| parsed["error"].as_str())
+                .map(str::to_owned),
+            request_id: None,
             model_specific,
             retry_after,
             context_exceeded: matches!(status, 400 | 413 | 422)
@@ -115,7 +137,7 @@ impl Rotation {
         self.tried.insert(current.into());
         self.cooldowns.insert(
             current.into(),
-            Instant::now() + Duration::from_secs(failure.retry_after),
+            Instant::now().checked_add(Duration::from_secs(failure.retry_after))?,
         );
         let next = candidates
             .iter()
@@ -131,7 +153,7 @@ impl Rotation {
             .clone();
         self.remaining -= 1;
         self.tried.insert(next.clone());
-        self.history.push(json!({"from":current,"to":next,"http_status":failure.status,"cooldown_seconds":failure.retry_after}));
+        self.history.push(json!({"from":current,"to":next,"http_status":failure.status,"cooldown_seconds":failure.retry_after,"cooldown_source":failure.retry_after_source}));
         Some(next)
     }
     pub fn status(&self, active: &str) -> Value {
@@ -191,6 +213,32 @@ mod tests {
                     &ProviderFailure::from_response(status, None, ""),
                     &pool
                 )
+                .is_none());
+        }
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn defaults_are_not_provider_headers_and_generic_service_errors_do_not_rotate() {
+        let invalid =
+            ProviderFailure::from_response(400, None, r#"{"error":{"message":"bad schema"}}"#);
+        assert_eq!(invalid.retry_after_source, "program_default");
+        assert!(!invalid.model_specific);
+        let body = ProviderFailure::from_response(
+            429,
+            None,
+            r#"{"error":{"retry_after_seconds":999999}}"#,
+        );
+        assert_eq!(body.retry_after, 999999);
+        assert_eq!(body.retry_after_source, "provider_body");
+        assert!(!body.model_specific);
+        for status in [400, 429, 500, 502, 503] {
+            let failure = ProviderFailure::from_response(status, None, "");
+            assert!(Rotation::new(true)
+                .next("kilo-auto/free", &failure, &["x/code:free".into()])
                 .is_none());
         }
     }

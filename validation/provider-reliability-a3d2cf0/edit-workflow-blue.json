@@ -1,0 +1,199 @@
+{
+  "schema": 1,
+  "scope": "Five deterministic edit workflows, not autonomous problem solving or overall parity",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "harness_sha256": "1d24c3ff6e9719d65c1aa26df7c811d7a1d995c8d309fb4bdebb13d679d93704",
+  "read_oracle_sha256": "0b659423cb78e56722a776b08ecb3232402e1e701722dd462cd619a4d5e3a8c6",
+  "blue": {
+    "binary_sha256": "45eaac4648e1d438afd366f17795b631bbfc8a664f9ca7b8825c819ee299a064",
+    "cases": [
+      {
+        "case": "unique",
+        "repetition": 1,
+        "status": "passed",
+        "provider_requests": 5,
+        "completion_only_followups": 1,
+        "steps": [
+          {
+            "step": 0,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "88a1bfbc58c7f73f4fde1c3bcc88a25c7df57766991b201e1014a5fd1810856c",
+            "target_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 1,
+            "kind": "edit",
+            "expected_rejection": null,
+            "result_sha256": "e955ad906b92d700af98c2ec86a1e2bdbd619138e94bc279b47a7b1c5e7a33d9",
+            "target_sha256": "627782fc6add3833ea61d488e5e0ce499d80a16513c32ccb12581e4823b6ff2d",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 2,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "ddc49b818745f44792fd139f37bcb5790a2392973536659fdd2a4241397b2ed6",
+            "target_sha256": "627782fc6add3833ea61d488e5e0ce499d80a16513c32ccb12581e4823b6ff2d",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          }
+        ],
+        "elapsed_ms": 21.879
+      },
+      {
+        "case": "utf8",
+        "repetition": 1,
+        "status": "passed",
+        "provider_requests": 5,
+        "completion_only_followups": 1,
+        "steps": [
+          {
+            "step": 0,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "8d7400078b11f7b48a4b1d2bbcb1806d3aedf32562833d8bcd93f9890da4ccc0",
+            "target_sha256": "aa2924c963a1903cc614297bc63b46c3475d007afcc62cd5f8f75d904f5eb7aa",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 1,
+            "kind": "edit",
+            "expected_rejection": null,
+            "result_sha256": "61300564e687bb25a5a87e9b056704ca497e4bbf7dc71a0ea969c935c11e5ef1",
+            "target_sha256": "dbf12dee9cc18e1e18a2e8e47b57723886e2a5c5a816d0cb52c350c493c5bf8a",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 2,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "94bea58e9c248048198e7c7124a3fcb688ef1c67e6216011e74df0328be444ae",
+            "target_sha256": "dbf12dee9cc18e1e18a2e8e47b57723886e2a5c5a816d0cb52c350c493c5bf8a",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          }
+        ],
+        "elapsed_ms": 20.612
+      },
+      {
+        "case": "absent",
+        "repetition": 1,
+        "status": "passed",
+        "provider_requests": 4,
+        "completion_only_followups": 0,
+        "steps": [
+          {
+            "step": 0,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "88a1bfbc58c7f73f4fde1c3bcc88a25c7df57766991b201e1014a5fd1810856c",
+            "target_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 1,
+            "kind": "edit",
+            "expected_rejection": "absent",
+            "result_sha256": "78754dc5533fcc78b6c8db3611b1844f97b531a6b365fc519e3610194cf7f287",
+            "target_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 2,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "b5897dd9fc3b852b010fd13bca260451ff74be39aa8ca0759856956fe6a8d2f1",
+            "target_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          }
+        ],
+        "elapsed_ms": 20.178
+      },
+      {
+        "case": "ambiguous",
+        "repetition": 1,
+        "status": "passed",
+        "provider_requests": 4,
+        "completion_only_followups": 0,
+        "steps": [
+          {
+            "step": 0,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "0b7b0f0b0ac18ef65ce4684824e3bed9bed547767a5af9eec1ad65432899dfca",
+            "target_sha256": "3e4714796e24aee4b8920a7fa50d5d53a7a03e648953e2245d772c75183cd8ae",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 1,
+            "kind": "edit",
+            "expected_rejection": "ambiguous",
+            "result_sha256": "78754dc5533fcc78b6c8db3611b1844f97b531a6b365fc519e3610194cf7f287",
+            "target_sha256": "3e4714796e24aee4b8920a7fa50d5d53a7a03e648953e2245d772c75183cd8ae",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 2,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "566397c7e33223cc05c103d2f20e87fd9b31d7da22980a60cf63e39d64767473",
+            "target_sha256": "3e4714796e24aee4b8920a7fa50d5d53a7a03e648953e2245d772c75183cd8ae",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          }
+        ],
+        "elapsed_ms": 16.856
+      },
+      {
+        "case": "recovery",
+        "repetition": 1,
+        "status": "passed",
+        "provider_requests": 6,
+        "completion_only_followups": 1,
+        "steps": [
+          {
+            "step": 0,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "88a1bfbc58c7f73f4fde1c3bcc88a25c7df57766991b201e1014a5fd1810856c",
+            "target_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 1,
+            "kind": "edit",
+            "expected_rejection": "absent",
+            "result_sha256": "78754dc5533fcc78b6c8db3611b1844f97b531a6b365fc519e3610194cf7f287",
+            "target_sha256": "b5234439393d99f783b9ca0725131b9398990fe2e66af7db0589b5afb5514368",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 2,
+            "kind": "edit",
+            "expected_rejection": null,
+            "result_sha256": "8eebaa60edc0725a039dac6f1f95cc26e9ddf34caca46fb837b9ffa973e953f0",
+            "target_sha256": "627782fc6add3833ea61d488e5e0ce499d80a16513c32ccb12581e4823b6ff2d",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          },
+          {
+            "step": 3,
+            "kind": "read",
+            "expected_rejection": null,
+            "result_sha256": "946a20a511a1144b0bfce089a9c073389d4a76fc965e52260e7b79337085467c",
+            "target_sha256": "627782fc6add3833ea61d488e5e0ce499d80a16513c32ccb12581e4823b6ff2d",
+            "sibling_sha256": "1309c49475d9a4a0ec98898ad95eded7332e1f685ca066ad41416262fe5eed36"
+          }
+        ],
+        "elapsed_ms": 23.077
+      }
+    ]
+  },
+  "alpha": {
+    "status": "not_run"
+  },
+  "limits": [
+    "Normal approval settings; affirmative stdin answers only authorized fixture edits. No approval-equivalence claim.",
+    "On-disk target and sibling checked after each native step; no OS isolation or exhaustive filesystem audit.",
+    "Alpha uses its documented low-memory build; timing is not a speed ranking.",
+    "No live model, browser, phone or semantic capability comparison."
+  ]
+}
