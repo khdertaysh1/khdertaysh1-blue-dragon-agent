@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/abyss-banner.svg" alt="Blue Dragon — Abyss banner with cyan BLUE, white DRAGON and the chosen geometric emblem" width="100%" />
+  <img src="assets/abyss-banner.svg" alt="Blue Dragon — Abyss banner with cyan BLUE, white DRAGON and a geometric emblem" width="100%" />
 </p>
 
 <h1 align="center">BLUE DRAGON</h1>
@@ -17,7 +17,7 @@
 
 <p align="center">
   <a href="#quick-start">Get started</a> ·
-  <a href="#the-dragon-mind">Explore the agent</a> ·
+  <a href="#the-dragon">Explore the agent</a> ·
   <a href="#terminal-preview">Animated preview</a> ·
   <a href="docs/SHOWCASE.md">Visual gallery</a> ·
   <a href="#capabilities">Capabilities</a> ·
@@ -26,15 +26,15 @@
 </p>
 
 > [!IMPORTANT]
-> **[Blue Dragon 0.9.0-alpha.3 — published developer preview](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.3).** [Release CI passed](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/43715146909); physical Termux testing remains unverified. The integrated package includes provider diagnostics and shared cooldowns, bounded file research, independent agents with parent-approved edit proposals, browser control, evidence reports, scoped memory and stdio MCP. The version number does not establish equivalence to AlphaCode or device validation. See the [candidate and trial plan](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
+> **Development preview.** The published baseline is [0.9.0-alpha.6](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.6). This source tree prepares **1.1.9.0**; its review and final CI are still pending. The installer downloads published releases, not unpublished source changes. See [release notes](docs/RELEASE_NOTES.md) and [version mapping](docs/PUBLIC_VERSION.md).
+>
+> Physical Android/Termux testing and sustained live-model reliability remain unverified. Provider quotas can still cause HTTP 429. See [trial evidence and limits](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
-> **[Published baseline: Blue Dragon 0.9.0-alpha.5](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.5). Next candidate: 0.9.0-alpha.6**, containing fresh-source acceptance, continuity preservation, validated command arguments and bounded discovery-name repair. This local candidate is pending independent review and final CI; existing releases remain unchanged. See [release notes](docs/RELEASE_NOTES.md), [command-path evidence](docs/COMMAND_ARGUMENT_REPAIR.md) and [discovery trial limits](docs/DISCOVERY_COMMAND_REPAIR.md).
-
-## The Dragon Mind
+## The Dragon
 
 <div align="center">
-  <img src="assets/abyss-dragon.gif" alt="Abyss: the approved full-wing geometric dragon with energy rings; decorative animation" width="100%" />
-  <sub>Abyss identity: the chosen full-wing dragon and energy rings. Decorative GIF, not live activity.</sub>
+  <img src="assets/abyss-dragon.gif" alt="Abyss: the full-wing geometric dragon with energy rings; decorative animation" width="100%" />
+  <sub>Abyss identity: the full-wing dragon and energy rings. Decorative GIF, not live activity.</sub>
 </div>
 
 [View the still image (no motion)](assets/abyss-dragon.svg) · [Terminal adaptation and motion controls](docs/ABYSS_IDENTITY.md)
@@ -61,7 +61,7 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **Blue Free** | Keyless gateway automatic routing; automatic alias and concrete model choices stay pinned in the client |
 
 <details>
-<summary><b>See all 20 built-in agent tools</b></summary>
+<summary><b>Core built-in agent tools</b></summary>
 
 ```text
 list_files     read_file      read_lines    search_files
@@ -102,9 +102,9 @@ The demo is deliberately illustrative. Commands and results are sample text; the
 
 ## Agent control and evidence
 
-Version 0.6 adds task-specific guidance, context budgeting without deleting the original transcript, stalled-loop recovery and evidence-linked findings. `/context` shows model-request usage; `/findings` shows observations and hypothesis/supported/blocked findings. The model can retrieve exact older details with `recall_context`. A successful citation does not guarantee a finding is correct. See [runtime behavior and comparison audit](docs/AGENT_REASONING.md).
+The agent provides task-specific guidance, context budgeting without deleting the original transcript, stalled-loop recovery and evidence-linked findings. `/context` shows model-request usage; `/findings` shows observations and hypothesis/supported/blocked findings. The model can retrieve exact older details with `recall_context`. A successful citation does not guarantee a finding is correct. See [runtime behavior and comparison audit](docs/AGENT_REASONING.md).
 
-Version 0.7 adds local structural code search, historical notes scoped to the canonical project path and explicit website target, and acceptance checks tied to exact native tool results. `/memory [query]` searches notes, `/memory forget ID` removes one, `/checks` shows missing or stale checks. `--no-project-memory` disables note retrieval/saving for the process. Notes may be included in requests to the selected model provider; they remain historical data and cannot authorize actions or prove current results. See [the implementation audit and limits](docs/PROJECT_INTELLIGENCE.md).
+Workspace research includes local structural code search, historical notes scoped to the canonical project path and explicit website target, and acceptance checks tied to exact native tool results. `/memory [query]` searches notes, `/memory forget ID` removes one, `/checks` shows missing or stale checks. `--no-project-memory` disables note retrieval/saving for the process. Notes may be included in requests to the selected model provider; they remain historical data and cannot authorize actions or prove current results. See [the implementation audit and limits](docs/PROJECT_INTELLIGENCE.md).
 
 ## Browser and automatic free models
 
@@ -149,7 +149,7 @@ Select and save a provider from the terminal:
 
 Or use `blue-dragon model free` before launching. `/models refresh` updates Kilo's keyless free catalog. `/models openrouter` separately lists OpenRouter free models, which require your own `OPENROUTER_API_KEY`. Switching changes where subsequent conversation context is sent. See [model setup and live validation](docs/MODELS.md).
 
-This source candidate bounds free-route request input, exposes metadata-only provider traffic auditing, and preserves completed reasoning/source evidence without retransmitting full envelopes. See the [code comparison, capacity measurements, configuration and remaining limits](docs/provider-capacity-review.md). These candidate changes are not installed by the published release installer until a coordinated release includes them.
+Provider traffic diagnostics separate estimated budgets from reported usage. Completed reasoning and source evidence remain available without retransmitting full envelopes. See [capacity measurements, configuration and remaining limits](docs/provider-capacity-review.md). These measurements are not a guarantee of provider capacity.
 
 To use a hosted, OpenAI-compatible endpoint with your own key:
 

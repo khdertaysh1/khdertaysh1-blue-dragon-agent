@@ -143,6 +143,11 @@ impl Screen {
 
     fn submit(&mut self, tx: &Sender<Work>) {
         if self.busy {
+            if !self.input.trim().is_empty() {
+                self.cancelled
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                self.status = "New instruction preserved; cancelling current work. Press Enter after it stops to submit.".into();
+            }
             return;
         }
         let text = self.input.trim().to_string();
@@ -1144,6 +1149,7 @@ mod tests {
         app.input = "draft".into();
         app.submit(&tx);
         assert_eq!(app.input, "draft");
+        assert!(app.cancelled.load(std::sync::atomic::Ordering::Relaxed));
         assert!(rx.try_recv().is_err());
     }
 

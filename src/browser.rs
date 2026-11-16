@@ -488,7 +488,15 @@ impl Browser {
     pub fn invoke(&mut self, tools: &ToolBox, args: &Value) -> Result<Value> {
         let action = args["action"].as_str().context("Missing browser action")?;
         if action == "status" {
-            return Ok(self.status());
+            let mut status = self.status();
+            status["observation_kind"] = json!("browser_status");
+            status["page_inspected"] = json!(false);
+            status["agent_recovery_hint"] = json!(if status["ready"] == true {
+                "Connection status only, not page evidence. Choose a permitted page read for the task; do not poll unchanged status."
+            } else {
+                "Browser not ready; status did not inspect a page. Do not poll unchanged status. An authorized open/navigate can prepare the browser with existing scope and approval checks; otherwise report the connection blocker. Never replay an unknown interaction."
+            });
+            return Ok(status);
         }
         if ![
             "open",

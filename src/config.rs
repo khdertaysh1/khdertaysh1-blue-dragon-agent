@@ -59,7 +59,7 @@ impl Settings {
             mcp_config: None,
             stream: true,
             free_rotation: true,
-            free_model_fallback: false,
+            free_model_fallback: true,
             max_steps: 24,
             context_tokens: 32768,
             project_memory: true,
