@@ -765,6 +765,25 @@ pub fn build_with_budget(
                     }
                 }
             }
+            if level == 6 {
+                // The same observations are already indexed in the transcript. Keep
+                // references and outcomes here so the original user turns still fit.
+                if let Some(rows) = memory
+                    .get_mut("recent_observations")
+                    .and_then(Value::as_array_mut)
+                {
+                    for row in rows {
+                        if let Some(fields) = row.as_object_mut() {
+                            fields.retain(|key, _| {
+                                matches!(
+                                    key.as_str(),
+                                    "id" | "evidence_id" | "message_index" | "tool" | "ok"
+                                )
+                            });
+                        }
+                    }
+                }
+            }
             if let Some(steps) = memory
                 .get_mut("plan")
                 .and_then(|p| p.get_mut("steps"))
