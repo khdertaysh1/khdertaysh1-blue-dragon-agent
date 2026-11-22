@@ -98,12 +98,14 @@ try{
  for(const expression of ['(()=>{throw Error("transport sync fixture")})()','Promise.reject(Error("transport async fixture"))']) {
   const failure=(await send('/browser do '+JSON.stringify({action:'evaluate',expression}),true)).data;
   assert.equal(failure.ok,false);assert.equal(failure.automatic_retry,false);
+  await action({action:'snapshot'});
  }
  const snapshot=await action({action:'snapshot'});assert.equal(snapshot.title,'Blue Dragon fixture');assert(snapshot.elements.some(e=>e.selector==='#send'));assert(!snapshot.text.includes('UNMANAGED_SECRET'));
  assert(snapshot.elements.find(e=>e.selector==='#choice').options.some(o=>o.value==='b'));
  await action({action:'evaluate',expression:'document.querySelector("#scrollbox").style.visibility="hidden"'});
  const hiddenScroll=(await send('/browser do '+JSON.stringify({action:'scroll',selector:'#scrollbox',delta_y:100}),true)).data;
  assert.equal(hiddenScroll.ok,false);assert.equal(hiddenScroll.automatic_retry,false);
+ await action({action:'snapshot'});
  assert.equal(await action({action:'evaluate',expression:'document.querySelector("#scrollbox").scrollTop'}),0);
  await action({action:'evaluate',expression:'document.querySelector("#scrollbox").style.visibility="visible"'});
  const containerScroll=await action({action:'scroll',selector:'#scrollbox',delta_y:100,delta_x:50});

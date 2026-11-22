@@ -1414,7 +1414,7 @@ mod tests {
     fn newline_only_edit_roundtrips_and_unchanged_reports_exact_bytes() {
         let tmp = tempfile::tempdir().unwrap();
         let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
-        let t = ToolBox::new(tmp.path().to_path_buf(), ApprovalMode::Tui(tx));
+        let t = ToolBox::new(tmp.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
         let approver = std::thread::spawn(move || {
             for _ in 0..2 {
                 rx.recv().unwrap().respond_to.send(true).unwrap();

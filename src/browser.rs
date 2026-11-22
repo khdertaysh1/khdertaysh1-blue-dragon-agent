@@ -529,7 +529,7 @@ impl Browser {
         );
         if mutation && self.uncertain_mutation {
             return Ok(
-                json!({"ok":false,"execution_status":"not_executed","category":"unknown_prior_effect","error":"Prior mutation outcome unknown. Read a fresh snapshot before a new action; no automatic replay."}),
+                json!({"ok":false,"execution_status":"not_executed","category":"unknown_prior_effect","automatic_retry":false,"error":"Prior mutation outcome unknown. Read a fresh snapshot before a new action; no automatic replay."}),
             );
         }
         if matches!(action, "open" | "navigate") {

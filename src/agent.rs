@@ -1255,9 +1255,14 @@ impl Agent {
                                 && !report_recovery
                                 && !user_denied_action
                                 && unresolved_arguments.is_empty()
-                                && actions
-                                    .iter()
-                                    .any(|a| a["ok"] == true && a["cached_result"] != true)
+                                && actions.iter().any(|a| {
+                                    a["ok"] == true
+                                        && a["cached_result"] != true
+                                        && !matches!(
+                                            a["tool"].as_str(),
+                                            Some("discover_tools" | "update_plan")
+                                        )
+                                })
                                 && step + 1 < step_limit
                                 && !token.load(std::sync::atomic::Ordering::Relaxed)
                                 && !crate::terminal_input::cancelled()
@@ -1641,9 +1646,9 @@ impl Agent {
                 let mut correction_origin = crate::tool_arguments::CorrectionOrigin::NotDispatched;
                 let outcome = if user_denied_action {
                     denial_violation = true;
-                    Ok(
-                        json!({"ok":false,"category":"blocked_after_user_denial","execution_status":"not_executed","error":"User declined execution; no alternative tool is allowed this turn."}),
-                    )
+                    Ok(self.loop_guard.before(name, &guard_args).unwrap_or_else(|| {
+                        json!({"ok":false,"category":"blocked_after_user_denial","execution_status":"not_executed","error":"User declined execution; no alternative tool is allowed this turn."})
+                    }))
                 } else if crate::terminal_input::cancelled()
                     || self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
                 {
@@ -1874,7 +1879,14 @@ impl Agent {
                 }
                 let mut result = match outcome {
                     Ok(value) => value,
-                    Err(error) => tools::error_result(&error),
+                    Err(error) => {
+                        let result = tools::error_result(&error);
+                        if result["category"] == "tool_error" {
+                            json!({"ok":false,"error":format!("{error:#}")})
+                        } else {
+                            result
+                        }
+                    }
                 };
                 if argument_error.is_some() {
                     unresolved_arguments.insert(name.to_owned());
@@ -1889,7 +1901,6 @@ impl Agent {
                         })
                     {
                         pending_discovery.insert(name.to_owned());
-                        result["category"] = json!("tool_not_advertised");
                         result["tool"] = json!(name);
                         result["correction_attempt"] = json!(0);
                         result["retry_hint"] = json!(format!(

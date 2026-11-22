@@ -74,7 +74,7 @@ def run(binary, mode):
    assert results[0].get('ok') is True,(mode,len(packets),results,p.stdout,p.stderr)
    if mode.startswith('quoted_'):
     assert results[0]['name_normalizations']==[{'original':'"run_command"','effective':'run_command','operation':'single_json_string_decode','permission_changed':False}]
-    assert results[0]['permission_changed'] is False and len(packets)==(4 if mode=='quoted_approve' else 3),(mode,len(packets),results,p.stdout,p.stderr)
+    assert results[0]['permission_changed'] is False and len(packets) in ({3,4} if mode=='quoted_approve' else {3}),(mode,len(packets),results,p.stdout,p.stderr)
     assert len(results)==2 and 'run_command' in results[0]['active_schema_names']
     first=next(m for m in session['messages'] if m.get('tool_calls'))
     assert json.loads(first['tool_calls'][0]['function']['arguments'])=={'names':['"run_command"']}

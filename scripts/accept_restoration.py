@@ -80,7 +80,7 @@ def trial(binary,case,baseline=False):
     body=json.dumps({'choices':[{'message':m,'finish_reason':'tool_calls' if m.get('tool_calls') else 'stop'}]}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
   provider=http.server.ThreadingHTTPServer(('127.0.0.1',0),Provider);threading.Thread(target=provider.serve_forever,daemon=True).start()
   env={k:v for k,v in os.environ.items() if k in ('PATH','SYSTEMROOT','WINDIR','TMP','TEMP','COMSPEC','PATHEXT')};env.update(HOME=td,BLUE_DRAGON_HOME=str(home),NO_COLOR='1',TERM='dumb',BLUE_DRAGON_INPUT_BUDGET='20000')
-  prompt={'command':'Print BLUE_DRAGON_OK once locally, wait for my approval, then report stdout and exit code and stop.','denied':'Propose printing a local marker. Respect my decision; do not use an alternative.','file':'Create note.txt with marker=BD_CHECK_942, items=7, price_each=6 on three lines. Read it and report the marker and total price.','fetch':f'Using curl, save HTML from {url} to page.html and response headers to headers.txt. Read both files and report what they contain. Do not use a browser.','search':'Search module.js literally for the function name and read its complete definition.','schema':'Print a marker with my approval; correct invalid arguments without guessing and keep previous results.','repeat_bad':'Print a marker only with valid arguments and my approval.','discovery_only':'Print a marker only with valid arguments and my approval.','discovered':'Read three lines of module.js with a file tool.'}.get(case)
+  prompt={'command':'Print BLUE_DRAGON_OK once locally, wait for my approval, then report stdout and exit code and stop.','denied':'Propose printing a local marker. Respect my decision; do not use an alternative.','file':'Create note.txt with marker=BD_CHECK_942, items=7, price_each=6 on three lines. Read it and report the marker and total price.','fetch':f'Using curl, save HTML from {url} to page.html and response headers to headers.txt. Read both files and report what they contain. Do not use a browser.','search':'Search module.js literally for the function name and read its complete definition.','schema':'Print a marker with my approval; correct invalid arguments without guessing and keep previous results.','repeat_bad':'Print a marker only with valid arguments and my approval.','discovery_only':'Print a marker only with valid arguments and my approval.','discovered':'Use the line-reading tool to inspect the first three lines of module.js.'}.get(case)
   if case.startswith('fetch_discovery'):
    prompt='Fetch the loopback test page only after approval. Continue with saved observations if the tool is unavailable.'
   if case in exact_requests:
@@ -99,7 +99,7 @@ def trial(binary,case,baseline=False):
     rest,_=proc.communicate(b'y\n',timeout=30);stdout=(out+rest).decode();code=proc.returncode
    else:
     proc=subprocess.run(cmd,input=('n\n' if case in ('denied','exact_denied','fetch_discovery_denied') else 'y\n'*10),env=env,text=True,capture_output=True,timeout=35);stdout=proc.stdout+proc.stderr;code=proc.returncode
-   session=json.loads(next((home/'sessions').glob('*.json')).read_text());results=[json.loads(m['content']) for m in session['messages'] if m['role']=='tool'];commands=[r for r in results if 'exit_code' in r];errors=[r for r in results if r.get('category')=='invalid_arguments']
+   session=json.loads(next((home/'sessions').glob('*.json')).read_text());results=[json.loads(m['content']) for m in session['messages'] if m['role']=='tool'];commands=[r for r in results if 'exit_code' in r];errors=[r for r in results if r.get('category')=='invalid_arguments' and r.get('expected_type')!='advertised tool']
    advertised_first=any(d['function']['name']=='run_command' for d in packets[0].get('tools',[]))
    if baseline:return {'case':case,'first_run_command_advertised':advertised_first,'commands':len(commands),'argument_errors':len(errors),'task_status':session['last_report']['task_status'],'requests':len(packets),'exit':code}
    assert advertised_first
@@ -124,7 +124,7 @@ def trial(binary,case,baseline=False):
      if case=='exact_file':
       assert 'total=42' in session['messages'][-1]['content']
       assert any(r.get('executed_arguments',{}).get('content')==expected for r in results)
-   if case=='schema':assert len(errors)==2 and all(r['field']=='$.cwd' and r['correction_attempt']==1 for r in errors) and len(commands)==2
+   if case=='schema':assert len(errors)==2 and all(r['expected_type']=='only advertised fields' and r['actual_type']=='unexpected field' and r['correction_attempt']==1 for r in errors) and len(commands)==2
    if case=='command':assert len(commands)==1 and commands[0]['stdout']=='BLUE_DRAGON_OK\n' and commands[0]['exit_code']==0 and len(packets)==2
    if case=='denied':assert not commands and any(r.get('denied') or r.get('status')=='denied by user' for r in results) and len(packets)==2
    if case=='file':assert (work/'note.txt').read_text()=='marker=BD_CHECK_942\nitems=7\nprice_each=6\n' and any(r.get('content')==(work/'note.txt').read_text() for r in results)
@@ -141,7 +141,7 @@ def trial(binary,case,baseline=False):
     assert follow.returncode==0 and len(packets)==before+1 and 'BD_CHECK_942' in follow.stdout and '42' in follow.stdout
    if case.startswith('fetch_discovery'):
     rejected=results[0]
-    assert rejected['category']=='tool_not_advertised' and rejected['tool']=='web_fetch'
+    assert rejected['expected_type']=='advertised tool' and rejected['actual_type']=='unknown tool' and rejected['tool']=='web_fetch'
     assert rejected['execution_status']=='not_executed' and rejected['correction_attempt']==0
     assert '{"names":["web_fetch"]}' in rejected['retry_hint']
     assert 'web_fetch was not advertised' in stdout
@@ -155,7 +155,7 @@ def trial(binary,case,baseline=False):
     else:
      assert gets==[] and results[-1]['denied'] is True and len(packets)==4
    if case=='discovered':
-    assert any(r.get('category')=='tool_not_advertised' and r['correction_attempt']==0 for r in results)
+    assert any(r.get('expected_type')=='advertised tool' and r['correction_attempt']==0 for r in results)
     assert any('lines' in r for r in results) and not errors
    if case in ('file','fetch'):assert session['last_report']['task_status']!='needs_verification',session['last_report']['task_status']
    return {'case':case,'passed':True,'requests':len(packets),'commands':len(commands),'GETs':len(gets),'argument_errors':len(errors),'task_status':session['last_report']['task_status']}
