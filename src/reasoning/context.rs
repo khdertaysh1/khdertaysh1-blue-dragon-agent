@@ -791,8 +791,22 @@ pub fn recall(history: &[Value], args: &Value) -> Result<Value> {
     let item = history
         .get(index)
         .ok_or_else(|| anyhow::anyhow!("Message index not present"))?;
-    let offset = args["offset"].as_u64().unwrap_or(0) as usize;
-    let count = args["count"].as_u64().unwrap_or(6000) as usize;
+    let offset = args
+        .get("offset")
+        .map(|v| {
+            v.as_u64()
+                .ok_or_else(|| anyhow::anyhow!("offset must be a nonnegative integer"))
+        })
+        .transpose()?
+        .unwrap_or(0) as usize;
+    let count = args
+        .get("count")
+        .map(|v| {
+            v.as_u64()
+                .ok_or_else(|| anyhow::anyhow!("count must be an integer"))
+        })
+        .transpose()?
+        .unwrap_or(6000) as usize;
     if count == 0 || count > 12000 {
         bail!("count must be 1..12000 characters");
     }

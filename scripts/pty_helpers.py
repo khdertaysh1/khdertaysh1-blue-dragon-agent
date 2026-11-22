@@ -45,3 +45,45 @@ def contains_styled_text(captured, text):
     supplies remaining bytes. This is a text-emission oracle, not an emulator.
     """
     return text in _SGR.sub(b"", bytes(captured))
+
+
+def exact_file_chat(command, prompt, env, path, expected):
+    """Drive a bracketed paste and native approval in the actual chat terminal."""
+    import fcntl
+    import pty
+    import subprocess
+    import termios
+
+    def controlling():
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+    master, slave = pty.openpty()
+    output = bytearray()
+    def wait_for(marker):
+        deadline = time.monotonic() + 15
+        while marker not in output and time.monotonic() < deadline:
+            if select.select([master], [], [], 0.1)[0]:
+                output.extend(os.read(master, 65536))
+        assert marker in output, bytes(output[-1800:])
+
+    proc = subprocess.Popen(command, env=env, stdin=slave, stdout=slave, stderr=slave,
+                            preexec_fn=controlling)
+    try:
+        wait_for(b'blue-dragon>')
+        os.write(master, b'\x1b[200~' + prompt.encode() + b'\x1b[201~\r')
+        wait_for(b'Approve this ONE action?')
+        assert not path.exists()
+        size = len(expected.encode())
+        assert f'UTF-8 bytes: {size} | ends_with_newline: true'.encode() in output
+        os.write(master, b'y')
+        wait_for(f'Verified {path.name}: {size} bytes, ends_with_newline=true.'.encode())
+        os.write(master, b'/exit\r')
+        wait_exit(proc, master, output)
+        return output.decode(errors='replace'), proc.returncode
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        os.close(master)
+        os.close(slave)

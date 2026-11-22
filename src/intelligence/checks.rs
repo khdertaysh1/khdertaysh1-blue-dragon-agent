@@ -94,11 +94,11 @@ impl Contract {
    json!({"criterion":c,"observed":observed,"evidence":proof,"freshness":if observed && proof.is_some_and(|p|p.coverage_complete){"matches_bounded_workspace_snapshot"}else if observed{"snapshot_coverage_limited"}else{"missing_or_stale"}})
   }).collect::<Vec<_>>();
         let satisfied = !rows.is_empty() && rows.iter().all(|r| r["observed"] == true);
-        json!({"checks":rows,"all_declared_checks_observed":satisfied,"semantic_task_correctness_proven":false,"note":"Exact tool/input/native-result checks with bounded workspace freshness. Model-authored criteria can still be insufficient; no prose, historical memory or stdout banner is treated as task success."})
+        json!({"declaration_state":if rows.is_empty(){"not_declared"}else{"declared"},"checks":rows,"all_declared_checks_observed":satisfied,"semantic_task_correctness_proven":false,"note":"Exact tool/input/native-result checks with bounded workspace freshness. Model-authored criteria can still be insufficient; no prose, historical memory or stdout banner is treated as task success."})
     }
-    pub fn needs_review(&self, fingerprint: Option<&str>, changed: bool) -> bool {
+    pub fn needs_review(&self, fingerprint: Option<&str>, _changed: bool) -> bool {
         if self.checks.is_empty() {
-            changed
+            false
         } else {
             self.status(fingerprint)["all_declared_checks_observed"] != true
         }
@@ -189,6 +189,14 @@ mod tests {
         assert!(c.needs_review(Some("edited"), false));
         c.invalidate();
         assert!(c.needs_review(Some("snap"), false));
+    }
+    #[test]
+    fn absent_checks_are_neither_failure_nor_proof() {
+        let c = Contract::default();
+        assert!(!c.needs_review(Some("changed"), true));
+        assert_eq!(c.status(None)["declaration_state"], "not_declared");
+        assert_eq!(c.status(None)["all_declared_checks_observed"], false);
+        assert_eq!(c.status(None)["semantic_task_correctness_proven"], false);
     }
     #[test]
     fn untrusted_text_cannot_be_a_native_check() {

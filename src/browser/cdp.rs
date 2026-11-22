@@ -283,6 +283,40 @@ impl Cdp {
     pub fn source_url(&self, request_id: &str) -> Option<&str> {
         observed_response_url(&self.network, request_id)
     }
+    pub fn javascript_response(&self, id: &str) -> Result<&str> {
+        let row = self
+            .network
+            .iter()
+            .rev()
+            .find(|e| e["event"] == "response" && e["request_id"] == id)
+            .context("Response ID was not observed in this tab")?;
+        let status = row["status"].as_f64().unwrap_or(0.0);
+        let mime = row["mime_type"].as_str().unwrap_or_default();
+        anyhow::ensure!(
+            (200.0..300.0).contains(&status) && is_javascript_mime(mime),
+            "Only successful JavaScript responses can be saved"
+        );
+        self.source_url(id)
+            .context("Response URL unavailable or truncated")
+    }
+
+    pub fn response_bytes(&mut self, id: &str) -> Result<Vec<u8>> {
+        use base64::Engine;
+        const MAX: usize = 1024 * 1024;
+        self.javascript_response(id)?;
+        let body = self.call("Network.getResponseBody", json!({"requestId":id}))?;
+        let text = body["body"].as_str().context("Response body unavailable")?;
+        let bytes = match body["base64Encoded"].as_bool() {
+            Some(false) if text.len() <= MAX => text.as_bytes().to_vec(),
+            Some(true) if text.len() <= MAX.div_ceil(3) * 4 => {
+                base64::engine::general_purpose::STANDARD.decode(text)?
+            }
+            _ => anyhow::bail!("Response body exceeds 1 MiB or has unknown encoding"),
+        };
+        anyhow::ensure!(bytes.len() <= MAX, "Response body exceeds 1 MiB");
+        Ok(bytes)
+    }
+
     fn evaluate(&mut self, expression: String) -> Result<Value> {
         let result=self.call("Runtime.evaluate",json!({"expression":expression,"returnByValue":true,"awaitPromise":true,"timeout":15000}))?;
         if result.get("exceptionDetails").is_some() {
@@ -325,6 +359,22 @@ impl Cdp {
         }
     }
 }
+fn is_javascript_mime(mime: &str) -> bool {
+    matches!(
+        mime.split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "application/javascript"
+            | "text/javascript"
+            | "application/ecmascript"
+            | "text/ecmascript"
+            | "application/x-javascript"
+    )
+}
+
 fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Option<&'a str> {
     let response = events
         .iter()

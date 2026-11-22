@@ -17,6 +17,8 @@ pub struct Session {
     pub plan: crate::plan::Plan,
     #[serde(default)]
     pub last_report: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_checkpoint: Option<crate::file_review::Checkpoint>,
     #[serde(default)]
     pub observations: Vec<crate::reasoning::Observation>,
     #[serde(default)]
@@ -64,6 +66,7 @@ pub fn new(root: &Path, model: &str) -> Session {
         messages: Vec::new(),
         plan: crate::plan::Plan::default(),
         last_report: Value::Null,
+        review_checkpoint: None,
         observations: Vec::new(),
         findings: Vec::new(),
         task_checks: crate::intelligence::checks::Contract::default(),

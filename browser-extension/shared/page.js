@@ -96,6 +96,16 @@ function blueDragonPage(action, args, transportEnvelope = false) {
       automatic_retry:false,note:'Current offsets only; clamping, scroll snapping or page handlers may alter movement. Inspect a fresh snapshot/readiness condition; no completion or end-of-content claim.'};
   }
   if (action === 'snapshot') {
+    const h1 = [...document.querySelectorAll('h1')].slice(0,4).map(e=>clip(e.innerText || e.textContent,500));
+    if (args.compact === true) {
+      const selector = args.selector || 'a,button,input,textarea,select,[role="button"]';
+      const nodes = [...document.querySelectorAll(selector)];
+      return {untrusted_web_content:true,url:location.href,title:clip(document.title,1000),h1,
+        ready:document.readyState,observation_kind:'current_page_read',compact:true,
+        elements:nodes.slice(0,12).map(e=>({selector:selectorFor(e),tag:e.tagName.toLowerCase(),text:clip(e.innerText || e.textContent,500),href:e.tagName==='A'?e.href:undefined})),
+        elements_omitted:Math.max(0,nodes.length-12),text:clip(document.body?.innerText,2000),
+        limits:'Bounded current DOM read, not browser readiness alone or proof of server-side effects.'};
+    }
     return {untrusted_web_content: true, url: location.href, title: document.title, ready: document.readyState,
       text: clip(document.body?.innerText),
       frames: [...document.querySelectorAll('iframe')].slice(0,20).map(f => ({selector:selectorFor(f),url:f.src||'',same_origin_accessible:(()=>{try{return !!f.contentDocument;}catch{return false;}})()})),
