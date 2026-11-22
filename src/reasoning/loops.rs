@@ -8,20 +8,35 @@ struct Seen {
     unchanged: usize,
     denied: bool,
     unadvertised: bool,
+    block_reason: &'static str,
+    evidence: Option<String>,
+    next_offset: Option<u64>,
 }
 #[derive(Default)]
 pub struct Guard {
     seen: BTreeMap<String, Seen>,
     last: String,
     blocked: usize,
+    consecutive_blocks: usize,
     repetitions: usize,
     fetches: BTreeMap<String, Value>,
     cached_reuses: usize,
     consecutive_cached: usize,
     recall_reads: usize,
+    // Observed bytes, shared across full and window reads. No live read is skipped.
+    read_ranges: BTreeMap<(String, usize), String>,
+    redundant_reads: usize,
 }
 impl Guard {
     fn key(name: &str, args: &Value) -> String {
+        if name == "recall_context" && args["network_events"] == true {
+            return format!(
+                "network-events:{}:{}:{}",
+                args["message_index"],
+                args["request_id"],
+                args["offset"].as_u64().unwrap_or(0)
+            );
+        }
         if name == "recall_context" {
             return format!(
                 "recall:{}:{}:{}",
@@ -46,6 +61,11 @@ impl Guard {
             seen.unadvertised = true;
         }
     }
+    pub fn link_evidence(&mut self, name: &str, args: &Value, id: &str) {
+        if let Some(seen) = self.seen.get_mut(&Self::key(name, args)) {
+            seen.evidence = Some(id.to_owned());
+        }
+    }
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
         if matches!(name, "job_status" | "job_output") {
             return None;
@@ -53,8 +73,9 @@ impl Guard {
         let key = Self::key(name, args);
         if name == "recall_context" && (self.recall_reads >= 8 || self.seen.contains_key(&key)) {
             self.blocked += 1;
+            self.consecutive_blocks += 1;
             return Some(
-                json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","error":"This history page was already recalled, or the eight-page turn budget was reached. Use the existing excerpt, narrow the investigation, or request another user turn; original history is preserved."}),
+                json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","message_index":args["message_index"],"requested_offset":args["offset"].as_u64().unwrap_or(0),"previous_next_offset":self.seen.get(&key).and_then(|s|s.next_offset),"category":if self.seen.contains_key(&key) {"duplicate_recall"} else {"recall_budget_exhausted"},"error":if self.seen.contains_key(&key) {"This page was requested earlier. Use the original result."} else {"Eight history pages already read in this turn. Report available evidence."}}),
             );
         }
         if self
@@ -63,12 +84,20 @@ impl Guard {
             .is_some_and(|s| s.denied || (self.last == key && s.unchanged >= 3))
         {
             self.blocked += 1;
-            let uncertain_or_denied = self.seen.get(&key).is_some_and(|s| s.denied);
+            self.consecutive_blocks += 1;
+            let original = &self.seen[&key];
+            let uncertain_or_denied = original.denied;
             return Some(json!({"ok":false,"execution_status":"not_executed",
             "repetition_blocked":true,"repeated_tool":name,
-            "category":if uncertain_or_denied {"prior_denied_or_uncertain"} else {"repeated_unchanged"},
+            "original_evidence_id":self.seen.get(&key).and_then(|s|s.evidence.as_deref()),
+            "category":if uncertain_or_denied {self.seen[&key].block_reason} else {"repeated_unchanged"},
             "error":if uncertain_or_denied {
-                "An earlier identical action was denied or its outcome is uncertain. Consult its original result; do not re-request approval."
+                match original.block_reason {
+                    "prior_user_declined"=>"User declined the earlier action. Stop here.",
+                    "prior_execution_unknown"=>"The earlier action may have executed. Use its evidence and any later page observation; do not replay it.",
+                    "prior_invalid_arguments"=>"The previous arguments were invalid. Consult the original schema diagnostic.",
+                    _=>"The previous action was blocked. Inspect the original evidence."
+                }
             } else {
                 "Repeated identical arguments returned unchanged results. Inspect the previous result for this tool."
             }}));
@@ -101,9 +130,43 @@ impl Guard {
         if matches!(name, "job_status" | "job_output") {
             return false;
         }
+        let mut redundant = false;
+        if matches!(name, "read_file" | "read_file_window") {
+            if let (Some(path), Some(content)) = (args["path"].as_str(), result["content"].as_str())
+            {
+                let offset = result["byte_offset"].as_u64().unwrap_or(0) as usize;
+                let key = (path.to_owned(), offset);
+                redundant = self
+                    .read_ranges
+                    .range((path.to_owned(), 0)..=key.clone())
+                    .any(|((_, start), prior)| {
+                        prior
+                            .as_bytes()
+                            .get(offset - start..(offset - start).saturating_add(content.len()))
+                            == Some(content.as_bytes())
+                    });
+                if !redundant {
+                    let end = offset.saturating_add(content.len());
+                    self.read_ranges.retain(|(p, s), v| {
+                        p != path
+                            || (!matches!(name, "read_file")
+                                && (*s >= end || s.saturating_add(v.len()) <= offset))
+                    });
+                    self.read_ranges.insert(key, content.to_owned());
+                }
+            }
+        }
+        self.redundant_reads = if redundant {
+            self.redundant_reads + 1
+        } else {
+            0
+        };
         self.consecutive_cached = 0;
         if name == "recall_context" && result["ok"] == true {
             self.recall_reads += 1;
+            if !self.seen.contains_key(&Self::key(name, args)) {
+                self.consecutive_blocks = 0;
+            }
         }
         let key = Self::key(name, args);
         let text = result.to_string();
@@ -127,12 +190,25 @@ impl Guard {
             || error.contains("outcome may be unknown")
             || error.contains("timed out")
             || error.contains("cancelled");
+        old.next_offset = result["next_offset"].as_u64();
+        old.block_reason = if result["approval_source"] == "user_choice" {
+            "prior_user_declined"
+        } else if result["execution_status"] == "unknown" {
+            "prior_execution_unknown"
+        } else if result["category"] == "invalid_arguments" {
+            "prior_invalid_arguments"
+        } else {
+            "prior_action_blocked"
+        };
         old.result = text;
         self.last = key;
-        old.unchanged >= 2
+        redundant || old.unchanged >= 2
     }
     pub fn stalled(&self) -> bool {
-        self.blocked >= 3 || self.repetitions >= 8 || self.consecutive_cached >= 3
+        self.redundant_reads >= 3
+            || self.consecutive_blocks >= 3
+            || self.repetitions >= 8
+            || self.consecutive_cached >= 3
     }
     pub fn status(&self) -> Value {
         json!({"blocked_identical_calls":self.blocked,"unchanged_observations":self.repetitions,"cached_fetch_reuses":self.cached_reuses,"note":"No cached tool output is presented as a fresh observation."})
@@ -141,6 +217,46 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn distinct_saved_pages_are_progress_but_identical_recall_still_stops() {
+        let mut guard = Guard::default();
+        for offset in [0, 8, 16] {
+            let args = json!({"message_index":9,"network_events":true,"offset":offset});
+            assert!(guard.before("recall_context", &args).is_none());
+            guard.after(
+                "recall_context",
+                &args,
+                &json!({"ok":true,"next_offset":offset+8}),
+            );
+            assert!(guard.before("recall_context", &args).is_some());
+            assert!(!guard.stalled());
+        }
+        let args = json!({"message_index":9,"network_events":true,"offset":16});
+        assert!(guard.before("recall_context", &args).is_some());
+        assert!(guard.before("recall_context", &args).is_some());
+        assert!(guard.stalled());
+    }
+    #[test]
+    fn retry_reports_original_evidence_and_cause() {
+        for (value, expected) in [
+            (
+                json!({"denied":true,"approval_source":"user_choice"}),
+                "prior_user_declined",
+            ),
+            (
+                json!({"execution_status":"unknown"}),
+                "prior_execution_unknown",
+            ),
+        ] {
+            let mut g = Guard::default();
+            let args = json!({"action":"click"});
+            g.after("browser", &args, &value);
+            g.link_evidence("browser", &args, "E9");
+            let blocked = g.before("browser", &args).unwrap();
+            assert_eq!(blocked["category"], expected);
+            assert_eq!(blocked["original_evidence_id"], "E9");
+        }
+    }
     #[test]
     fn schema_transition_only_clears_unadvertised_never_dispatched_calls() {
         let args = json!({"action":"status"});

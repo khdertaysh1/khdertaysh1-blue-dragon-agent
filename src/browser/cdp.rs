@@ -14,7 +14,7 @@ fn record_network(events: &mut VecDeque<Value>, evictions: &mut usize, value: &V
     let p = &value["params"];
     let event = match value["method"].as_str() {
         Some("Network.requestWillBeSent") => Some(
-            json!({"event":"request","request_id":p["requestId"],"url":p["request"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"method":p["request"]["method"],"type":p["type"]}),
+            json!({"event":"request","request_id":p["requestId"],"url":p["request"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"url_truncated":p["request"]["url"].as_str().is_none_or(|u|u.chars().count()>2000),"method":p["request"]["method"],"type":p["type"]}),
         ),
         Some("Network.responseReceived") => Some(
             json!({"event":"response","request_id":p["requestId"],"url":p["response"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"url_truncated":p["response"]["url"].as_str().is_none_or(|url|url.chars().count()>2000),"status":p["response"]["status"],"mime_type":p["response"]["mimeType"],"security_header_indicators":super::inspection::security_header_indicators(&p["response"]["headers"])}),
@@ -280,7 +280,7 @@ impl Cdp {
         self.alive = false;
         anyhow::bail!("Browser action deadline exceeded; outcome unknown; reconnect explicitly and inspect before retry")
     }
-    pub fn source_url(&self, request_id: &str) -> Option<&str> {
+    pub fn source_url(&self, request_id: &str) -> Result<&str> {
         observed_response_url(&self.network, request_id)
     }
     pub fn javascript_response(&self, id: &str) -> Result<&str> {
@@ -297,7 +297,6 @@ impl Cdp {
             "Only successful JavaScript responses can be saved"
         );
         self.source_url(id)
-            .context("Response URL unavailable or truncated")
     }
 
     pub fn response_bytes(&mut self, id: &str) -> Result<Vec<u8>> {
@@ -324,36 +323,86 @@ impl Cdp {
         }
         Ok(result["result"]["value"].clone())
     }
+    fn document_identity(&mut self) -> Result<Value> {
+        let tree = self.call("Page.getFrameTree", json!({}))?;
+        let frame = &tree["frameTree"]["frame"];
+        Ok(json!([frame["url"], frame["loaderId"]]))
+    }
     pub fn action(&mut self, action: &str, args: &Value) -> Result<Value> {
         match action {
-            "open"|"navigate" => {
+            "open" | "navigate" => {
                 super::validate_url(args["url"].as_str().context("Missing URL")?)?;
                 if args["fresh_document"] == true {
-                    self.call("Page.navigate",json!({"url":"about:blank"}))?;
+                    self.call("Page.navigate", json!({"url":"about:blank"}))?;
                 }
-                let result=self.call("Page.navigate",json!({"url":args["url"]}))?;
-                if result.get("errorText").is_some() { anyhow::bail!("Browser navigation failed"); }
+                let result = self.call("Page.navigate", json!({"url":args["url"]}))?;
+                if result.get("errorText").is_some() {
+                    anyhow::bail!("Browser navigation failed");
+                }
                 let loader = result["loaderId"].as_str().map(str::to_owned);
                 let until = Instant::now() + Duration::from_secs(15);
-                while loader.as_ref().is_some_and(|id| !self.loaded_documents.contains(id)) && Instant::now() < until {
-                    self.call("Runtime.evaluate", json!({"expression":"document.readyState","returnByValue":true}))?;
+                while loader
+                    .as_ref()
+                    .is_some_and(|id| !self.loaded_documents.contains(id))
+                    && Instant::now() < until
+                {
+                    self.call(
+                        "Runtime.evaluate",
+                        json!({"expression":"document.readyState","returnByValue":true}),
+                    )?;
                     std::thread::sleep(Duration::from_millis(30));
                 }
-                Ok(json!({"navigated":true,"dom_content_loaded":loader.as_ref().is_none_or(|id|self.loaded_documents.contains(id)),"note":"Snapshot reflects the current document; dynamic applications may continue loading."}))
+                Ok(
+                    json!({"navigated":true,"dom_content_loaded":loader.as_ref().is_none_or(|id|self.loaded_documents.contains(id)),"note":"Snapshot reflects the current document; dynamic applications may continue loading."}),
+                )
             }
-            "network" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(network_snapshot(&self.network,self.network_evictions)) }
-            "console" => { self.call("Runtime.evaluate",json!({"expression":"0"}))?; Ok(json!({"entries":self.console})) }
+            "network" => {
+                let identity = self.document_identity()?;
+                let mut rows = network_snapshot(&self.network, self.network_evictions);
+                rows["document_identity"] = identity;
+                Ok(rows)
+            }
+            "document_identity" => self.document_identity(),
+            "console" => {
+                self.call("Runtime.evaluate", json!({"expression":"0"}))?;
+                Ok(json!({"entries":self.console}))
+            }
             "source" => {
-                let id=args["request_id"].as_str().context("CDP source needs a request_id from network output")?;
-                if !self.network.iter().any(|e|e["request_id"]==id && e["event"]=="response") { anyhow::bail!("Request ID not observed in this dedicated tab"); }
-                let body=self.call("Network.getResponseBody",json!({"requestId":id}))?;
-                if body["body"].as_str().unwrap_or("").len()>128_000 { anyhow::bail!("Response body exceeds limit"); }
+                let id = args["request_id"]
+                    .as_str()
+                    .context("CDP source needs a request_id from network output")?;
+                if !self
+                    .network
+                    .iter()
+                    .any(|e| e["request_id"] == id && e["event"] == "response")
+                {
+                    anyhow::bail!("Request ID not observed in this dedicated tab");
+                }
+                let body = self.call("Network.getResponseBody", json!({"requestId":id}))?;
+                if body["body"].as_str().unwrap_or("").len() > 128_000 {
+                    anyhow::bail!("Response body exceeds limit");
+                }
                 Ok(body)
             }
-            "screenshot" => self.call("Page.captureScreenshot",json!({"format":"jpeg","quality":60,"captureBeyondViewport":false})),
-            "close" => { self.call("Page.close",json!({}))?; self.alive=false; Ok(json!({"closed":true})) }
-            "snapshot"|"wait_for"|"click"|"fill"|"select"|"set_checked"|"scroll"|"evaluate" => {
-                self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,args))
+            "screenshot" => self.call(
+                "Page.captureScreenshot",
+                json!({"format":"jpeg","quality":60,"captureBeyondViewport":false}),
+            ),
+            "close" => {
+                self.call("Page.close", json!({}))?;
+                self.alive = false;
+                Ok(json!({"closed":true}))
+            }
+            "snapshot" | "wait_for" | "click" | "fill" | "select" | "set_checked" | "scroll"
+            | "evaluate" => {
+                let mut result=self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,args))?;
+                if action == "snapshot" && args.get("frame_selector").is_none() {
+                    let identity = self.document_identity()?;
+                    if identity[0] == result["url"] {
+                        result["document_identity"] = identity;
+                    }
+                }
+                Ok(result)
             }
             _ => anyhow::bail!("Unsupported CDP action"),
         }
@@ -375,15 +424,18 @@ fn is_javascript_mime(mime: &str) -> bool {
     )
 }
 
-fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Option<&'a str> {
+fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Result<&'a str> {
     let response = events
         .iter()
         .rev()
-        .find(|event| event["event"] == "response" && event["request_id"] == id)?;
+        .find(|event| event["event"] == "response" && event["request_id"] == id).context("No retained response with this ID on the current connection; historical captures are separate")?;
     if response["url_truncated"] == true {
-        return None;
+        anyhow::bail!("Recorded response URL is truncated; scope cannot be verified");
     }
-    response["url"].as_str()
+    response["url"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .context("Recorded response has no URL")
 }
 impl Drop for Cdp {
     fn drop(&mut self) {
@@ -517,11 +569,11 @@ mod source_scope_tests {
             json!({"event":"response","request_id":"r","url":"https://outside.test/final"}),
         ]);
         assert_eq!(
-            observed_response_url(&events, "r"),
+            observed_response_url(&events, "r").ok(),
             Some("https://outside.test/final")
         );
         events.back_mut().unwrap()["url_truncated"] = json!(true);
-        assert!(observed_response_url(&events, "r").is_none());
-        assert!(observed_response_url(&events, "unknown").is_none());
+        assert!(observed_response_url(&events, "r").is_err());
+        assert!(observed_response_url(&events, "unknown").is_err());
     }
 }

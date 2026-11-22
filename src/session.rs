@@ -81,6 +81,76 @@ pub fn new(root: &Path, model: &str) -> Session {
     }
 }
 
+/// Historical state for the person reopening a conversation.
+pub fn resume_summary(session: &Session) -> String {
+    fn line(text: &str) -> String {
+        text.chars().filter(|c| !c.is_control()).take(160).collect()
+    }
+    let messages: Box<dyn Iterator<Item = &Value> + '_> = if session.user_turns.is_empty() {
+        Box::new(session.messages.iter().rev())
+    } else {
+        Box::new(
+            session
+                .user_turns
+                .iter()
+                .rev()
+                .filter_map(|index| session.messages.get(*index)),
+        )
+    };
+    let goal = messages
+        .filter(|m| m["role"] == "user")
+        .filter_map(|m| m["content"].as_str())
+        .map(str::trim)
+        .find(|s| !s.is_empty() && !continuation(s))
+        .map(line);
+    let mut lines = vec![format!(
+        "Last request: {}",
+        goal.as_deref().unwrap_or("unavailable")
+    )];
+    if let Some(status) = session.last_report["task_status"].as_str() {
+        lines.push(format!("Saved status: {}", line(status)));
+    }
+    if let Some(error) = session.last_report["error"].as_str() {
+        lines.push(format!("Stop reason: {}", line(error)));
+    }
+    if let Some(step) = session
+        .plan
+        .steps
+        .iter()
+        .find(|s| s.status == "in_progress")
+        .or_else(|| session.plan.steps.iter().find(|s| s.status == "pending"))
+    {
+        lines.push(format!("Next recorded plan step: {}", line(&step.title)));
+    }
+    if let Some(obs) = session.observations.last() {
+        lines.push(format!(
+            "Latest saved observation: {} ({})",
+            line(&obs.id),
+            line(&obs.tool)
+        ));
+    }
+    lines.join("\n")
+}
+
+pub fn continuation(input: &str) -> bool {
+    matches!(
+        input
+            .trim()
+            .trim_end_matches(['.', '!', '؟'])
+            .trim_end()
+            .to_lowercase()
+            .as_str(),
+        "continue"
+            | "go on"
+            | "تابع"
+            | "كمل"
+            | "كمّل"
+            | "كفي"
+            | "كمّل من وين وقفنا"
+            | "كمل من وين وقفنا"
+    )
+}
+
 /// Complete only missing tool-result envelopes after an interrupted run.
 /// Execution is UNKNOWN, never replayed or reported as successful.
 pub fn recover_tool_history(session: &mut Session) -> usize {
@@ -339,9 +409,116 @@ pub fn list_sessions(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
     Ok(out)
 }
 
+/// Search human-readable conversation turns locally. Tool payloads and hidden
+/// reasoning stay out of excerpts, and the original message index is retained.
+pub fn search_turns(session: &Session, query: &str, limit: usize) -> Vec<Value> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    session
+        .messages
+        .iter()
+        .enumerate()
+        .rev()
+        .filter_map(|(index, message)| {
+            let role = message["role"].as_str()?;
+            if !matches!(role, "user" | "assistant") {
+                return None;
+            }
+            let content = message["content"].as_str()?;
+            let lowered = content.to_lowercase();
+            let position = lowered.find(&needle)?;
+            // Offsets in lowercased text may differ from offsets in the original.
+            let mut normalized_bytes = 0;
+            let mut character: usize = 0;
+            for ch in content.chars() {
+                let length = ch.to_lowercase().map(char::len_utf8).sum::<usize>();
+                if normalized_bytes + length > position {
+                    break;
+                }
+                normalized_bytes += length;
+                character += 1;
+            }
+            let excerpt: String = content
+                .chars()
+                .skip(character.saturating_sub(36))
+                .take(160)
+                .map(|c| if c.is_control() { ' ' } else { c })
+                .collect();
+            Some(serde_json::json!({"message_index":index,"role":role,"excerpt":excerpt}))
+        })
+        .take(limit)
+        .collect()
+}
+
+pub fn search_sessions(sessions_dir: &Path, query: &str) -> Result<Value> {
+    use serde_json::json;
+    let mut matches = Vec::new();
+    let mut unreadable = 0;
+    for summary in crate::session::list_sessions(sessions_dir)? {
+        let mut row =
+            json!({"id":summary.id,"workspace":summary.workspace,"updated_at":summary.updated_at});
+        if !query.is_empty() {
+            let session = match crate::session::load(
+                sessions_dir,
+                &summary.id,
+                Path::new(&summary.workspace),
+            ) {
+                Ok(session) => session,
+                Err(_) => {
+                    unreadable += 1;
+                    continue;
+                }
+            };
+            let hit = crate::session::search_turns(&session, query, 1);
+            if hit.is_empty()
+                && !summary
+                    .workspace
+                    .to_lowercase()
+                    .contains(&query.to_lowercase())
+                && !summary.id.contains(query)
+            {
+                continue;
+            }
+            row["match"] = hit.into_iter().next().unwrap_or(Value::Null);
+        }
+        matches.push(row);
+    }
+    Ok(json!({"sessions":matches,"unreadable":unreadable}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn checkpoint_uses_real_user_goals_and_displays_saved_stop() {
+        let mut s = new(Path::new("."), "test");
+        s.messages = ["Read the label", "synthetic guidance", "كمّل!"]
+            .map(|content| serde_json::json!({"role":"user","content":content}))
+            .to_vec();
+        s.user_turns = vec![0, 2];
+        s.last_report = serde_json::json!({"task_status":"interrupted","error":"cancelled"});
+        let summary = resume_summary(&s);
+        assert!(summary.contains("Read the label") && summary.contains("cancelled"));
+        assert!(!summary.contains("synthetic"));
+    }
+    #[test]
+    fn search_finds_later_turn_and_excludes_tool_output() {
+        let mut s = new(Path::new("."), "fixture");
+        for (role, content) in [
+            ("user", "different opening"),
+            ("assistant", "إشارة إلى Aghanim"),
+            ("tool", "AGHANIM private tool payload"),
+        ] {
+            s.messages
+                .push(serde_json::json!({"role":role,"content":content}));
+        }
+        let matches = search_turns(&s, "aghanim", 10);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["message_index"], 1);
+        assert!(matches[0]["excerpt"].as_str().unwrap().contains("Aghanim"));
+    }
     #[test]
     fn persists_and_resumes() {
         let dir = tempfile::tempdir().unwrap();

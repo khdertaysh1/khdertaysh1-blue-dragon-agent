@@ -18,6 +18,8 @@ mod local_files;
 mod mcp;
 mod mcp_protocol;
 mod models;
+mod network_history;
+mod operator;
 mod plan;
 mod project;
 mod provider;
@@ -77,6 +79,9 @@ struct Cli {
         help = "Resume a saved session by ID; 'latest' uses most recent"
     )]
     resume: Option<String>,
+    /// Start an empty terminal session without showing recent conversations.
+    #[arg(long, global = true, conflicts_with = "resume")]
+    new_session: bool,
     #[arg(
         long,
         global = true,
@@ -142,8 +147,12 @@ enum Command {
     Run { task: String },
     /// Check local setup without uploading data
     Doctor,
-    /// List saved local sessions
-    Sessions,
+    /// List saved local sessions, or find a conversation by words and optionally reopen it.
+    Sessions {
+        query: Option<String>,
+        #[arg(long, requires = "query")]
+        open: bool,
+    },
     /// Inspect file types, manifests and language distribution without sending code to AI
     Map,
     /// List user-level local Markdown skills
@@ -284,7 +293,61 @@ fn run() -> Result<()> {
             println!("Sessions : {}", settings.sessions_dir.display());
             Ok(())
         }
-        Some(Command::Sessions) => {
+        Some(Command::Sessions {
+            query: Some(query),
+            open,
+        }) => {
+            anyhow::ensure!(!query.trim().is_empty(), "A search term is required");
+            let view = session::search_sessions(&settings.sessions_dir, &query)?;
+            if !open {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+                return Ok(());
+            }
+            anyhow::ensure!(
+                io::stdin().is_terminal() && io::stdout().is_terminal(),
+                "Opening a session requires an interactive terminal"
+            );
+            let rows = view["sessions"]
+                .as_array()
+                .context("Session results unavailable")?;
+            if rows.is_empty() {
+                println!("No conversation matches");
+                return Ok(());
+            }
+            for (index, row) in rows.iter().enumerate() {
+                println!(
+                    "{}. {} | {} | {}",
+                    index + 1,
+                    row["updated_at"],
+                    row["workspace"],
+                    row["match"]["excerpt"]
+                );
+            }
+            print!("Choose a conversation number (Enter to cancel): ");
+            io::stdout().flush()?;
+            let mut choice = String::new();
+            io::stdin().read_line(&mut choice)?;
+            if choice.trim().is_empty() {
+                return Ok(());
+            }
+            let row = choice
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .and_then(|n| n.checked_sub(1))
+                .and_then(|i| rows.get(i))
+                .context("Invalid conversation number")?;
+            let path = PathBuf::from(row["workspace"].as_str().context("Missing workspace")?);
+            anyhow::ensure!(path.is_dir(), "Saved workspace is unavailable");
+            settings.root = path.canonicalize()?;
+            tui::run(
+                settings,
+                args.read_only,
+                Some(row["id"].as_str().context("Missing ID")?),
+                false,
+            )
+        }
+        Some(Command::Sessions { query: None, .. }) => {
             for info in session::list_sessions(&settings.sessions_dir)? {
                 println!("{} | {} | {}", info.id, info.updated_at, info.workspace);
             }
@@ -304,10 +367,18 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
-        Some(Command::Tui) => tui::run(settings, args.read_only, args.resume.as_deref()),
-        None if io::stdin().is_terminal() && io::stdout().is_terminal() => {
-            tui::run(settings, args.read_only, args.resume.as_deref())
-        }
+        Some(Command::Tui) => tui::run(
+            settings,
+            args.read_only,
+            args.resume.as_deref(),
+            args.new_session,
+        ),
+        None if io::stdin().is_terminal() && io::stdout().is_terminal() => tui::run(
+            settings,
+            args.read_only,
+            args.resume.as_deref(),
+            args.new_session,
+        ),
         cmd => {
             let approval = if args.read_only {
                 ApprovalMode::ReadOnly
@@ -327,6 +398,9 @@ fn run() -> Result<()> {
                 Some(Command::Url(words)) => agent.run_once(&words[0]),
                 None | Some(Command::Chat) => {
                     agent.set_synchronous_chat_input();
+                    if args.resume.is_some() {
+                        println!("{}", agent.resume_summary());
+                    }
                     println!("Type /help for commands, /exit to quit.");
                     loop {
                         print!("\nblue-dragon> ");
@@ -341,7 +415,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -455,6 +529,23 @@ fn run() -> Result<()> {
                                 }
                                 continue;
                             }
+                            cmd if matches!(
+                                cmd.split_whitespace().next(),
+                                Some("/sessions" | "/conversation-search")
+                            ) =>
+                            {
+                                match agent.history_search(cmd) {
+                                    Ok(value) => {
+                                        println!("{}", serde_json::to_string_pretty(&value)?)
+                                    }
+                                    Err(error) => eprintln!("{error}"),
+                                }
+                                continue;
+                            }
+                            "/checkpoint" | "وين وقفنا" | "وين وقفنا؟" => {
+                                println!("{}", agent.resume_summary());
+                                continue;
+                            }
                             "/session" => {
                                 println!("Session: {}", agent.session_id());
                                 continue;
@@ -493,6 +584,15 @@ fn run() -> Result<()> {
                                 println!("{}", agent.plan_text());
                                 continue;
                             }
+                            name if name == "/network" || name.starts_with("/network ") => {
+                                match agent.saved_network(name.trim_start_matches("/network")) {
+                                    Ok(view) => {
+                                        println!("{}", serde_json::to_string_pretty(&view)?)
+                                    }
+                                    Err(e) => eprintln!("{e}"),
+                                }
+                                continue;
+                            }
                             name if name.starts_with("/tool-result ") => {
                                 match agent.inspect_saved_tool(
                                     name.trim_start_matches("/tool-result ").trim(),
@@ -503,6 +603,24 @@ fn run() -> Result<()> {
                                     Err(_) => eprintln!(
                                         "Saved tool evidence unavailable or integrity check failed"
                                     ),
+                                }
+                                continue;
+                            }
+                            cmd if operator::matches(cmd) => {
+                                match agent.operator_command(cmd) {
+                                    Ok(result) => {
+                                        println!("{}", serde_json::to_string_pretty(&result)?)
+                                    }
+                                    Err(error) => eprintln!("{error:#}"),
+                                }
+                                continue;
+                            }
+                            cmd if cmd.split_whitespace().next() == Some("/inventory") => {
+                                match agent.saved_inventory(cmd) {
+                                    Ok(value) => {
+                                        println!("{}", serde_json::to_string_pretty(&value)?)
+                                    }
+                                    Err(error) => eprintln!("{error:#}"),
                                 }
                                 continue;
                             }

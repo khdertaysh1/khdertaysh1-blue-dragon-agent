@@ -101,12 +101,13 @@ function blueDragonPage(action, args, transportEnvelope = false) {
       const selector = args.selector || 'a,button,input,textarea,select,[role="button"]';
       const nodes = [...document.querySelectorAll(selector)];
       return {untrusted_web_content:true,url:location.href,title:clip(document.title,1000),h1,
+        scripts:Array.from(document.scripts || []).filter(e=>e.src).slice(0,12).map(e=>e.src),
         ready:document.readyState,observation_kind:'current_page_read',compact:true,
         elements:nodes.slice(0,12).map(e=>({selector:selectorFor(e),tag:e.tagName.toLowerCase(),text:clip(e.innerText || e.textContent,500),href:e.tagName==='A'?e.href:undefined})),
         elements_omitted:Math.max(0,nodes.length-12),text:clip(document.body?.innerText,2000),
         limits:'Bounded current DOM read, not browser readiness alone or proof of server-side effects.'};
     }
-    return {untrusted_web_content: true, url: location.href, title: document.title, ready: document.readyState,
+    return {untrusted_web_content: true, h1, url: location.href, title: document.title, ready: document.readyState,
       text: clip(document.body?.innerText),
       frames: [...document.querySelectorAll('iframe')].slice(0,20).map(f => ({selector:selectorFor(f),url:f.src||'',same_origin_accessible:(()=>{try{return !!f.contentDocument;}catch{return false;}})()})),
       forms_total: document.forms.length, forms_omitted: Math.max(0, document.forms.length - 20), forms_truncated: document.forms.length > 20,
@@ -156,7 +157,8 @@ function blueDragonPage(action, args, transportEnvelope = false) {
     const prototype = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(prototype, 'value').set.call(el, args.value);
     el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));
-    return {filled: true};
+    const matched = el.isConnected && el.value === args.value;
+    return {filled: matched, matched};
   }
   throw new Error('Unsupported page action');
   };
