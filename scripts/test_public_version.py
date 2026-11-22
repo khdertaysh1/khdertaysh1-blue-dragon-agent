@@ -1,12 +1,14 @@
 """Validate public/Cargo mapping, emitted tag and optionally the actual CLI version."""
-import argparse,os,subprocess,tempfile
+import argparse,os,subprocess,tempfile,tomllib
 from pathlib import Path
 from release_version import load_version
 
 p=argparse.ArgumentParser();p.add_argument('--binary',type=Path);p.add_argument('--check-build-script',action='store_true');a=p.parse_args()
 repo=Path(__file__).resolve().parent.parent
 public,package=load_version(repo)
-assert public=='1.1.9.0' and package=='1.1.9'
+with (repo/'Cargo.lock').open('rb') as lock:
+    packages = tomllib.load(lock)['package']
+assert [p['version'] for p in packages if p['name'] == 'blue-dragon' and 'source' not in p] == [package]
 if a.binary:
     assert subprocess.check_output([str(a.binary.resolve()),'--version'],text=True).strip()==f'blue-dragon {public}'
 with tempfile.TemporaryDirectory(prefix='blue-version-') as folder:
@@ -21,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix='blue-version-') as folder:
         if a.check_build_script:
             result=subprocess.run([str(checker)],cwd=root,env=dict(os.environ,CARGO_PKG_VERSION=pkg),capture_output=True,text=True)
             assert (result.returncode==0)==success,(pkg,result.stdout,result.stderr)
-    for v,pkg in [('1.1.9.0','1.1.9'),('1.2.1.0','1.2.1')]:
+    for v,pkg in [('1.1.9.0','1.1.9'),('1.1.10.0','1.1.10'),('1.2.1.0','1.2.1')]:
         write(v,pkg);assert load_version(root)==(v,pkg);check_build(pkg,True)
     for v,pkg in [('1.1.9.0','1.1.8'),('1.1.9','1.1.9'),('1.1.9.0-alpha','1.1.9'),('01.1.9.0','1.1.9'),('1.1.9.1','1.1.9'),('1.1.9.0\nINJECT','1.1.9')]:
         write(v,pkg)
@@ -29,4 +31,4 @@ with tempfile.TemporaryDirectory(prefix='blue-version-') as folder:
         try:load_version(root)
         except ValueError:pass
         else:raise AssertionError((v,pkg))
-print('Public VERSION/Cargo mapping verified; next requested public version maps to Cargo 1.2.1; invalid mappings rejected')
+print(f'Verified public {public}, Cargo {package}, lockfile and invalid mappings')
