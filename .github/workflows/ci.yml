@@ -221,7 +221,7 @@ jobs:
           echo "FIREFOX_BIN=$PWD/firefox/firefox" >> "$GITHUB_ENV"
           echo "GECKODRIVER_BIN=$PWD/geckodriver" >> "$GITHUB_ENV"
       - name: Verify a local form, saved response and page navigation
-        run: python scripts/accept_browser_local.py target/release/blue-dragon --chromium "$CHROMIUM_BIN"
+        run: python scripts/accept_browser_local.py target/release/blue-dragon --chromium /usr/bin/google-chrome
       - name: CDP and both real extensions
         run: |
           node scripts/smoke_browser.mjs
