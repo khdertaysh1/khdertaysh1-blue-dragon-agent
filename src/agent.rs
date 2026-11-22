@@ -1661,7 +1661,7 @@ impl Agent {
                     && name == "source_artifact"
                     && guard_args["action"] == "discover";
                 let outcome = if user_denied_action && !artifact_metadata_only {
-                    denial_violation = true;
+                    denial_violation |= !denied_artifact_read;
                     Ok(self.loop_guard.before(name, &guard_args).unwrap_or_else(|| {
                         json!({"ok":false,"category":"blocked_after_user_denial","execution_status":"not_executed","error":"User declined execution; no alternative tool is allowed this turn."})
                     }))
