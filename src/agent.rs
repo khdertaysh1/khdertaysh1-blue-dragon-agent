@@ -226,6 +226,10 @@ impl Agent {
         }
     }
 
+    pub fn resume_summary(&self) -> String {
+        session::resume_summary(&self.session)
+    }
+
     pub fn session_id(&self) -> &str {
         &self.session.id
     }
@@ -368,6 +372,9 @@ impl Agent {
     pub fn scope_command(&mut self, input: &str) -> Result<Value> {
         let mut scope = self.session.scope.clone();
         let result = scope.command(input)?;
+        if !input.trim().is_empty() {
+            self.browser.end_inspection();
+        }
         self.session.scope = scope.clone();
         self.tools.scope = scope.clone();
         self.browser.scope = scope;
@@ -768,10 +775,7 @@ impl Agent {
         }
         self.cooldown_notice = None;
         let detected = crate::intelligence::fresh::detect(prompt, &self.session);
-        let continuation = matches!(
-            prompt.trim().to_lowercase().as_str(),
-            "continue" | "continue." | "go on" | "تابع" | "كمل"
-        );
+        let continuation = session::continuation(prompt);
         if resumed.is_some() {
             self.session.fresh_source_requests.clear();
         } else if !detected.is_empty() || !continuation {

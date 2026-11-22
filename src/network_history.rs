@@ -29,6 +29,8 @@ pub fn page(record: &Value, id: Option<&str>, offset: usize, limit: usize) -> Re
             "request_id",
             "type",
             "method",
+            "mime_type",
+            "security_header_indicators",
             "status",
             "url",
             "url_truncated",
@@ -65,7 +67,7 @@ pub fn page(record: &Value, id: Option<&str>, offset: usize, limit: usize) -> Re
     }
     let end = offset.saturating_add(events.len());
     Ok(
-        json!({"events":events,"retained_events":rows.len(),"matched_events":selected.len(),"offset":offset,"returned_events":events.len(),"next_offset":(end < selected.len()).then_some(end),"capture_entries_omitted":record["entries_omitted"],"ring_entries_omitted":record["ring_entries_omitted"],"historical":true,"reran_tool":false}),
+        json!({"events":events,"coverage":{"raw_headers_examined":false,"request_body_examined":false,"response_body_examined":false,"ring_omission_scope":record["ring_omission_scope"]},"retained_events":rows.len(),"matched_events":selected.len(),"offset":offset,"returned_events":events.len(),"next_offset":(end < selected.len()).then_some(end),"capture_entries_omitted":record["entries_omitted"],"ring_entries_omitted":record["ring_entries_omitted"],"historical":true,"reran_tool":false}),
     )
 }
 pub fn inventory(record: &Value, offset: usize) -> Result<Value> {
@@ -118,6 +120,18 @@ pub fn inventory(record: &Value, offset: usize) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn historical_network_exposes_saved_indicators_without_inferring_body_contents() {
+        let record = json!({"entries":[{"event":"response","mime_type":"text/css","security_header_indicators":{"available":true},"headers":{"Cookie":"private"},"body":"private"}]});
+        let out = page(&record, None, 0, 8).unwrap();
+        assert_eq!(
+            out["events"][0]["security_header_indicators"]["available"],
+            true
+        );
+        assert_eq!(out["events"][0]["mime_type"], "text/css");
+        assert_eq!(out["coverage"]["response_body_examined"], false);
+        assert!(!out.to_string().contains("private"));
+    }
     #[test]
     fn inventory_excludes_partial_urls_and_attaches_status_to_recorded_url() {
         let record = json!({"entries":[{"url":"https://unit.test/q?x=1","event":"request","type":"Script","request_id":"r"},{"url":"https://unit.test/q?x=2","event":"response","request_id":"r","status":200},{"url":"partial","url_truncated":true}],"ring_entries_omitted":154,"entries_omitted":0});

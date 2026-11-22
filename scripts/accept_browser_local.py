@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
    if self.path=='/fixture.js':
     self.send_response(200);self.send_header('Content-Type','application/javascript')
     self.send_header('Content-Length',str(len(script)));self.end_headers();self.wfile.write(script);return
-   body=(b'<title>After</title><h1>Reached</h1>' if self.path=='/done' else b'<title>Before</title><h1>Start</h1><a id="next" href="/done">Next</a><script src="/fixture.js"></script>')
+   body=(b'<title>After</title><h1>Reached</h1>' if self.path=='/done' else b'<title>Before</title><h1>Start</h1><input id="name"><button id="preview" onclick="document.querySelector(&quot;output&quot;).textContent=document.querySelector(&quot;#name&quot;).value">Preview</button><output>Waiting</output><a id="next" href="/done">Next</a><script src="/fixture.js"></script>')
    self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(body)
   def do_POST(self):
    global sequence
@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
      chunk=os.read(agent.stdout.fileno(),65536)
      if not chunk:break
      text+=chunk
-    n=text.count(b'Approve this ONE action?')
+    n=text.count(b'Approve this ONE action?')+text.count(b'Allow snapshot and network reads for this page and task?')
     if n>answered:
      assert approve,'unexpected approval';agent.stdin.write((b'n\n' if approve=='deny' else b'y\n')*(n-answered));agent.stdin.flush();answered=n
     if b'blue-dragon> ' in text:return text.decode()
@@ -66,8 +66,17 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
   def browser_do(action, approve=False, **args):
    return send('/browser do '+json.dumps(dict(action=action,**args)),approve)
   def result(text):
-   return json.JSONDecoder().raw_decode(text[text.index('{'):])[0]
+   # The approval panel can echo the JSON arguments before the actual result.
+   end=text.rsplit('blue-dragon> ',1)[0].rstrip()
+   for start,char in enumerate(end):
+    if char!='{':continue
+    try: obj,used=json.JSONDecoder().raw_decode(end[start:])
+    except ValueError:continue
+    if start+used==len(end):return obj
+   raise AssertionError('No terminal result object: '+end[-1200:])
   net=result(browser_do('network',True))
+  same=result(browser_do('snapshot',compact=True))
+  assert same['ok'] and same['result']['title']=='Before',same
   rows=net['result']['entries']
   row=next(r for r in rows if r['event']=='response' and r['url']==site+'/fixture.js')
   denied=result(browser_do('save_response','deny',request_id=row['request_id'],path='denied.js'))
@@ -78,18 +87,28 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
   denied_overwrite=browser_do('save_response',request_id=row['request_id'],path='saved.js')
   assert 'Destination already exists' in denied_overwrite and (work/'saved.js').read_bytes()==script
   assert gets.count('/fixture.js')==1,gets
+  field=result(browser_do('fill',True,selector='#name',value='Cedar-72'))
+  assert field['ok'] and field['result']['matched'],field
+  click=result(browser_do('click',True,selector='#preview'))
+  assert click['ok'] and click['result']['clicked'],click
+  shown=result(browser_do('wait_for',True,selector='output',text='Cedar-72'))
+  assert shown['ok'],shown
   answer=send('Follow the Next link on the local page, read the resulting URL, title and main heading, then report them and stop.',True)
+  returned=result(browser_do('navigate',True,url=site+'/start'))
+  assert returned['ok'],returned
+  home=result(browser_do('snapshot',True,compact=True))
+  assert home['ok'] and home['result']['url']==site+'/start' and home['result']['h1']==['Start'],home
   agent.stdin.write(b'/exit\n');agent.stdin.flush();agent.wait(timeout=5)
   s=json.loads(next((root/'state/sessions').glob('*.json')).read_text())
   observations=[o for o in s['observations'] if o['tool']=='browser'];values=[json.loads(s['messages'][o['message_index']]['content']) for o in observations]
-  calls=[c for m in s['messages'] for c in m.get('tool_calls',[]) if c['function']['name']=='browser']
+  calls=[c for m in s['messages'][s['user_turns'][-1]:] for c in m.get('tool_calls',[]) if c['function']['name']=='browser']
   assert sum(json.loads(c['function']['arguments'])['action']=='click' for c in calls)==1
   assert len(calls)==4,(calls,answer)
   last=values[-1];assert last['ok'] is True
   assert last['result']['url']==site+'/done' and last['result']['title']=='After' and last['result']['h1']==['Reached'],last
   assert last['result']['compact'] is True and len(last['result']['elements'])==1
   assert s['last_report']['finished'] is True and s['last_report']['task_status']!='needs_verification',s['last_report']
-  print(json.dumps({'passed':True,'real_browser':'Chromium CDP','provider':'local scripted','browser_tool_calls':4,'clicks':1,'final_url_path':'/done','title':'After','h1':['Reached'],'recall_calls':0,'physical_phone':False,'saved_browser_bytes':len(script),'asset_http_requests':gets.count('/fixture.js'),'denial_no_file':True,'overwrite_blocked':True}))
+  print(json.dumps({'passed':True,'real_browser':'Chromium CDP','provider':'local scripted','browser_tool_calls':4,'clicks':1,'final_url_path':'/done','title':'After','h1':['Reached'],'recall_calls':0,'physical_phone':False,'preview_text':'Cedar-72','returned_heading':'Start','saved_browser_bytes':len(script),'asset_http_requests':gets.count('/fixture.js'),'denial_no_file':True,'overwrite_blocked':True}))
  finally:
   if agent and agent.poll() is None:agent.terminate();agent.wait(timeout=5)
   if browser and browser.poll() is None:browser.terminate();browser.wait(timeout=5)

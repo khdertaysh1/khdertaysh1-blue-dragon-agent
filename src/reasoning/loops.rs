@@ -17,6 +17,7 @@ pub struct Guard {
     seen: BTreeMap<String, Seen>,
     last: String,
     blocked: usize,
+    consecutive_blocks: usize,
     repetitions: usize,
     fetches: BTreeMap<String, Value>,
     cached_reuses: usize,
@@ -72,6 +73,7 @@ impl Guard {
         let key = Self::key(name, args);
         if name == "recall_context" && (self.recall_reads >= 8 || self.seen.contains_key(&key)) {
             self.blocked += 1;
+            self.consecutive_blocks += 1;
             return Some(
                 json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","message_index":args["message_index"],"requested_offset":args["offset"].as_u64().unwrap_or(0),"previous_next_offset":self.seen.get(&key).and_then(|s|s.next_offset),"category":if self.seen.contains_key(&key) {"duplicate_recall"} else {"recall_budget_exhausted"},"error":if self.seen.contains_key(&key) {"This page was requested earlier. Use the original result."} else {"Eight history pages already read in this turn. Report available evidence."}}),
             );
@@ -82,6 +84,7 @@ impl Guard {
             .is_some_and(|s| s.denied || (self.last == key && s.unchanged >= 3))
         {
             self.blocked += 1;
+            self.consecutive_blocks += 1;
             let original = &self.seen[&key];
             let uncertain_or_denied = original.denied;
             return Some(json!({"ok":false,"execution_status":"not_executed",
@@ -161,6 +164,9 @@ impl Guard {
         self.consecutive_cached = 0;
         if name == "recall_context" && result["ok"] == true {
             self.recall_reads += 1;
+            if !self.seen.contains_key(&Self::key(name, args)) {
+                self.consecutive_blocks = 0;
+            }
         }
         let key = Self::key(name, args);
         let text = result.to_string();
@@ -200,7 +206,7 @@ impl Guard {
     }
     pub fn stalled(&self) -> bool {
         self.redundant_reads >= 3
-            || self.blocked >= 3
+            || self.consecutive_blocks >= 3
             || self.repetitions >= 8
             || self.consecutive_cached >= 3
     }
@@ -211,6 +217,25 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn distinct_saved_pages_are_progress_but_identical_recall_still_stops() {
+        let mut guard = Guard::default();
+        for offset in [0, 8, 16] {
+            let args = json!({"message_index":9,"network_events":true,"offset":offset});
+            assert!(guard.before("recall_context", &args).is_none());
+            guard.after(
+                "recall_context",
+                &args,
+                &json!({"ok":true,"next_offset":offset+8}),
+            );
+            assert!(guard.before("recall_context", &args).is_some());
+            assert!(!guard.stalled());
+        }
+        let args = json!({"message_index":9,"network_events":true,"offset":16});
+        assert!(guard.before("recall_context", &args).is_some());
+        assert!(guard.before("recall_context", &args).is_some());
+        assert!(guard.stalled());
+    }
     #[test]
     fn retry_reports_original_evidence_and_cause() {
         for (value, expected) in [
