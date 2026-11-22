@@ -74,11 +74,17 @@ async function execute(action,args) {
   httpURL(tab.url);
   if(action==='navigate') {const destination=httpURL(args.url);if(args.fresh_document===true)await navigateTo(currentTab,'about:blank');await navigateTo(currentTab,destination);return {navigated:true};}
   if(action==='close') {await api.tabs.remove(currentTab);managed.delete(currentTab);currentTab=null;return {closed:true};}
+  async function documentIdentity() {
+    const [frame] = await api.scripting.executeScript({target:{tabId:currentTab},func:()=>location.href});
+    return frame?.documentId && frame.frameId===0 ? [frame.result,frame.documentId] : null;
+  }
+  if(action==='document_identity') return await documentIdentity();
   if(action==='network') {
     const available=traffic.filter(e=>e.tab===currentTab), entries=[];let used=0;
     for(let i=available.length-1;i>=0;i--){const size=JSON.stringify(available[i]).length+1;if(used+size>180000)break;used+=size;entries.push(available[i]);}
     entries.reverse();
-    return {entries,entries_omitted:available.length-entries.length,ring_entries_omitted:ringEvictions,
+    const identity = await documentIdentity();
+    return {document_identity:identity,entries,entries_omitted:available.length-entries.length,ring_entries_omitted:ringEvictions,
       ring_omission_scope:'all managed tabs since extension worker start',header_values_and_cookies:'not retained; bounded policy indicators only',response_bodies:'not captured by extension'};
   }
   if(action==='screenshot') {
@@ -104,6 +110,8 @@ async function execute(action,args) {
   const keys=Object.keys(envelope).sort().join(',');
   if(envelope.ok) {
     if(keys !== 'blueDragonPageEnvelope,ok,value' || envelope.value === undefined)throw Error('Invalid successful page execution envelope');
+    if(action==='snapshot' && !args.frame_selector && results[0].documentId)
+      envelope.value.document_identity=[envelope.value.url,results[0].documentId];
     return envelope.value;
   }
   if(keys !== 'blueDragonPageEnvelope,error,ok' || typeof envelope.error !== 'string')throw Error('Invalid failed page execution envelope');

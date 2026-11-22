@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const listeners={};
 const event=name=>({addListener:(callback,filter,extra)=>{listeners[name]={callback,filter,extra};}});
-const api={webRequest:{onBeforeRequest:event('request'),onCompleted:event('response'),onErrorOccurred:event('error')},
+const api={scripting:{executeScript:async()=>[{documentId:'fixture',frameId:0,result:'https://example.test/'}]},webRequest:{onBeforeRequest:event('request'),onCompleted:event('response'),onErrorOccurred:event('error')},
  tabs:{onRemoved:event('removed'),get:async()=>({url:'https://example.test/'})},action:{onClicked:event('click')},
  runtime:{openOptionsPage(){}},storage:{local:{get:async()=>({})},onChanged:event('storage')}};
 const context=vm.createContext({browser:api,URL,TextEncoder,console,setInterval:()=>{},clearTimeout:()=>{}});
@@ -26,6 +26,8 @@ listeners.response.callback({...base,url:'https://example.test/',responseHeaders
 listeners.response.callback({...base,requestId:'duplicate',url:'https://example.test/duplicate',responseHeaders:cases.find(c=>c.name==='duplicate').headers});
 listeners.response.callback({...base,requestId:'missing',url:'https://example.test/missing'});
 const result=JSON.parse(JSON.stringify(await context.execute('network',{})));
+assert.deepEqual(result.document_identity,['https://example.test/','fixture']);
+delete result.document_identity;
 assert.equal(result.entries.length,3); // Unmanaged tabs are ignored.
 assert(!JSON.stringify(result).includes('PRIVATE_'));
 assert(!JSON.stringify(result).includes('security_headers"'));

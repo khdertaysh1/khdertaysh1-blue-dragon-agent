@@ -19,9 +19,20 @@ pub struct Guard {
     cached_reuses: usize,
     consecutive_cached: usize,
     recall_reads: usize,
+    // Observed bytes, shared across full and window reads. No live read is skipped.
+    read_ranges: BTreeMap<(String, usize), String>,
+    redundant_reads: usize,
 }
 impl Guard {
     fn key(name: &str, args: &Value) -> String {
+        if name == "recall_context" && args["network_events"] == true {
+            return format!(
+                "network-events:{}:{}:{}",
+                args["message_index"],
+                args["request_id"],
+                args["offset"].as_u64().unwrap_or(0)
+            );
+        }
         if name == "recall_context" {
             return format!(
                 "recall:{}:{}:{}",
@@ -54,7 +65,7 @@ impl Guard {
         if name == "recall_context" && (self.recall_reads >= 8 || self.seen.contains_key(&key)) {
             self.blocked += 1;
             return Some(
-                json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","error":"This history page was already recalled, or the eight-page turn budget was reached. Use the existing excerpt, narrow the investigation, or request another user turn; original history is preserved."}),
+                json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","category":if self.seen.contains_key(&key) {"duplicate_recall"} else {"recall_budget_exhausted"},"error":if self.seen.contains_key(&key) {"This page was requested earlier. Use the original result."} else {"Eight history pages already read in this turn. Report available evidence."}}),
             );
         }
         if self
@@ -101,6 +112,37 @@ impl Guard {
         if matches!(name, "job_status" | "job_output") {
             return false;
         }
+        let mut redundant = false;
+        if matches!(name, "read_file" | "read_file_window") {
+            if let (Some(path), Some(content)) = (args["path"].as_str(), result["content"].as_str())
+            {
+                let offset = result["byte_offset"].as_u64().unwrap_or(0) as usize;
+                let key = (path.to_owned(), offset);
+                redundant = self
+                    .read_ranges
+                    .range((path.to_owned(), 0)..=key.clone())
+                    .any(|((_, start), prior)| {
+                        prior
+                            .as_bytes()
+                            .get(offset - start..(offset - start).saturating_add(content.len()))
+                            == Some(content.as_bytes())
+                    });
+                if !redundant {
+                    let end = offset.saturating_add(content.len());
+                    self.read_ranges.retain(|(p, s), v| {
+                        p != path
+                            || (!matches!(name, "read_file")
+                                && (*s >= end || s.saturating_add(v.len()) <= offset))
+                    });
+                    self.read_ranges.insert(key, content.to_owned());
+                }
+            }
+        }
+        self.redundant_reads = if redundant {
+            self.redundant_reads + 1
+        } else {
+            0
+        };
         self.consecutive_cached = 0;
         if name == "recall_context" && result["ok"] == true {
             self.recall_reads += 1;
@@ -129,10 +171,13 @@ impl Guard {
             || error.contains("cancelled");
         old.result = text;
         self.last = key;
-        old.unchanged >= 2
+        redundant || old.unchanged >= 2
     }
     pub fn stalled(&self) -> bool {
-        self.blocked >= 3 || self.repetitions >= 8 || self.consecutive_cached >= 3
+        self.redundant_reads >= 3
+            || self.blocked >= 3
+            || self.repetitions >= 8
+            || self.consecutive_cached >= 3
     }
     pub fn status(&self) -> Value {
         json!({"blocked_identical_calls":self.blocked,"unchanged_observations":self.repetitions,"cached_fetch_reuses":self.cached_reuses,"note":"No cached tool output is presented as a fresh observation."})

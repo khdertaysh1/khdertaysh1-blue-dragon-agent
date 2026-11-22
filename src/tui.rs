@@ -19,7 +19,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::{
-    io::{self, IsTerminal},
+    io::{self, BufRead, IsTerminal, Write},
     sync::mpsc::{self, Sender},
     thread,
     time::Duration,
@@ -199,7 +199,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -230,7 +230,13 @@ impl Screen {
             let _ = request.respond_to.send(accepted);
             self.log(
                 "Approval:",
-                if accepted {
+                if accepted
+                    && request
+                        .action
+                        .ends_with("(allow snapshot and network reads on this page for this task)")
+                {
+                    "Approved page reads for this task"
+                } else if accepted {
                     "Approved one action"
                 } else {
                     "Denied action"
@@ -262,10 +268,97 @@ impl Drop for JobShutdownGuard {
     }
 }
 
-pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<()> {
+fn choose_session(
+    sessions_dir: &std::path::Path,
+    root: &std::path::Path,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<Option<String>> {
+    let workspace = root.to_string_lossy();
+    let choices: Vec<_> = crate::session::list_sessions(sessions_dir)?
+        .into_iter()
+        .filter(|entry| entry.workspace == workspace)
+        .filter_map(|entry| {
+            let session = crate::session::load(sessions_dir, &entry.id, root).ok()?;
+            let first_prompt = session.messages.iter().find_map(|message| {
+                (message["role"] == "user")
+                    .then(|| message["content"].as_str())
+                    .flatten()
+                    .filter(|text| !text.trim().is_empty())
+            })?;
+            let title: String = first_prompt
+                .chars()
+                .filter(|ch| !ch.is_control())
+                .take(64)
+                .collect();
+            Some((entry, title))
+        })
+        .take(5)
+        .collect();
+    if choices.is_empty() {
+        return Ok(None);
+    }
+
+    writeln!(output, "Recent conversations in {}", root.display())?;
+    for (index, (entry, title)) in choices.iter().enumerate() {
+        writeln!(
+            output,
+            "  {}. {} ({})",
+            index + 1,
+            title,
+            entry
+                .updated_at
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+        )?;
+    }
+    loop {
+        write!(
+            output,
+            "Enter to continue most recent, 0 for new, or choose a number: "
+        )?;
+        output.flush()?;
+        let mut line = String::new();
+        if input.read_line(&mut line)? == 0 {
+            anyhow::bail!("Session selection cancelled");
+        }
+        match line.trim() {
+            "" => return Ok(Some(choices[0].0.id.clone())),
+            "0" => return Ok(None),
+            selection => {
+                if let Some(choice) = selection
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|n| n.checked_sub(1))
+                    .and_then(|n| choices.get(n))
+                {
+                    return Ok(Some(choice.0.id.clone()));
+                }
+                writeln!(output, "Choose 0 through {}.", choices.len())?;
+            }
+        }
+    }
+}
+
+pub fn run(
+    settings: Settings,
+    read_only: bool,
+    resume: Option<&str>,
+    new_session: bool,
+) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         anyhow::bail!("TUI needs an interactive terminal. Use 'blue-dragon chat' or 'run' instead");
     }
+    let saved_resume = if new_session || resume.is_some() {
+        resume.map(str::to_owned)
+    } else {
+        choose_session(
+            &settings.sessions_dir,
+            &settings.root,
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+        )?
+    };
     let mut app = Screen::new(
         crate::models::interface_mode(&settings.base_url, &settings.model),
         settings.root.display().to_string(),
@@ -274,7 +367,9 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
     let (work_tx, work_rx) = mpsc::channel::<Work>();
     let (message_tx, message_rx) = mpsc::sync_channel::<AgentEvent>(256);
     let (approval_tx, approval_rx) = mpsc::channel::<ApprovalRequest>();
-    let saved_resume = resume.map(str::to_owned);
+    if saved_resume.is_some() {
+        app.log("System", "Continuing a saved conversation.");
+    }
     let cancellation = app.cancelled.clone();
     let jobs = app.jobs.clone();
     let _job_shutdown = JobShutdownGuard(app.jobs.clone());
@@ -614,6 +709,11 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/tool-result ") => serde_json::to_string_pretty(
             &agent.inspect_saved_tool(line.trim_start_matches("/tool-result ").trim())?,
         )?,
+        line if line == "/network" || line.starts_with("/network ") => {
+            serde_json::to_string_pretty(
+                &agent.saved_network(line.trim_start_matches("/network"))?,
+            )?
+        }
         "/saved-files" => serde_json::to_string_pretty(&agent.saved_files())?,
         "/report" => agent.report_text(),
         "/mcp" => serde_json::to_string_pretty(&agent.mcp_list())?,
@@ -1003,6 +1103,37 @@ fn center(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recent_conversations_skip_empty_and_other_workspaces() {
+        let temp = tempfile::tempdir().unwrap();
+        let sessions = temp.path();
+        let root = sessions.join("workspace");
+        let mut original = crate::session::new(&root, "test");
+        original
+            .messages
+            .push(serde_json::json!({"role":"user","content":"Read the project"}));
+        crate::session::save(sessions, &mut original).unwrap();
+        let mut empty = crate::session::new(&root, "test");
+        crate::session::save(sessions, &mut empty).unwrap();
+        let mut foreign = crate::session::new(&sessions.join("other"), "test");
+        foreign
+            .messages
+            .push(serde_json::json!({"role":"user","content":"Other workspace"}));
+        crate::session::save(sessions, &mut foreign).unwrap();
+
+        let mut output = Vec::new();
+        let chosen = choose_session(sessions, &root, &mut &b"9\n\n"[..], &mut output).unwrap();
+        assert_eq!(chosen.as_deref(), Some(original.id.as_str()));
+        let menu = String::from_utf8(output).unwrap();
+        assert!(menu.contains("Read the project"));
+        assert!(menu.contains("Choose 0 through 1."));
+        assert!(!menu.contains("Other workspace"));
+        assert_eq!(
+            choose_session(sessions, &root, &mut &b"0\n"[..], &mut Vec::new()).unwrap(),
+            None
+        );
+    }
 
     #[test]
     fn abyss_identity_keeps_blue_and_white_wordmark() {

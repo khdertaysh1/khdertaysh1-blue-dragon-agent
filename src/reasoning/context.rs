@@ -107,6 +107,32 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
             );
         }
     }
+    if parsed["untrusted_web_content"] == true && parsed["ok"] == true {
+        let result = &parsed["result"];
+        if result["entries"].is_array() && result.get("ring_entries_omitted").is_some() {
+            if let Ok(page) = crate::network_history::page(result, None, 0, 2) {
+                selected.insert("network_preview".into(), page);
+                selected.insert("read_more".into(),json!("Use recall_context with this message_index, network_events=true and optional request_id or event offset."));
+            }
+        }
+        if parsed["observation_kind"] == "current_page_read" {
+            for key in ["url", "title", "h1", "scripts"] {
+                if let Some(field) = result.get(key).filter(|f| f.to_string().len() <= 2048) {
+                    selected.insert(key.into(), field.clone());
+                }
+            }
+            let links: Vec<_> = result["elements"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|e| matches!(e["tag"].as_str(), Some("a" | "button")))
+                .take(3)
+                .map(|e| json!({"text":e.get("text").or(e.get("label")),"href":e["href"]}))
+                .filter(|e| e.to_string().len() < 1024)
+                .collect();
+            selected.insert("observed_controls".into(), json!(links));
+        }
+    }
     if let Some(text) = parsed["content"].as_str() {
         selected.insert(
             "untrusted_source_content_excerpt".into(),

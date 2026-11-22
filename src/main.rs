@@ -18,6 +18,7 @@ mod local_files;
 mod mcp;
 mod mcp_protocol;
 mod models;
+mod network_history;
 mod plan;
 mod project;
 mod provider;
@@ -77,6 +78,9 @@ struct Cli {
         help = "Resume a saved session by ID; 'latest' uses most recent"
     )]
     resume: Option<String>,
+    /// Start an empty terminal session without showing recent conversations.
+    #[arg(long, global = true, conflicts_with = "resume")]
+    new_session: bool,
     #[arg(
         long,
         global = true,
@@ -304,10 +308,18 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
-        Some(Command::Tui) => tui::run(settings, args.read_only, args.resume.as_deref()),
-        None if io::stdin().is_terminal() && io::stdout().is_terminal() => {
-            tui::run(settings, args.read_only, args.resume.as_deref())
-        }
+        Some(Command::Tui) => tui::run(
+            settings,
+            args.read_only,
+            args.resume.as_deref(),
+            args.new_session,
+        ),
+        None if io::stdin().is_terminal() && io::stdout().is_terminal() => tui::run(
+            settings,
+            args.read_only,
+            args.resume.as_deref(),
+            args.new_session,
+        ),
         cmd => {
             let approval = if args.read_only {
                 ApprovalMode::ReadOnly
@@ -341,7 +353,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -491,6 +503,15 @@ fn run() -> Result<()> {
                             }
                             "/plan" => {
                                 println!("{}", agent.plan_text());
+                                continue;
+                            }
+                            name if name == "/network" || name.starts_with("/network ") => {
+                                match agent.saved_network(name.trim_start_matches("/network")) {
+                                    Ok(view) => {
+                                        println!("{}", serde_json::to_string_pretty(&view)?)
+                                    }
+                                    Err(e) => eprintln!("{e}"),
+                                }
                                 continue;
                             }
                             name if name.starts_with("/tool-result ") => {
