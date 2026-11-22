@@ -50,8 +50,16 @@ try{
  async function send(command,approval=false){
   if(process.env.BB_BROWSER_VERBOSE)console.log("Browser test:",command.slice(0,150));
   const offset=output.length,errorOffset=errors.length;
-  agent.stdin.write(command+'\n'+(approval?'y\n':''));
-  await until(()=>output.slice(offset).includes('blue-dragon> '),40000);
+  let answered = false;
+  agent.stdin.write(command+'\n');
+  await until(()=>{
+   const current = output.slice(offset);
+   if(current.includes('blue-dragon> ')) return true;
+   const prompts = current.match(/(?:Approve this ONE action\?|Allow snapshot and network reads for this page and task\?) \[y\/N\] /g) || [];
+   assert(prompts.length <= 1 && (approval || prompts.length === 0), 'Unexpected approval prompt');
+   if(prompts.length && !answered){ answered = true; agent.stdin.write('y\n'); }
+   return false;
+  },40000);
   const text=output.slice(offset);
   const err=errors.slice(errorOffset);assert.equal(err,'',err);
   const start=text.indexOf('{\n'),end=text.lastIndexOf('\n}');
