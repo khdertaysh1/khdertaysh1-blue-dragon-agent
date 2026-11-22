@@ -8,6 +8,8 @@ mod config;
 mod continuity;
 mod delegates;
 mod edit_proposals;
+mod exact_file;
+mod file_review;
 mod intelligence;
 mod jobs;
 mod lab_report;
@@ -25,6 +27,7 @@ mod provider_diagnostics;
 mod provider_traffic;
 mod reasoning;
 mod rotation;
+mod saved_file;
 mod scope;
 mod session;
 mod skills;
@@ -32,6 +35,7 @@ mod source_discovery;
 mod source_report;
 mod source_trace;
 mod streaming;
+mod terminal_input;
 mod test_coverage;
 #[cfg(test)]
 mod test_support;
@@ -39,6 +43,7 @@ mod tool_arguments;
 mod tool_selection;
 mod tools;
 mod tui;
+mod tui_text;
 mod vision;
 
 use anyhow::{Context, Result};
@@ -309,6 +314,7 @@ fn run() -> Result<()> {
             } else {
                 ApprovalMode::Ask
             };
+            let _input_guard = terminal_input::Guard::start()?;
             let mut agent = Agent::new(settings, approval, args.resume.as_deref())?;
             print_banner();
             println!(
@@ -325,15 +331,17 @@ fn run() -> Result<()> {
                     loop {
                         print!("\nblue-dragon> ");
                         io::stdout().flush()?;
-                        let mut text = String::new();
-                        if io::stdin().read_line(&mut text)? == 0 {
+                        let Some(text) = terminal_input::task()? else {
                             break;
-                        }
+                        };
                         let text = text.trim();
+                        if text.is_empty() {
+                            continue;
+                        }
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -495,6 +503,28 @@ fn run() -> Result<()> {
                                     Err(_) => eprintln!(
                                         "Saved tool evidence unavailable or integrity check failed"
                                     ),
+                                }
+                                continue;
+                            }
+                            "/saved-files" => {
+                                println!("{}", serde_json::to_string_pretty(&agent.saved_files())?);
+                                continue;
+                            }
+                            line if matches!(
+                                line.split(' ').next(),
+                                Some("/review-file" | "/review-response" | "/resume-review")
+                            ) =>
+                            {
+                                if let Err(error) = agent.review_command(line) {
+                                    eprintln!("Review failed: {error:#}");
+                                }
+                                continue;
+                            }
+                            line if line == "/resume-file" || line.starts_with("/resume-file ") => {
+                                if let Err(error) =
+                                    agent.resume_file(line["/resume-file".len()..].trim())
+                                {
+                                    eprintln!("Continuation failed: {error:#}");
                                 }
                                 continue;
                             }

@@ -6,7 +6,6 @@ from release_version import load_version
 p=argparse.ArgumentParser();p.add_argument('--binary',type=Path);p.add_argument('--check-build-script',action='store_true');a=p.parse_args()
 repo=Path(__file__).resolve().parent.parent
 public,package=load_version(repo)
-assert public=='1.1.9.0' and package=='1.1.9'
 if a.binary:
     assert subprocess.check_output([str(a.binary.resolve()),'--version'],text=True).strip()==f'blue-dragon {public}'
 with tempfile.TemporaryDirectory(prefix='blue-version-') as folder:

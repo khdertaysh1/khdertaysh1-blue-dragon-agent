@@ -1,5 +1,19 @@
 # Release notes
 
+## 1.1.12.0 — cumulative R2–R11 update
+
+- Improve Termux input, including multiline paste, cancellation and Arabic rendering.
+- Preserve native command outcomes and distinguish denied, cancelled and unknown results.
+- Save selected browser responses with approval and resume local analysis using verified file fingerprints.
+- Review large local files with byte coverage and verified quotation ranges. Repair rejected report formatting once from recorded evidence.
+- Continue unfinished reviews after restarting using `/resume-review`.
+- Support exact file writes, including an explicitly requested trailing newline.
+- Collect passive browser evidence with explicit scope and preserve approvals.
+- Retain the published baseline's argument diagnostics, verification and provider recovery safeguards.
+
+The release workflow builds Linux, Windows, macOS and Android ARM64 after CI passes.
+Android is cross-compiled. Physical-device verification and live-provider reliability remain separate.
+
 ## 1.1.9.0 — unreleased candidate
 
 Review and final platform/browser CI are pending. The published baseline remains

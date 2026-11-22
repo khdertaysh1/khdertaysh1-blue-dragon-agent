@@ -64,7 +64,11 @@ impl Assembly {
                         .as_str()
                         .and_then(crate::provider_contract::stop_kind)
                     {
-                        return Err(crate::provider_contract::incomplete(kind, &self.text));
+                        return Err(crate::provider_contract::incomplete_reason(
+                            kind,
+                            &self.text,
+                            v["delta"]["stop_reason"].as_str().unwrap_or(""),
+                        ));
                     }
                 }
                 Some("content_block_start") => {
@@ -138,7 +142,11 @@ impl Assembly {
                 .as_str()
                 .and_then(crate::provider_contract::stop_kind)
             {
-                return Err(crate::provider_contract::incomplete(kind, &self.text));
+                return Err(crate::provider_contract::incomplete_reason(
+                    kind,
+                    &self.text,
+                    choice["finish_reason"].as_str().unwrap_or(""),
+                ));
             }
             if choice["finish_reason"].is_string() {
                 self.finished = true;

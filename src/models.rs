@@ -9,6 +9,14 @@ pub const FREE_MODEL: &str = "auto/free";
 pub const KILO_BASE: &str = "https://ai-gateway.kilo.ai/api/v1";
 pub const KILO_MODEL: &str = "kilo-auto/free";
 
+pub fn interface_mode(base: &str, model: &str) -> &'static str {
+    if base == KILO_BASE && kilo_id(model) {
+        "Blue Free"
+    } else {
+        "Custom"
+    }
+}
+
 pub fn kilo_id(id: &str) -> bool {
     (id == KILO_MODEL || id.ends_with(":free"))
         && id.contains('/')

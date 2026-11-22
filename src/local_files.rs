@@ -7,7 +7,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const WINDOW: usize = 16 * 1024;
+pub(crate) const WINDOW: usize = 16 * 1024;
 const SCAN: u64 = 8 * 1024 * 1024;
 
 fn open(path: &Path) -> Result<(File, Metadata)> {
@@ -88,20 +88,31 @@ pub(crate) fn source_text(path: &Path, cancelled: &AtomicBool) -> Result<String>
 }
 
 pub fn read(path: &Path, offset: u64, count: u64, cancelled: &AtomicBool) -> Result<Value> {
+    let (mut file, meta) = open(path)?;
+    let result = read_open(&mut file, meta.len(), offset, count, cancelled)?;
+    unchanged(&file, &meta)?;
+    Ok(result)
+}
+
+pub(crate) fn read_open(
+    file: &mut File,
+    size: u64,
+    offset: u64,
+    count: u64,
+    cancelled: &AtomicBool,
+) -> Result<Value> {
     if !(1..=WINDOW as u64).contains(&count) {
         bail!("byte_count must be 1..16384");
     }
     if cancelled.load(Ordering::Relaxed) {
         bail!("Read cancelled");
     }
-    let (mut file, meta) = open(path)?;
-    let text = chunk(&mut file, offset, count as usize, meta.len())?;
-    unchanged(&file, &meta)?;
+    let text = chunk(file, offset, count as usize, size)?;
     let end = offset + text.len() as u64;
     Ok(
         json!({"content":text,"byte_offset":offset,"end_byte_offset":end,
-        "file_bytes":meta.len(),"next_byte_offset":if end < meta.len() {Some(end)} else {None},
-        "eof":end==meta.len(),"window_sha256":format!("{:x}",Sha256::digest(text.as_bytes())),
+        "file_bytes":size,"next_byte_offset":if end < size {Some(end)} else {None},
+        "eof":end==size,"ends_with_newline":if end==size && (!text.is_empty() || size==0) {Some(text.ends_with('\n'))} else {None},"window_sha256":format!("{:x}",Sha256::digest(text.as_bytes())),
         "consistency":"live file; size/mtime checked during call, not an immutable snapshot",
         "utf8_scope":"returned window only; unseen bytes not validated"}),
     )
@@ -109,6 +120,21 @@ pub fn read(path: &Path, offset: u64, count: u64, cancelled: &AtomicBool) -> Res
 
 pub fn search(
     path: &Path,
+    query: &str,
+    offset: u64,
+    budget: u64,
+    cap: u64,
+    cancelled: &AtomicBool,
+) -> Result<Value> {
+    let (mut file, meta) = open(path)?;
+    let result = search_open(&mut file, meta.len(), query, offset, budget, cap, cancelled)?;
+    unchanged(&file, &meta)?;
+    Ok(result)
+}
+
+pub(crate) fn search_open(
+    file: &mut File,
+    size: u64,
     query: &str,
     offset: u64,
     budget: u64,
@@ -127,11 +153,10 @@ pub fn search(
     if cancelled.load(Ordering::Relaxed) {
         bail!("Search cancelled");
     }
-    let (mut file, meta) = open(path)?;
-    if offset > meta.len() {
+    if offset > size {
         bail!("Byte offset exceeds file size");
     }
-    let stop = offset.saturating_add(budget).min(meta.len());
+    let stop = offset.saturating_add(budget).min(size);
     let mut pos = offset;
     let mut carry = String::new();
     let mut hits = Vec::new();
@@ -144,11 +169,11 @@ pub fn search(
         }
         let count = (stop - pos).min(WINDOW as u64) as usize;
         // The remaining budget can end inside a code point. Resume at its start.
-        if count < 4 && stop < meta.len() {
+        if count < 4 && stop < size {
             reason = "scan_limit";
             break;
         }
-        let text = chunk(&mut file, pos, count, meta.len())?;
+        let text = chunk(file, pos, count, size)?;
         let base = pos - carry.len() as u64;
         let joined = std::mem::take(&mut carry) + &text;
         pos += text.len() as u64;
@@ -173,16 +198,15 @@ pub fn search(
         }
         carry = joined[tail..].to_owned();
     }
-    if next.is_none() && pos < meta.len() {
+    if next.is_none() && pos < size {
         // Re-scan a bounded suffix to find a match crossing the scan boundary.
         next = Some((pos - carry.len() as u64).max(last_end));
         reason = "scan_limit";
     }
-    unchanged(&file, &meta)?;
     Ok(
         json!({"matches":hits,"byte_offset":offset,"scanned_end_byte_offset":pos,
-        "file_bytes":meta.len(),"next_byte_offset":next,"stop_reason":reason,
-        "complete_from_offset":next.is_none(),"whole_file_searched":offset==0 && next.is_none(),
+        "file_bytes":size,"next_byte_offset":next,"stop_reason":reason,
+        "search_mode":"literal","regex_supported":false,"complete_from_offset":next.is_none(),"whole_file_searched":offset==0 && next.is_none(),
         "match_semantics":"exact, case-sensitive, non-overlapping UTF-8 matches; byte offsets, no line count",
         "consistency":"live file; size/mtime checked during call, not an immutable snapshot"}),
     )

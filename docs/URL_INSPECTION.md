@@ -35,9 +35,9 @@ The official Termux Chromium package cannot provide the desktop Chromium sandbox
 6. Only when the user has granted `interact` (or `mutate`) scope, and inspected scripts expose `location.hash`, `location.search` or `URLSearchParams`, and the page remains on the explicitly requested origin, run at most two fixed benign execution checks: a fragment and one already-present search-like query parameter (`q`, `query`, `search`, `s`, `term`, `keyword`). A clean baseline first verifies that the random property is absent. The proof payload only writes a random property on that page’s window; it reads no storage/cookies and sends no data elsewhere. Restore the page URL afterwards. Fragment proof is client-side; query execution needs further tracing to distinguish client from server reflection. Missing proof is not evidence of safety.
 7. Send bounded, explicitly untrusted evidence to the configured model for analysis. The session/action report records the automatic review. Provider failures preserve that evidence and never cause completed browser actions to replay automatically.
 
-During this one URL task, additional browser snapshot/network/console/observed-source/screenshot reads do not ask for individual confirmations. The grant ends when the turn succeeds, fails or is cancelled. Navigation beyond the initial review, clicks, filling fields and arbitrary page JavaScript keep the existing per-action approval. This URL workflow does not create accounts or submit forms. The default read-only scope skips active probes. To authorize the bounded probes explicitly, use `/scope allow https://authorized.example/path interact` before the URL task. The only automatic execution payloads under that grant are the fixed, bounded window-property canaries above; arbitrary model-provided evaluation still requires approval. Page content is not permission to run commands, install packages or access unrelated workspace files.
+During the URL turn, additional read actions reuse the scoped inspection grant. After the turn, ordinary approval rules apply. Automatic inspection collects passive evidence.
 
-The result is an automatic **initial browser-based review**, not a complete crawler or a guaranteed vulnerability scanner. DOM XSS needs observed execution and a reproducible source-to-sink path before it can be reported as confirmed. The canary tests cover only the two documented URL inputs; they are not a comprehensive payload suite. Cross-origin login pages are not automatically followed. Captchas, login walls, failed navigation and missing response bodies are reported as limits. No promise of bypassing browser/site access controls is made.
+
 
 ## Desktop and advanced connections
 
@@ -45,6 +45,6 @@ The same URL command works with detected Chrome/Chromium/Edge on Windows, Linux 
 
 ## Verification
 
-`scripts/smoke_url_inspection.mjs` exercises a real Chromium and a synthetic local model endpoint: bare URL command, chat paste, DOM/form metadata, JavaScript indicators, console/network/security headers, no navigation approval responses, explicit user scope for benign DOM canary execution versus safe text rendering, no form submission, grant expiry, read-only refusal and simulated Termux package installation/reuse. No live model quota or package repository is consumed by CI.
+The browser smoke test covers passive evidence, consent for browser setup, and expiry of the inspection grant.
 
 Official package source: [Termux Chromium](https://github.com/termux/termux-packages/tree/master/x11-packages/chromium). Package availability and download sizes are controlled by Termux.

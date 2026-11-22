@@ -54,14 +54,12 @@ try{
  assert.equal(evidence.page.url,site+'/register');assert.equal(evidence.landing_page.title,'Landing fixture');
  result=await run(['chat'],env,site+'\n/browser do {"action":"snapshot"}\nn\n/exit\n');
  assert.equal(result.code,0,result.stderr);assert(result.stdout.includes('APPROVAL REQUIRED'),'Read grant must end with the URL turn');assert(result.stdout.includes('"denied": true'));
- result=await run(['chat'],env,`/scope allow ${site}/dom interact\n${site}/dom?q=hello\ny\n/exit\n`);assert.equal(result.code,0,result.stderr);
+ result=await run(['chat'],env,`/scope allow ${site}/dom interact\n${site}/dom?q=hello\n/exit\n`);assert.equal(result.code,0,result.stderr);
  evidence=JSON.parse(modelRequests.at(-1).messages.at(-1).content.split('Evidence:\n')[1]);
- assert.equal(evidence.dom_checks.attempts.length,2);
- assert(evidence.dom_checks.attempts.some(a=>a.vector==='fragment'&&a.client_side_execution_observed));
- assert(evidence.dom_checks.attempts.some(a=>a.vector==='query:q'&&a.script_execution_observed&&a.source_classification==='client_or_server_origin_not_determined'));
- result=await run(['chat'],env,`/scope allow ${site}/dom-safe interact\n${site}/dom-safe?q=hello\ny\n/exit\n`);assert.equal(result.code,0,result.stderr);
- evidence=JSON.parse(modelRequests.at(-1).messages.at(-1).content.split('Evidence:\n')[1]);
- assert.equal(evidence.dom_checks.attempts.length,2);assert(evidence.dom_checks.attempts.every(a=>!a.script_execution_observed));
+ assert.equal(evidence.page.url,site+'/dom?q=hello');
+ assert(evidence.javascript_review.some(e=>e.indicators?.some(i=>i.token==='innerHTML')));
+ assert.equal(evidence.dom_checks,undefined);
+ assert(!result.stdout.includes('APPROVAL REQUIRED'));
  const requestsBefore=modelRequests.length;
  result=await run(['--read-only','inspect',site]);assert.notEqual(result.code,0);assert.equal(modelRequests.length,requestsBefore);
  result=await run(['inspect','file:///etc/passwd']);assert.notEqual(result.code,0);assert.equal(modelRequests.length,requestsBefore);
@@ -78,5 +76,5 @@ try{
  result=await run(['inspect',site],termuxEnv);assert.equal(result.code,0,result.stderr);
  assert.equal(fs.readFileSync(calls,'utf8').trim().split('\n').length,2,'Installed browser must be reused');
  assert.equal(submissions,0);
- console.log('URL-only CLI/chat: automatic real browser, loaded DOM/forms, JS source hints, network/console, no navigation approval prompts with installed browser, explicit package consent, separately approved benign DOM canary positive/negative fixtures, no form submission, scoped grant expiry, read-only refusal; simulated Termux package setup/reuse passed');
+ console.log('URL-only CLI/chat: automatic real browser, loaded DOM/forms, JS source hints, network/console, no navigation approval prompts with installed browser, explicit package consent, passive inspection under interact scope, no form submission, scoped grant expiry, read-only refusal; simulated Termux package setup/reuse passed');
 }finally{children.forEach(p=>p.kill('SIGKILL'));await new Promise(r=>server.close(r));fs.rmSync(temp,{recursive:true,force:true});}

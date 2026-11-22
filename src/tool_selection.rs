@@ -6,6 +6,8 @@ use std::collections::BTreeSet;
 pub fn core() -> BTreeSet<String> {
     [
         "discover_tools",
+        "run_command",
+        "write_file",
         "list_files",
         "read_file_window",
         "search_file",

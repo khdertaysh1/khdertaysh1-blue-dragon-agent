@@ -121,6 +121,20 @@ impl Coordinator {
     pub fn admit(&self) -> Result<()> {
         self.admit_tokens(0)
     }
+    pub fn cooldown_until(&self) -> Result<Option<u64>> {
+        let mut result = None;
+        self.change(|state, now| {
+            let until = state["until"]
+                .as_u64()
+                .unwrap()
+                .max(state["models"][&self.model]["until"].as_u64().unwrap_or(0));
+            if until > now {
+                result = Some(until);
+            }
+            Ok(())
+        })?;
+        Ok(result)
+    }
     pub fn admit_tokens(&self, reserved_tokens: u64) -> Result<()> {
         let rpm = crate::provider_traffic::positive_env("BLUE_DRAGON_RPM", MAX_EVENTS as u64)
             .unwrap_or(REQUESTS_PER_MINUTE);

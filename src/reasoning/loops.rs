@@ -63,9 +63,15 @@ impl Guard {
             .is_some_and(|s| s.denied || (self.last == key && s.unchanged >= 3))
         {
             self.blocked += 1;
-            return Some(
-                json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,"error":"This identical call was denied/uncertain or repeatedly returned unchanged results. Do not re-request the same approval. Inspect different evidence or change inputs/strategy. A new user turn resets this guard."}),
-            );
+            let uncertain_or_denied = self.seen.get(&key).is_some_and(|s| s.denied);
+            return Some(json!({"ok":false,"execution_status":"not_executed",
+            "repetition_blocked":true,"repeated_tool":name,
+            "category":if uncertain_or_denied {"prior_denied_or_uncertain"} else {"repeated_unchanged"},
+            "error":if uncertain_or_denied {
+                "An earlier identical action was denied or its outcome is uncertain. Consult its original result; do not re-request approval."
+            } else {
+                "Repeated identical arguments returned unchanged results. Inspect the previous result for this tool."
+            }}));
         }
         if name == "web_fetch" {
             if let Some(reference) = self.fetches.get(&key) {
@@ -107,6 +113,7 @@ impl Guard {
             self.repetitions += 1;
         } else {
             old.unchanged = 1;
+            self.repetitions = 0;
         }
         let status = result["status"].as_str().unwrap_or("");
         let error = result["error"].as_str().unwrap_or("").to_lowercase();
