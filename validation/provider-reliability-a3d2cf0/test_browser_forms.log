@@ -1,6 +1,0 @@
-Browser form contract tests passed
-Snapshot option budget tests passed
-Bounded readiness and same-origin/cross-origin frame contract tests passed
-Collector form/field limits fixture passed
-Bounded scroll, clamping, no movement and negative contract tests passed
-CSS-hidden scroll target rejection passed

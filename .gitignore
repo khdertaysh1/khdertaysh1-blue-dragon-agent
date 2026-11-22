@@ -1,9 +1,0 @@
-/target/
-.env
-.env.*
-!.env.example
-*.log
-.DS_Store
-/.blue-dragon/
-
-__pycache__/
