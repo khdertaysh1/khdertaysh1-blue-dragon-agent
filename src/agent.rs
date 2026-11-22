@@ -985,8 +985,14 @@ impl Agent {
         let mut argument_errors_total = 0;
         let mut empty_continuations = 0;
         let mut user_denied_action = false;
+        let mut denied_artifact_read = false;
         let mut denial_violation = false;
         let mut context_recovery_used = false;
+        let historical_native_evidence = if resumed.is_none() {
+            crate::reasoning::evidence_memory::select(&self.session, prompt)
+        } else {
+            Value::Null
+        };
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
         let mut initial_limit_retry = false;
@@ -1035,8 +1041,14 @@ impl Agent {
                     self.session.vision_destination.as_deref(),
                     self.provider.vision_destination().as_deref(),
                 )?;
-                let definitions = if user_denied_action || report_recovery {
+                let definitions = if report_recovery {
                     json!([])
+                } else if user_denied_action {
+                    if denied_artifact_read {
+                        json!([crate::artifacts::definition()])
+                    } else {
+                        json!([])
+                    }
                 } else if browser_only {
                     json!([crate::browser::definition()])
                 } else if resumed.is_some() {
@@ -1086,7 +1098,7 @@ impl Agent {
                     self.output(AgentEvent::Notice("Capacity mode: bounded input and core schemas; discover_tools enables additional tools without changing permissions. Original history remains saved.".into()));
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
-                let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":crate::reasoning::evidence_memory::select(&self.session,prompt),"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
+                let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
                 let (projection_target, usage_feedback) = crate::reasoning::context::usage_target(
                     input_target.unwrap_or(limit.saturating_mul(4) / 5),
                     &self.provider.metrics(),
@@ -1239,6 +1251,7 @@ impl Agent {
                         {
                             if partial.kind == "response_limit"
                                 && actions.is_empty()
+                                && partial.partial_text.trim().is_empty()
                                 && !initial_limit_retry
                                 && step + 1 < step_limit
                                 && !token.load(std::sync::atomic::Ordering::Relaxed)
@@ -1644,7 +1657,10 @@ impl Agent {
                     None
                 };
                 let mut correction_origin = crate::tool_arguments::CorrectionOrigin::NotDispatched;
-                let outcome = if user_denied_action {
+                let artifact_metadata_only = denied_artifact_read
+                    && name == "source_artifact"
+                    && guard_args["action"] == "discover";
+                let outcome = if user_denied_action && !artifact_metadata_only {
                     denial_violation = true;
                     Ok(self.loop_guard.before(name, &guard_args).unwrap_or_else(|| {
                         json!({"ok":false,"category":"blocked_after_user_denial","execution_status":"not_executed","error":"User declined execution; no alternative tool is allowed this turn."})
@@ -1989,7 +2005,6 @@ impl Agent {
                 }
                 if result["repetition_blocked"] != true
                     && result["cached_result"] != true
-                    && argument_error.is_none()
                     && self.loop_guard.after(name, &guard_args, &result)
                 {
                     if !result.is_object() {
@@ -2086,6 +2101,7 @@ impl Agent {
                 self.output(AgentEvent::ToolResult(summary));
                 if declined {
                     user_denied_action = true;
+                    denied_artifact_read = name == "source_artifact";
                 }
                 let mut action = json!({"tool":name,"ok":ok,"step":step+1,"execution_status":result["execution_status"],"cached_result":result["cached_result"]==true});
                 if let Some(a) = browser_action {
