@@ -8,8 +8,6 @@ use serde_json::Value;
 pub struct NativeFacts {
     pub command_exit_code: Option<i64>,
     pub http_status: Option<u16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub browser_status_ready: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,17 +35,32 @@ pub fn is_historical(result: &Value) -> bool {
         || result.get("original_evidence_id").is_some()
 }
 
+pub fn unverified_execution(result: &Value) -> bool {
+    result["denied"] == true
+        || matches!(
+            result["execution_status"].as_str(),
+            Some("unknown" | "not_executed" | "executed_state_mismatch")
+        )
+        || result["repetition_blocked"] == true
+}
+
+#[cfg(test)]
+#[test]
+fn skipped_actions_cannot_support_observations_or_native_facts() {
+    for status in ["not_executed", "unknown", "executed_state_mismatch"] {
+        let result = serde_json::json!({"execution_status":status,"exit_code":0});
+        assert!(!super::observe(1, "run_command", &result).ok);
+        assert!(extract("run_command", &result).command_exit_code.is_none());
+    }
+}
+
 pub fn extract(tool: &str, result: &Value) -> NativeFacts {
     let mut facts = NativeFacts::default();
     // Unknown execution and denied/cached results never establish a new observation.
-    if result["denied"] == true || result["execution_status"] == "unknown" || is_historical(result)
-    {
+    if unverified_execution(result) || is_historical(result) {
         return facts;
     }
     match tool {
-        "browser" if result["observation_kind"] == "browser_status" && result["ok"] != false => {
-            facts.browser_status_ready = result["ready"].as_bool();
-        }
         "run_command" => facts.command_exit_code = result["exit_code"].as_i64(),
         "web_fetch" | "source_artifact" => {
             facts.http_status = result["status"]

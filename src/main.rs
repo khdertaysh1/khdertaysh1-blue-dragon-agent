@@ -8,6 +8,8 @@ mod config;
 mod continuity;
 mod delegates;
 mod edit_proposals;
+mod exact_file;
+mod file_review;
 mod intelligence;
 mod jobs;
 mod lab_report;
@@ -25,6 +27,7 @@ mod provider_diagnostics;
 mod provider_traffic;
 mod reasoning;
 mod rotation;
+mod saved_file;
 mod scope;
 mod session;
 mod skills;
@@ -32,13 +35,15 @@ mod source_discovery;
 mod source_report;
 mod source_trace;
 mod streaming;
+mod terminal_input;
 mod test_coverage;
 #[cfg(test)]
 mod test_support;
-mod tool_arguments;
+mod tool_contract;
 mod tool_selection;
 mod tools;
 mod tui;
+mod tui_text;
 mod vision;
 
 use anyhow::{Context, Result};
@@ -50,7 +55,7 @@ use agent::{Agent, ApprovalMode};
 use config::Settings;
 
 #[derive(Debug, Parser)]
-#[command(name = "blue-dragon", about = "Blue Dragon | AI coding agent", version = env!("BLUE_DRAGON_PUBLIC_VERSION"))]
+#[command(name = "blue-dragon", about = "Blue Dragon | AI coding agent", version)]
 struct Cli {
     #[arg(long, global = true, default_value = ".", help = "Project workspace")]
     root: PathBuf,
@@ -91,9 +96,6 @@ struct Cli {
         help = "Disable automatic Blue Free model rotation"
     )]
     no_rotation: bool,
-    /// Compatibility flag: verified same-provider free recovery is automatic unless --no-rotation.
-    #[arg(long)]
-    free_model_fallback: bool,
     #[arg(long, global=true, default_value_t=24, value_parser=clap::value_parser!(u16).range(1..=100))]
     max_steps: u16,
     #[arg(long, global=true, default_value_t=32768, value_parser=clap::value_parser!(u32).range(8192..=1048576), help="Context window budget including tools and reply reserve; match the selected model")]
@@ -250,16 +252,12 @@ fn run() -> Result<()> {
     settings.mcp_config = args.mcp_config;
     settings.stream = !args.no_stream;
     settings.free_rotation = !args.no_rotation;
-    settings.free_model_fallback = !args.no_rotation || args.free_model_fallback;
     settings.max_steps = usize::from(args.max_steps);
     settings.context_tokens = args.context_tokens as usize;
     settings.project_memory = !args.no_project_memory;
     match args.command {
         Some(Command::Doctor) => {
-            println!(
-                "Blue Dragon v{} | Diagnostic",
-                env!("BLUE_DRAGON_PUBLIC_VERSION")
-            );
+            println!("Blue Dragon v{} | Diagnostic", env!("CARGO_PKG_VERSION"));
             println!(
                 "Platform : {} / {}",
                 std::env::consts::OS,
@@ -309,6 +307,7 @@ fn run() -> Result<()> {
             } else {
                 ApprovalMode::Ask
             };
+            let _input_guard = terminal_input::Guard::start()?;
             let mut agent = Agent::new(settings, approval, args.resume.as_deref())?;
             print_banner();
             println!(
@@ -316,24 +315,25 @@ fn run() -> Result<()> {
                 agent.model_status()
             );
             match cmd {
-                Some(Command::Run { task }) => agent.run_once(&task),
-                Some(Command::Inspect { url }) => agent.run_once(&url),
-                Some(Command::Url(words)) => agent.run_once(&words[0]),
+                Some(Command::Run { task }) => agent.turn(&task),
+                Some(Command::Inspect { url }) => agent.turn(&url),
+                Some(Command::Url(words)) => agent.turn(&words[0]),
                 None | Some(Command::Chat) => {
-                    agent.set_synchronous_chat_input();
                     println!("Type /help for commands, /exit to quit.");
                     loop {
                         print!("\nblue-dragon> ");
                         io::stdout().flush()?;
-                        let mut text = String::new();
-                        if io::stdin().read_line(&mut text)? == 0 {
+                        let Some(text) = terminal_input::task()? else {
                             break;
-                        }
+                        };
                         let text = text.trim();
+                        if text.is_empty() {
+                            continue;
+                        }
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -485,16 +485,25 @@ fn run() -> Result<()> {
                                 println!("{}", agent.plan_text());
                                 continue;
                             }
-                            name if name.starts_with("/tool-result ") => {
-                                match agent.inspect_saved_tool(
-                                    name.trim_start_matches("/tool-result ").trim(),
-                                ) {
-                                    Ok(value) => {
-                                        println!("{}", serde_json::to_string_pretty(&value)?)
-                                    }
-                                    Err(_) => eprintln!(
-                                        "Saved tool evidence unavailable or integrity check failed"
-                                    ),
+                            "/saved-files" => {
+                                println!("{}", serde_json::to_string_pretty(&agent.saved_files())?);
+                                continue;
+                            }
+                            line if matches!(
+                                line.split(' ').next(),
+                                Some("/review-file" | "/review-response" | "/resume-review")
+                            ) =>
+                            {
+                                if let Err(error) = agent.review_command(line) {
+                                    eprintln!("Review failed: {error:#}");
+                                }
+                                continue;
+                            }
+                            line if line == "/resume-file" || line.starts_with("/resume-file ") => {
+                                if let Err(error) =
+                                    agent.resume_file(line["/resume-file".len()..].trim())
+                                {
+                                    eprintln!("Continuation failed: {error:#}");
                                 }
                                 continue;
                             }

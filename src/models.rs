@@ -9,6 +9,14 @@ pub const FREE_MODEL: &str = "auto/free";
 pub const KILO_BASE: &str = "https://ai-gateway.kilo.ai/api/v1";
 pub const KILO_MODEL: &str = "kilo-auto/free";
 
+pub fn interface_mode(base: &str, model: &str) -> &'static str {
+    if base == KILO_BASE && kilo_id(model) {
+        "Blue Free"
+    } else {
+        "Custom"
+    }
+}
+
 pub fn kilo_id(id: &str) -> bool {
     (id == KILO_MODEL || id.ends_with(":free"))
         && id.contains('/')
@@ -127,7 +135,7 @@ pub fn save(home: &Path, selection: &Selection) -> Result<()> {
 }
 
 pub fn menu() -> &'static str {
-    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free gateway automatic routing; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. Blue Free preserves the gateway auto alias; shared limits do not trigger model switching. /rotation shows routing state. Verified concrete free selections may recover after explicit model-scoped failure; --no-rotation pins the route. Shared/unknown quotas never trigger switching."
+    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free gateway automatic routing; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. Blue Free preserves the gateway auto alias; shared limits do not trigger model switching. /rotation shows routing state. Pinned selections do not switch."
 }
 
 fn zero(value: Option<&Value>) -> bool {
@@ -242,15 +250,6 @@ pub struct ModelChoice {
     pub context_length: u64,
 }
 
-/// Input choices must come from the free/tool-capable catalog filter.
-pub fn fallback_ids(choices: &[ModelChoice], required_context: usize) -> Vec<String> {
-    choices
-        .iter()
-        .filter(|c| c.context_length > 0 && c.context_length >= required_context as u64)
-        .map(|c| c.id.clone())
-        .collect()
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CachedCatalog {
@@ -327,12 +326,6 @@ fn read_cache(home: &Path) -> Result<Option<CachedCatalog>> {
         anyhow::bail!("Invalid cached model catalog");
     }
     Ok(Some(cached))
-}
-pub fn fallback_catalog_is_recent(home: &Path) -> bool {
-    read_cache(home)
-        .ok()
-        .flatten()
-        .is_some_and(|c| c.fetched_at <= now() && now().saturating_sub(c.fetched_at) < 3600)
 }
 pub fn cached_context_limit(home: &Path, model: &str) -> Option<usize> {
     let cached = read_cache(home).ok().flatten()?;
@@ -477,28 +470,6 @@ pub fn kilo_listing(home: &Path, force: bool) -> Result<String> {
 mod tests {
     use super::*;
     use serde_json::json;
-    #[test]
-    fn fallback_catalog_rejects_stale_and_future_metadata() {
-        let home = tempfile::tempdir().unwrap();
-        for stamp in [0, now().saturating_sub(3601), now().saturating_add(60)] {
-            std::fs::write(
-                home.path().join("kilo-models.json"),
-                json!({"fetched_at":stamp,"choices":[]}).to_string(),
-            )
-            .unwrap();
-            assert!(!fallback_catalog_is_recent(home.path()));
-        }
-    }
-    #[test]
-    fn fallback_rejects_unknown_and_insufficient_context() {
-        let choices = [0, 8192, 32768].map(|size| ModelChoice {
-            id: format!("{size}:free"),
-            name: "fixture".into(),
-            context_length: size,
-        });
-        assert_eq!(fallback_ids(&choices, 32768), vec!["32768:free"]);
-        assert!(fallback_ids(&choices, 65536).is_empty());
-    }
     #[test]
     fn concurrent_forced_catalog_refreshes_share_one_response() {
         use std::io::{Read, Write};

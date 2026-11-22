@@ -37,59 +37,6 @@ pub fn indicators(source: &str) -> Vec<Value> {
     }
     rows
 }
-pub fn probe_urls(
-    url: &str,
-    payload: &str,
-    fragment: bool,
-    query: bool,
-) -> anyhow::Result<Vec<(String, String)>> {
-    let original = reqwest::Url::parse(url)?;
-    let mut variants = Vec::new();
-    if fragment {
-        let mut target = original.clone();
-        target.set_fragment(Some(payload));
-        variants.push(("fragment".into(), target.to_string()));
-    }
-    if query {
-        let pairs = original
-            .query_pairs()
-            .map(|(k, v)| (k.into_owned(), v.into_owned()))
-            .collect::<Vec<_>>();
-        if let Some(key) = pairs
-            .iter()
-            .find(|(key, _)| {
-                matches!(
-                    key.as_str(),
-                    "q" | "query" | "search" | "s" | "term" | "keyword"
-                )
-            })
-            .map(|p| p.0.clone())
-        {
-            let mut target = original.clone();
-            let mut changed = false;
-            target
-                .query_pairs_mut()
-                .clear()
-                .extend_pairs(pairs.iter().map(|(k, v)| {
-                    let value = if k == &key && !changed {
-                        changed = true;
-                        payload
-                    } else {
-                        v.as_str()
-                    };
-                    (k.as_str(), value)
-                }));
-            variants.push((format!("query:{key}"), target.to_string()));
-        }
-    }
-    Ok(variants)
-}
-pub fn probe_document_matches(expected: &str, actual: &str) -> bool {
-    match (reqwest::Url::parse(expected), reqwest::Url::parse(actual)) {
-        (Ok(expected), Ok(actual)) => expected == actual,
-        _ => false,
-    }
-}
 /// Summarize only allowlisted response headers; duplicates/binary/oversized
 /// values are incomplete, never silently reduced to a single trusted value.
 pub fn http_security_header_indicators(headers: &reqwest::header::HeaderMap) -> Value {
@@ -194,55 +141,6 @@ mod tests {
             http_security_header_indicators(&HeaderMap::new())["complete"],
             true
         );
-    }
-    #[test]
-    fn probes_only_fragment_and_existing_search_parameter_preserving_other_parameters() {
-        let variants = probe_urls(
-            "https://example.com/search?q=hello&token=kept",
-            "<svg>",
-            true,
-            true,
-        )
-        .unwrap();
-        assert_eq!(variants.len(), 2);
-        let changed = reqwest::Url::parse(&variants[1].1).unwrap();
-        assert!(changed
-            .query_pairs()
-            .any(|(k, v)| k == "token" && v == "kept"));
-        assert!(changed.query_pairs().any(|(k, v)| k == "q" && v == "<svg>"));
-        assert_eq!(
-            probe_urls("https://example.com/?action=delete", "x", false, true)
-                .unwrap()
-                .len(),
-            0
-        );
-    }
-    #[test]
-    fn probe_changes_only_one_duplicate_query_and_requires_exact_document() {
-        let variants = probe_urls(
-            "https://example.test/?q=one&q=two&token=secret",
-            "canary",
-            false,
-            true,
-        )
-        .unwrap();
-        let parsed = reqwest::Url::parse(&variants[0].1).unwrap();
-        assert_eq!(
-            parsed
-                .query_pairs()
-                .map(|(_, v)| v.into_owned())
-                .collect::<Vec<_>>(),
-            vec!["canary", "two", "secret"]
-        );
-        assert!(probe_document_matches(&variants[0].1, &variants[0].1));
-        assert!(!probe_document_matches(
-            "https://example.test/allowed#canary",
-            "https://example.test/other#canary"
-        ));
-        assert!(!probe_document_matches(
-            "https://example.test/allowed#canary",
-            "https://example.test/allowed#changed"
-        ));
     }
     #[test]
     fn policy_indicator_limits_match_extension_contract_cases() {

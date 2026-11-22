@@ -345,7 +345,7 @@ impl Registry {
             .context("No configured MCP server with this name")?;
         if !approval.approve("Launch configured MCP server",&format!("{}\nProgram: {}\nArgs: {:?}\nThis process runs with your OS permissions, not in a sandbox.",name,config.command,config.args))?{return Ok(json!({"ok":false,"status":"denied"}));}
         let mut client = Client::launch(config, &self.root, self.cancelled.clone())?;
-        let initialized=client.request("initialize",json!({"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"blue-dragon","version":env!("BLUE_DRAGON_PUBLIC_VERSION")}}))?;
+        let initialized=client.request("initialize",json!({"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"blue-dragon","version":env!("CARGO_PKG_VERSION")}}))?;
         if !matches!(
             initialized["protocolVersion"].as_str(),
             Some("2024-11-05" | "2025-03-26" | "2025-06-18")

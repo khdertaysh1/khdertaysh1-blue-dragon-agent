@@ -8,11 +8,11 @@
 
 The dragon stands for deliberate execution; the surrounding circuit motifs stand for project context and tool orchestration. The visual language is original, not borrowed from another project's branding.
 
-## 02 · The Dragon
+## 02 · The Dragon Mind
 
 ![Neural workflow diagram](../assets/abyss-dragon.gif)
 
-The Abyss dragon is exported as a 24-frame GIF. This is decorative identity artwork, not live activity. [Still alternative](../assets/abyss-dragon.svg) and [terminal adaptation](ABYSS_IDENTITY.md) explain accessibility and platform limits.
+The approved second Abyss dragon is exported as a 24-frame GIF. This is decorative identity artwork, not live activity. [Still alternative](../assets/abyss-dragon.svg) and [terminal adaptation](ABYSS_IDENTITY.md) explain accessibility and platform limits.
 
 ## 03 · Animated console concept
 

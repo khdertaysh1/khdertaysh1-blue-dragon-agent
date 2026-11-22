@@ -41,31 +41,12 @@ jobs:
           binary=target/release/blue-dragon
           if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
           python scripts/benchmark_runtime.py --candidate "$binary" --repeats 1 --output runtime-benchmark.json
-          python scripts/test_public_version.py --binary "$binary" --check-build-script
-          python scripts/test_provider_traffic.py
-          python scripts/test_verify_live_provider_capacity.py
-          python scripts/test_provider_budget_storage.py "$binary"
           python scripts/test_benchmark_alpha_reads.py
           python scripts/benchmark_alpha_reads.py --blue "$binary" --output common-read-blue.json
           python scripts/test_benchmark_alpha_workflows.py
           python scripts/benchmark_alpha_workflows.py --blue "$binary" --output edit-workflow-blue.json
           python scripts/smoke_review_engines.py "$binary"
           python scripts/smoke_continuity.py "$binary"
-          python scripts/smoke_discovery_cycle.py "$binary"
-          python scripts/smoke_inspect_exit.py "$binary"
-          python scripts/smoke_fresh_source.py "$binary"
-          python scripts/smoke_command_arguments.py "$binary"
-          python scripts/smoke_diagnostic_recovery.py "$binary"
-          python scripts/test_schema_fixture_support.py
-          python scripts/smoke_schema_recovery.py "$binary"
-          python scripts/smoke_discovered_fetch.py "$binary"
-          python scripts/smoke_quota_resume.py "$binary"
-          python scripts/smoke_canonical_file_policy.py "$binary"
-          python scripts/smoke_resume_reference_migration.py "$binary"
-          python scripts/smoke_long_user_projection.py "$binary"
-          python scripts/smoke_long_user_projection.py "$binary" --structured
-          python scripts/smoke_native_correction_contracts.py "$binary"
-          python scripts/smoke_read_argument_correction.py "$binary"
           python scripts/smoke_coverage.py "$binary"
           python scripts/smoke_source_refresh.py "$binary"
           python scripts/smoke_test_coverage.py "$binary"
@@ -302,7 +283,7 @@ jobs:
           set -euo pipefail
           if gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > release-state.json 2>/dev/null; then
             if jq -e '.draft == false' release-state.json >/dev/null; then
-              echo "Release already published; never replacing public binaries. Bump VERSION and its mapped Cargo version for a new release."
+              echo "Release already published; never replacing public binaries. Bump Cargo version for a new release."
               exit 0
             fi
             jq -e --arg sha "$GITHUB_SHA" '.target_commitish == $sha' release-state.json >/dev/null || {

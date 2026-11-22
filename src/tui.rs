@@ -25,17 +25,22 @@ use std::{
     time::Duration,
 };
 
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 use crate::{
     agent::{Agent, AgentEvent, ApprovalMode},
     config::Settings,
     tools::ApprovalRequest,
+    tui_text::{move_caret, visible_input, visual_line},
 };
 
+const RELEASE: &str = "R11";
 const BLUE: Color = Color::Rgb(89, 229, 255);
 const SURFACE: Color = Color::Rgb(8, 21, 34);
 const GREEN: Color = Color::Rgb(111, 218, 178);
 const MUTED: Color = Color::Rgb(139, 170, 191);
-const MAX_INPUT_CHARS: usize = 4096;
+const MAX_INPUT_CHARS: usize = 65536;
 const MAX_LOG_LINES: usize = 600;
 
 enum Work {
@@ -85,7 +90,7 @@ struct Screen {
     approval_scroll: u16,
     scroll_up: usize,
     status: String,
-    model: String,
+    mode: &'static str,
     workspace: String,
     cursor: usize,
     draft: String,
@@ -95,7 +100,7 @@ struct Screen {
 }
 
 impl Screen {
-    fn new(model: String, workspace: String) -> Self {
+    fn new(mode: &'static str, workspace: String) -> Self {
         Self {
             motion: std::env::var("BLUE_DRAGON_MOTION").as_deref() == Ok("1")
                 && std::env::var_os("NO_COLOR").is_none()
@@ -112,7 +117,7 @@ impl Screen {
             approval_scroll: 0,
             scroll_up: 0,
             status: "Ready".into(),
-            model,
+            mode,
             workspace,
             cursor: 0,
             draft: String::new(),
@@ -141,13 +146,43 @@ impl Screen {
         self.scroll_up = 0;
     }
 
+    fn grapheme_byte(&self, index: usize) -> usize {
+        self.input
+            .grapheme_indices(true)
+            .nth(index)
+            .map_or(self.input.len(), |(byte, _)| byte)
+    }
+
+    fn insert_input(&mut self, text: &str) {
+        let at = self.grapheme_byte(self.cursor);
+        self.input.insert_str(at, text);
+        let end = at + text.len();
+        self.cursor = self
+            .input
+            .grapheme_indices(true)
+            .take_while(|(byte, _)| *byte < end)
+            .count();
+    }
+
+    fn delete_input(&mut self, backwards: bool) {
+        if backwards && self.cursor == 0 {
+            return;
+        }
+        let index = self.cursor - usize::from(backwards);
+        let from = self.grapheme_byte(index);
+        let to = self.grapheme_byte(index + 1);
+        if from < to {
+            self.input.replace_range(from..to, "");
+            self.cursor = self
+                .input
+                .grapheme_indices(true)
+                .take_while(|(byte, _)| *byte < from)
+                .count();
+        }
+    }
+
     fn submit(&mut self, tx: &Sender<Work>) {
         if self.busy {
-            if !self.input.trim().is_empty() {
-                self.cancelled
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                self.status = "New instruction preserved; cancelling current work. Press Enter after it stops to submit.".into();
-            }
             return;
         }
         let text = self.input.trim().to_string();
@@ -159,7 +194,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -226,7 +261,10 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         anyhow::bail!("TUI needs an interactive terminal. Use 'blue-dragon chat' or 'run' instead");
     }
-    let mut app = Screen::new(settings.model.clone(), settings.root.display().to_string());
+    let mut app = Screen::new(
+        crate::models::interface_mode(&settings.base_url, &settings.model),
+        settings.root.display().to_string(),
+    );
 
     let (work_tx, work_rx) = mpsc::channel::<Work>();
     let (message_tx, message_rx) = mpsc::sync_channel::<AgentEvent>(256);
@@ -254,7 +292,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
         agent.set_cancellation(cancellation);
         agent.set_jobs(jobs);
         agent.set_output(message_tx.clone());
-        let _ = message_tx.send(AgentEvent::Model(agent.model_status()));
+        let _ = message_tx.send(agent.model_event());
         let _ = message_tx.send(AgentEvent::Plan(agent.plan_text()));
         for work in work_rx {
             let result = match work {
@@ -316,7 +354,7 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                         "Choose free model: arrows, type to filter, Enter select, Esc close".into();
                 }
                 AgentEvent::Notice(text) => app.log("System:", &text),
-                AgentEvent::Model(text) => app.model = text,
+                AgentEvent::Model { mode, .. } => app.mode = mode,
                 AgentEvent::Plan(text) => app.plan = text,
                 AgentEvent::ToolStart(name) => {
                     app.log("Tool:", &name);
@@ -336,21 +374,50 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                         }
                     }
                 }
-                AgentEvent::ToolResult(summary) => {
-                    app.log("Result:", &summary);
-                }
+                AgentEvent::ToolResult(detail) => app.log("Result:", &detail),
             }
         }
         while let Ok(request) = approval_rx.try_recv() {
             if !app.busy || app.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
-                let _ = request.respond_to.send(false);
+                drop(request);
                 continue;
             }
             if app.approval.is_some() {
-                let _ = request.respond_to.send(false);
+                drop(request);
                 app.log("System:", "Concurrent approval request rejected");
             } else {
-                app.status = "Approval required (Y/N, arrows to scroll)".into();
+                while event::poll(Duration::ZERO)? {
+                    let text = match event::read()? {
+                        Event::Paste(s) => Some(s),
+                        Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
+                            KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                                app.cancelled
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                                None
+                            }
+                            KeyCode::Char(c) => Some(c.to_string()),
+                            KeyCode::Enter => Some("\n".into()),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(t) = text {
+                        if app.input.chars().count() + t.chars().count() <= MAX_INPUT_CHARS {
+                            app.input.push_str(&t);
+                            app.cursor = app.input.graphemes(true).count();
+                        } else {
+                            app.log(
+                                "Input:",
+                                "Queued text exceeds limit; not submitted or used as approval",
+                            );
+                        }
+                    }
+                }
+                if app.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                    drop(request);
+                    continue;
+                }
+                app.status = "Approval required (Y/N; Enter waits)".into();
                 app.approval_scroll = 0;
                 app.approval = Some(request);
             }
@@ -371,20 +438,18 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                 );
                 picker.selected = 0;
             } else if app.approval.is_none() {
-                for ch in text
+                if text.chars().count() + app.input.chars().count() > MAX_INPUT_CHARS {
+                    app.log(
+                        "Input:",
+                        "Paste exceeds limit; rejected in full without submitting truncated text",
+                    );
+                    continue;
+                }
+                let clean: String = text
                     .chars()
                     .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
-                    .take(MAX_INPUT_CHARS.saturating_sub(app.input.chars().count()))
-                {
-                    let byte = app
-                        .input
-                        .char_indices()
-                        .nth(app.cursor)
-                        .map(|(i, _)| i)
-                        .unwrap_or(app.input.len());
-                    app.input.insert(byte, ch);
-                    app.cursor += 1;
-                }
+                    .collect();
+                app.insert_input(&clean);
             }
             continue;
         }
@@ -445,7 +510,13 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
         if app.approval.is_some() {
             match key.code {
                 KeyCode::Char('y' | 'Y') => app.approve(true),
-                KeyCode::Char('n' | 'N') | KeyCode::Esc => app.approve(false),
+                KeyCode::Char('n' | 'N') => app.approve(false),
+                KeyCode::Esc => {
+                    app.cancelled
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    app.approval.take();
+                    app.log("Approval:", "Explicit cancellation");
+                }
                 KeyCode::PageDown | KeyCode::Down => {
                     app.approval_scroll = app.approval_scroll.saturating_add(3);
                 }
@@ -473,37 +544,13 @@ pub fn run(settings: Settings, read_only: bool, resume: Option<&str>) -> Result<
                 }
                 app.submit(&work_tx);
             }
-            KeyCode::Left => app.cursor = app.cursor.saturating_sub(1),
-            KeyCode::Right => app.cursor = (app.cursor + 1).min(app.input.chars().count()),
+            KeyCode::Left => app.cursor = move_caret(&app.input, app.cursor, false),
+            KeyCode::Right => app.cursor = move_caret(&app.input, app.cursor, true),
             KeyCode::Home => app.cursor = 0,
-            KeyCode::End => app.cursor = app.input.chars().count(),
-            KeyCode::Backspace => {
-                if app.cursor > 0 {
-                    app.cursor -= 1;
-                    let byte = app
-                        .input
-                        .char_indices()
-                        .nth(app.cursor)
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                    app.input.remove(byte);
-                }
-            }
-            KeyCode::Delete => {
-                if let Some((byte, _)) = app.input.char_indices().nth(app.cursor) {
-                    app.input.remove(byte);
-                }
-            }
-            KeyCode::Char(ch) if can_type => {
-                let byte = app
-                    .input
-                    .char_indices()
-                    .nth(app.cursor)
-                    .map(|(i, _)| i)
-                    .unwrap_or(app.input.len());
-                app.input.insert(byte, ch);
-                app.cursor += 1;
-            }
+            KeyCode::End => app.cursor = app.input.graphemes(true).count(),
+            KeyCode::Backspace => app.delete_input(true),
+            KeyCode::Delete => app.delete_input(false),
+            KeyCode::Char(ch) if can_type => app.insert_input(ch.encode_utf8(&mut [0; 4])),
             _ => {}
         }
     }
@@ -520,6 +567,15 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         let (choices, source) = agent.kilo_models(line == "/models refresh")?;
         let _ = tx.send(AgentEvent::ModelChoices(choices, source));
         return Ok(());
+    }
+    if matches!(
+        line.split(' ').next(),
+        Some("/review-file" | "/review-response" | "/resume-review")
+    ) {
+        return agent.review_command(line);
+    }
+    if line == "/resume-file" || line.starts_with("/resume-file ") {
+        return agent.resume_file(line["/resume-file".len()..].trim());
     }
     let response = match line {
         "/models openrouter" => crate::models::refresh()?,
@@ -548,9 +604,7 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         )?,
         "/audit-report" => serde_json::to_string_pretty(&agent.reproduction_report())?,
         "/coverage" => serde_json::to_string_pretty(&agent.audit_report())?,
-        _ if line.starts_with("/tool-result ") => serde_json::to_string_pretty(
-            &agent.inspect_saved_tool(line.trim_start_matches("/tool-result ").trim())?,
-        )?,
+        "/saved-files" => serde_json::to_string_pretty(&agent.saved_files())?,
         "/report" => agent.report_text(),
         "/mcp" => serde_json::to_string_pretty(&agent.mcp_list())?,
         _ if line.starts_with("/connect ") => serde_json::to_string_pretty(
@@ -607,13 +661,45 @@ fn transcript_lines(text: &str, width: usize) -> Vec<Line<'static>> {
             let wrapped = if line.is_empty() {
                 vec![String::new()]
             } else {
-                wrap_text(line, width)
+                wrap_conversation_line(line, width)
             };
-            wrapped
-                .into_iter()
-                .map(move |part| Line::styled(part, style))
+            wrapped.into_iter().map(move |part| {
+                let visual = ["Dragon: ", "You: "]
+                    .iter()
+                    .find_map(|label| {
+                        part.strip_prefix(label)
+                            .map(|body| format!("{label}{}", visual_line(body)))
+                    })
+                    .unwrap_or_else(|| visual_line(&part));
+                Line::styled(visual, style)
+            })
         })
         .collect()
+}
+
+// Prefer word boundaries; long uninterrupted strings still wrap by grapheme.
+fn wrap_conversation_line(line: &str, width: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut row = String::new();
+    let mut used: usize = 0;
+    for word in line.split_word_bounds() {
+        let size = word.width();
+        if used + size > width && !row.is_empty() {
+            rows.push(std::mem::take(&mut row));
+            used = 0;
+        }
+        if size > width {
+            let mut chunks = wrap_text(word, width);
+            row = chunks.pop().unwrap_or_default();
+            used = row.width();
+            rows.extend(chunks);
+        } else {
+            row.push_str(word);
+            used += size;
+        }
+    }
+    rows.push(row);
+    rows
 }
 
 // Text-cell adaptation of the Abyss identity. Never implies task progress.
@@ -659,6 +745,8 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         "APPROVAL"
     } else if app.busy {
         "WORKING"
+    } else if app.status.starts_with("Task failed") || app.status == "Agent worker stopped" {
+        "ERROR"
     } else {
         "READY"
     };
@@ -724,10 +812,17 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         .block(panel(conversation_title)),
         columns[0],
     );
-    let status = if compact {
-        format!(" {}\n {}", app.status, app.model)
+    let details = if state == "READY" {
+        &app.workspace
     } else {
-        format!(" {}  |  {}\n {}", app.status, app.model, app.workspace)
+        &app.status
+    };
+    let headline = format!(" Blue Dragon {RELEASE} · {} · {state}", app.mode);
+    let available = usize::from(outer[2].width.saturating_sub(if compact { 0 } else { 2 }));
+    let status = if headline.width() <= available {
+        format!("{headline}\n {details}")
+    } else {
+        format!(" Blue Dragon {RELEASE}\n {} · {state}", app.mode)
     };
     let status_widget = Paragraph::new(status).style(Style::default().fg(MUTED));
     frame.render_widget(
@@ -773,7 +868,7 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
                 .wrap(Wrap { trim: false })
                 .block(
                     Block::default()
-                        .title(" FREE MODELS | Kilo | NO API KEY ")
+                        .title(" BLUE FREE MODELS ")
                         .borders(Borders::ALL),
                 )
                 .style(Style::default().fg(BLUE)),
@@ -858,55 +953,23 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
 }
 
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    use unicode_width::UnicodeWidthChar;
     let mut out = Vec::new();
     for line in text.lines() {
         let mut current = String::new();
         let mut used = 0;
-        for ch in line.chars() {
-            let size = ch.width().unwrap_or(0);
+        for grapheme in line.graphemes(true) {
+            let size = grapheme.width();
             if used + size > width && !current.is_empty() {
                 out.push(std::mem::take(&mut current));
                 used = 0;
             }
-            current.push(ch);
+            current.push_str(grapheme);
             used += size;
         }
         out.push(current);
     }
     out
 }
-fn visible_input(input: &str, cursor: usize, width: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
-    let chars = input
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<Vec<_>>();
-    let cursor = cursor.min(chars.len());
-    let mut start = cursor;
-    let mut used = 1;
-    while start > 0 {
-        let size = chars[start - 1].width().unwrap_or(0);
-        if used + size > width {
-            break;
-        }
-        used += size;
-        start -= 1;
-    }
-    let mut result = String::from(" > ");
-    result.extend(&chars[start..cursor]);
-    result.push('▌');
-    for ch in &chars[cursor..] {
-        let size = ch.width().unwrap_or(0);
-        if used + size > width {
-            break;
-        }
-        used += size;
-        result.push(*ch);
-    }
-    result
-}
-
 fn center(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -937,6 +1000,54 @@ mod tests {
         assert_eq!(line.spans[0].style.fg, Some(BLUE));
         assert_eq!(line.spans[1].style.fg, Some(Color::White));
         assert_eq!(line.to_string(), " BLUE DRAGON  /  READY");
+    }
+
+    #[test]
+    fn footer_shows_release_and_mode_without_a_model_or_endpoint() {
+        let mut app = Screen::new(
+            crate::models::interface_mode(crate::models::KILO_BASE, crate::models::KILO_MODEL),
+            "/work".into(),
+        );
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 18)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let screen = rendered_text(&terminal);
+        assert!(
+            screen.contains("Blue Dragon R11 · Blue Free · READY"),
+            "{screen}"
+        );
+        assert!(!screen.contains("kilo-auto/free") && !screen.contains("ai-gateway"));
+        let mut narrow = Terminal::new(ratatui::backend::TestBackend::new(23, 16)).unwrap();
+        narrow.draw(|frame| draw(frame, &app)).unwrap();
+        let narrow_text = rendered_text(&narrow);
+        assert!(
+            narrow_text.contains("Blue Dragon R11") && narrow_text.contains("Blue Free · READY")
+        );
+        assert_eq!(
+            wrap_conversation_line("مرحبا بالعالم", 8),
+            vec!["مرحبا ", "بالعالم"]
+        );
+        app.status = "Task failed; see transcript".into();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        assert!(rendered_text(&terminal).contains("Blue Dragon R11 · Blue Free · ERROR"));
+        assert_eq!(
+            crate::models::interface_mode("https://example.com/v1", "a-model"),
+            "Custom"
+        );
+    }
+
+    #[test]
+    fn editing_arabic_diacritics_keeps_the_logical_prompt_unchanged() {
+        let mut app = Screen::new("Blue Free", ".".into());
+        app.insert_input("سَلامُ");
+        assert_eq!(app.cursor, 4);
+        app.delete_input(true);
+        assert_eq!(app.input, "سَلا");
+        app.cursor = move_caret(&app.input, app.cursor, true);
+        app.insert_input("م");
+        assert_eq!(app.input, "سَلما");
+        let (tx, rx) = mpsc::channel();
+        app.submit(&tx);
+        assert!(matches!(rx.recv().unwrap(), Work::Prompt(task) if task == "سَلما"));
     }
 
     #[test]
@@ -980,7 +1091,7 @@ mod tests {
         assert!(picker.current().is_none());
         picker.query.clear();
         for (width, height) in [(40, 14), (120, 32)] {
-            let mut app = Screen::new("fixture".into(), ".".into());
+            let mut app = Screen::new("fixture", ".".into());
             app.picker = Some(ModelPicker {
                 choices: picker.choices.clone(),
                 query: String::new(),
@@ -1007,9 +1118,9 @@ mod tests {
         use ratatui::backend::TestBackend;
         for (width, height) in [(40, 14), (120, 32)] {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            let mut app = Screen::new("test-model".into(), "workspace".into());
+            let mut app = Screen::new("test-model", "workspace".into());
             app.input = "اقرأ ملف المشروع".into();
-            app.cursor = app.input.chars().count();
+            app.cursor = app.input.graphemes(true).count();
             app.draft = "A streamed reply".into();
             terminal.draw(|frame| draw(frame, &app)).unwrap();
             let rendered = terminal
@@ -1061,7 +1172,7 @@ mod tests {
 
     #[test]
     fn compact_layout_keeps_status_model_and_prompt_visible() {
-        let mut app = Screen::new("fixture-model".into(), "/long/workspace/path".into());
+        let mut app = Screen::new("fixture-model", "/long/workspace/path".into());
         app.status = "Ready".into();
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
@@ -1073,7 +1184,7 @@ mod tests {
 
     #[test]
     fn approval_controls_stay_visible_when_details_scroll() {
-        let mut app = Screen::new("fixture".into(), ".".into());
+        let mut app = Screen::new("fixture", ".".into());
         let (tx, rx) = mpsc::channel();
         app.approval = Some(ApprovalRequest {
             action: "Write file".into(),
@@ -1097,7 +1208,7 @@ mod tests {
 
     #[test]
     fn model_picker_shows_empty_result_and_closes_cleanly() {
-        let mut app = Screen::new("fixture".into(), ".".into());
+        let mut app = Screen::new("fixture", ".".into());
         app.picker = Some(ModelPicker {
             choices: vec![],
             query: "missing".into(),
@@ -1114,7 +1225,7 @@ mod tests {
 
     #[test]
     fn tiny_terminal_layout_does_not_panic() {
-        let app = Screen::new("fixture".into(), ".".into());
+        let app = Screen::new("fixture", ".".into());
         for (w, h) in [(1, 1), (20, 6), (40, 10)] {
             let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
             terminal.draw(|f| draw(f, &app)).unwrap();
@@ -1124,7 +1235,7 @@ mod tests {
     #[test]
     fn blank_input_does_not_start_agent() {
         let (tx, rx) = mpsc::channel();
-        let mut app = Screen::new("test".into(), ".".into());
+        let mut app = Screen::new("test", ".".into());
         app.input = "  ".into();
         app.submit(&tx);
         assert!(!app.busy);
@@ -1134,7 +1245,7 @@ mod tests {
     #[test]
     fn ordinary_task_is_dispatched_once() {
         let (tx, rx) = mpsc::channel();
-        let mut app = Screen::new("test".into(), ".".into());
+        let mut app = Screen::new("test", ".".into());
         app.input = "Explain this project".into();
         app.submit(&tx);
         assert!(app.busy);
@@ -1144,19 +1255,18 @@ mod tests {
     #[test]
     fn busy_worker_preserves_pending_input() {
         let (tx, rx) = mpsc::channel();
-        let mut app = Screen::new("test".into(), ".".into());
+        let mut app = Screen::new("test", ".".into());
         app.busy = true;
         app.input = "draft".into();
         app.submit(&tx);
         assert_eq!(app.input, "draft");
-        assert!(app.cancelled.load(std::sync::atomic::Ordering::Relaxed));
         assert!(rx.try_recv().is_err());
     }
 
     #[test]
     fn approval_is_default_deny() {
         let (tx, rx) = mpsc::channel();
-        let mut app = Screen::new("test".into(), ".".into());
+        let mut app = Screen::new("test", ".".into());
         app.approval = Some(ApprovalRequest {
             action: "Write file".into(),
             detail: "demo".into(),

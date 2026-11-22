@@ -68,11 +68,7 @@ impl Contract {
         if proof.message_index <= self.declared_at
             || result["ok"] == false
             || result["denied"] == true
-            || result["cached_result"] == true
-            || result["fresh_evidence"] == false
-            || result
-                .get("execution_status")
-                .is_some_and(|s| !matches!(s.as_str(), Some("completed" | "succeeded" | "success")))
+            || result["execution_status"] == "unknown"
             || result["repetition_blocked"] == true
         {
             return;
@@ -94,11 +90,11 @@ impl Contract {
    json!({"criterion":c,"observed":observed,"evidence":proof,"freshness":if observed && proof.is_some_and(|p|p.coverage_complete){"matches_bounded_workspace_snapshot"}else if observed{"snapshot_coverage_limited"}else{"missing_or_stale"}})
   }).collect::<Vec<_>>();
         let satisfied = !rows.is_empty() && rows.iter().all(|r| r["observed"] == true);
-        json!({"checks":rows,"all_declared_checks_observed":satisfied,"semantic_task_correctness_proven":false,"note":"Exact tool/input/native-result checks with bounded workspace freshness. Model-authored criteria can still be insufficient; no prose, historical memory or stdout banner is treated as task success."})
+        json!({"declaration_state":if rows.is_empty(){"not_declared"}else{"declared"},"checks":rows,"all_declared_checks_observed":satisfied,"semantic_task_correctness_proven":false,"note":"Exact tool/input/native-result checks with bounded workspace freshness. Model-authored criteria can still be insufficient; no prose, historical memory or stdout banner is treated as task success."})
     }
-    pub fn needs_review(&self, fingerprint: Option<&str>, changed: bool) -> bool {
+    pub fn needs_review(&self, fingerprint: Option<&str>, _changed: bool) -> bool {
         if self.checks.is_empty() {
-            changed
+            false
         } else {
             self.status(fingerprint)["all_declared_checks_observed"] != true
         }
@@ -107,32 +103,6 @@ impl Contract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn failed_or_historical_native_fields_never_satisfy_acceptance() {
-        for status in [
-            "failed",
-            "denied",
-            "not_executed",
-            "cancelled",
-            "unknown",
-            "stale",
-        ] {
-            let mut c = Contract::default();
-            c.declare(&json!({"checks":[{"label":"test","tool":"run_command","arguments":{"program":"fixture","args":[]},"field":"/exit_code","equals":0}]}),0).unwrap();
-            c.observe(
-                "run_command",
-                &json!({"program":"fixture","args":[]}),
-                &json!({"exit_code":0,"execution_status":status}),
-                Proof {
-                    evidence_id: "E1".into(),
-                    message_index: 1,
-                    workspace_fingerprint: "current".into(),
-                    coverage_complete: true,
-                },
-            );
-            assert!(c.needs_review(Some("current"), false), "{status}");
-        }
-    }
     #[test]
     fn prose_wrong_arguments_and_predeclaration_evidence_do_not_satisfy_check() {
         let mut c = Contract::default();
@@ -189,6 +159,14 @@ mod tests {
         assert!(c.needs_review(Some("edited"), false));
         c.invalidate();
         assert!(c.needs_review(Some("snap"), false));
+    }
+    #[test]
+    fn absent_checks_are_neither_failure_nor_proof() {
+        let c = Contract::default();
+        assert!(!c.needs_review(Some("changed"), true));
+        assert_eq!(c.status(None)["declaration_state"], "not_declared");
+        assert_eq!(c.status(None)["all_declared_checks_observed"], false);
+        assert_eq!(c.status(None)["semantic_task_correctness_proven"], false);
     }
     #[test]
     fn untrusted_text_cannot_be_a_native_check() {

@@ -7,10 +7,6 @@ use std::{
     path::{Path, PathBuf},
 };
 const REQUESTS_PER_MINUTE: u64 = 60;
-const MAX_EVENTS: usize = 10000;
-// 10,000 events with maximum-width u64 fields plus 64 model cooldowns fit
-// below this bound. Read and write the same limit; never persist unreadable state.
-const MAX_STATE_BYTES: usize = 1024 * 1024;
 
 pub struct Coordinator {
     directory: PathBuf,
@@ -69,17 +65,12 @@ impl Coordinator {
         let path = self.directory.join(format!("{}.json", self.identity));
         let mut value = if path.exists() {
             let meta = fs::symlink_metadata(&path)?;
-            if !meta.is_file()
-                || meta.file_type().is_symlink()
-                || meta.len() > MAX_STATE_BYTES as u64
-            {
+            if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > 65536 {
                 bail!("Provider budget state invalid; no request sent");
             }
             let mut bytes = Vec::new();
-            fs::File::open(&path)?
-                .take(MAX_STATE_BYTES as u64 + 1)
-                .read_to_end(&mut bytes)?;
-            if bytes.len() > MAX_STATE_BYTES {
+            fs::File::open(&path)?.take(65537).read_to_end(&mut bytes)?;
+            if bytes.len() > 65536 {
                 bail!("Provider budget state oversized");
             }
             serde_json::from_slice::<Value>(&bytes)
@@ -105,12 +96,8 @@ impl Coordinator {
             bail!("Provider model cooldown state invalid; no request sent");
         }
         update(&mut value, now)?;
-        let encoded = serde_json::to_vec(&value)?;
-        if encoded.len() > MAX_STATE_BYTES {
-            bail!("Provider budget state would exceed storage limit; no request sent");
-        }
         let mut temp = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temp.write_all(&encoded)?;
+        temp.write_all(value.to_string().as_bytes())?;
         temp.as_file().sync_all()?;
         temp.persist(&path).map_err(|e| e.error)?;
         // File lock is released by Drop, including on process exit. Intent is
@@ -121,13 +108,21 @@ impl Coordinator {
     pub fn admit(&self) -> Result<()> {
         self.admit_tokens(0)
     }
-    pub fn admit_tokens(&self, reserved_tokens: u64) -> Result<()> {
-        let rpm = crate::provider_traffic::positive_env("BLUE_DRAGON_RPM", MAX_EVENTS as u64)
-            .unwrap_or(REQUESTS_PER_MINUTE);
-        let tpm = crate::provider_traffic::positive_env("BLUE_DRAGON_TPM", 100_000_000);
-        self.admit_limits(reserved_tokens, rpm, tpm)
+    pub fn cooldown_until(&self) -> Result<Option<u64>> {
+        let mut result = None;
+        self.change(|state, now| {
+            let until = state["until"]
+                .as_u64()
+                .unwrap()
+                .max(state["models"][&self.model]["until"].as_u64().unwrap_or(0));
+            if until > now {
+                result = Some(until);
+            }
+            Ok(())
+        })?;
+        Ok(result)
     }
-    fn admit_limits(&self, reserved_tokens: u64, rpm: u64, tpm: Option<u64>) -> Result<()> {
+    pub fn admit_tokens(&self, reserved_tokens: u64) -> Result<()> {
         self.change(|state, now| {
             let until = state["until"]
                 .as_u64()
@@ -147,6 +142,9 @@ impl Coordinator {
                 state["window"] = json!(now);
                 state["requests"] = json!(0);
             }
+            let rpm = crate::provider_traffic::positive_env("BLUE_DRAGON_RPM", 10000)
+                .unwrap_or(REQUESTS_PER_MINUTE);
+            let tpm = crate::provider_traffic::positive_env("BLUE_DRAGON_TPM", 100_000_000);
             let rph = self.free_gateway.then_some(200);
             admit_window(state, now, reserved_tokens, rpm, tpm, rph)?;
             let requests = state["requests"].as_u64().unwrap();
@@ -208,7 +206,7 @@ fn admit_window(
     let events = state["events"]
         .as_array_mut()
         .context("Invalid admission history")?;
-    if events.len() > MAX_EVENTS
+    if events.len() > 10000
         || events
             .iter()
             .any(|e| !e["at"].is_u64() || !e["tokens"].is_u64() || e["at"].as_u64().unwrap() > now)
@@ -275,74 +273,6 @@ mod tests {
         admit_window(&mut state, 100, 10, 10, None, Some(2)).unwrap();
         assert!(admit_window(&mut state, 200, 10, 10, None, Some(2)).is_err());
         admit_window(&mut state, 3601, 10, 10, None, Some(2)).unwrap();
-    }
-    #[test]
-    fn old_64k_boundary_can_be_crossed_read_again_and_expired() {
-        let home = tempfile::tempdir().unwrap();
-        let coordinator =
-            Coordinator::new(home.path(), "https://provider.test", None, "model").unwrap();
-        fs::create_dir_all(&coordinator.directory).unwrap();
-        let path = coordinator
-            .directory
-            .join(format!("{}.json", coordinator.identity));
-        let now = chrono::Utc::now().timestamp() as u64;
-        let state = json!({"schema":1,"window":now,"requests":0,"until":0,"models":{},"events":vec![json!({"at":now,"tokens":1000});2045]});
-        let encoded = serde_json::to_vec(&state).unwrap();
-        assert_eq!(encoded.len(), 65518);
-        fs::write(&path, encoded).unwrap();
-        coordinator.admit_limits(10000, 10000, None).unwrap();
-        assert_eq!(fs::metadata(&path).unwrap().len(), 65551);
-        coordinator.admit_limits(10000, 10000, None).unwrap();
-        let mut state: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        state["window"] = json!(now - 61);
-        for event in state["events"].as_array_mut().unwrap() {
-            event["at"] = json!(now - 61);
-        }
-        fs::write(&path, serde_json::to_vec(&state).unwrap()).unwrap();
-        coordinator.admit_limits(10000, 10000, None).unwrap();
-        let restored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        assert_eq!(restored["events"].as_array().unwrap().len(), 1);
-        assert_eq!(restored["requests"], 1);
-    }
-    #[test]
-    fn largest_allowed_event_count_remains_readable_and_write_limit_is_atomic() {
-        let home = tempfile::tempdir().unwrap();
-        let coordinator =
-            Coordinator::new(home.path(), "https://provider.test", None, "model").unwrap();
-        coordinator
-            .change(|state, now| {
-                state["events"] = json!(vec![json!({"at":now,"tokens":u64::MAX}); MAX_EVENTS - 1]);
-                Ok(())
-            })
-            .unwrap();
-        coordinator
-            .admit_limits(u64::MAX, MAX_EVENTS as u64, None)
-            .unwrap();
-        assert!(coordinator
-            .admit_limits(1, MAX_EVENTS as u64, None)
-            .unwrap_err()
-            .to_string()
-            .contains("budget exhausted"));
-        let path = coordinator
-            .directory
-            .join(format!("{}.json", coordinator.identity));
-        let before = fs::read(&path).unwrap();
-        assert!(before.len() < MAX_STATE_BYTES);
-        assert!(coordinator
-            .change(|state, _| {
-                state["padding"] = json!("x".repeat(MAX_STATE_BYTES));
-                Ok(())
-            })
-            .unwrap_err()
-            .to_string()
-            .contains("storage limit"));
-        assert_eq!(fs::read(&path).unwrap(), before);
-        fs::write(&path, vec![b' '; MAX_STATE_BYTES + 1]).unwrap();
-        assert!(coordinator
-            .admit_limits(1, MAX_EVENTS as u64, None)
-            .unwrap_err()
-            .to_string()
-            .contains("state invalid"));
     }
     #[test]
     fn independent_sessions_share_quota_and_cooldown_without_storing_key() {

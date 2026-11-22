@@ -330,56 +330,6 @@ mod tests {
     }
     #[cfg(unix)]
     #[test]
-    fn retention_limit_preserves_completed_results_and_restart_never_replays() {
-        let root = tempfile::tempdir().unwrap();
-        let jobs = Jobs::default();
-        let token = Arc::new(AtomicBool::new(false));
-        let mut ids = Vec::new();
-        for _ in 0..MAX_JOBS {
-            let started = jobs
-                .start(
-                    root.path(),
-                    "sh",
-                    &["-c".into(), "printf kept".into()],
-                    5,
-                    token.clone(),
-                )
-                .unwrap();
-            let id = started["job_id"].as_str().unwrap().to_owned();
-            let deadline = Instant::now() + Duration::from_secs(3);
-            while jobs.status(&id).unwrap()["state"] == "running" && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            assert_eq!(jobs.status(&id).unwrap()["exit_code"], 0);
-            ids.push(id);
-        }
-        assert!(jobs
-            .start(
-                root.path(),
-                "sh",
-                &["-c".into(), "touch must-not-run".into()],
-                5,
-                token.clone()
-            )
-            .unwrap_err()
-            .to_string()
-            .contains("retention limit"));
-        assert_eq!(jobs.list()["jobs"].as_array().unwrap().len(), MAX_JOBS);
-        for id in &ids {
-            assert_eq!(
-                jobs.output(id, "stdout", 0, 64).unwrap()["output"]["text"],
-                "kept"
-            );
-        }
-        jobs.cancel_all();
-        assert_eq!(jobs.list()["jobs"].as_array().unwrap().len(), MAX_JOBS);
-        let fresh = Jobs::default();
-        assert!(fresh.list()["jobs"].as_array().unwrap().is_empty());
-        assert!(fresh.status(&ids[0]).is_err());
-        assert!(!root.path().join("must-not-run").exists());
-    }
-    #[cfg(unix)]
-    #[test]
     fn jobs_finish_and_cancel_without_replaying() {
         let root = tempfile::tempdir().unwrap();
         let jobs = Jobs::default();

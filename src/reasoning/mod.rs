@@ -1,7 +1,7 @@
 //! Independent task control and evidence, not model weights or hidden reasoning.
-pub mod checkpoint;
 pub mod claims;
 pub mod context;
+pub mod evidence_memory;
 pub mod loops;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -107,8 +107,7 @@ pub fn observe(index: usize, tool: &str, result: &Value) -> Observation {
         tool: tool.into(),
         ok: !claims::is_historical(result)
             && result["ok"] != false
-            && result["denied"] != true
-            && result["execution_status"] != "unknown",
+            && !claims::unverified_execution(result),
         excerpt: context::clip(&result.to_string(), 1000),
         origin: None,
         native_facts: claims::extract(tool, result),

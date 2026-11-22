@@ -7,7 +7,6 @@ struct Seen {
     result: String,
     unchanged: usize,
     denied: bool,
-    unadvertised: bool,
 }
 #[derive(Default)]
 pub struct Guard {
@@ -32,20 +31,6 @@ impl Guard {
         }
         format!("{name}:{}", args)
     }
-    /// A schema transition corrects only a never-dispatched unadvertised call.
-    /// Actual denial, unknown execution and malformed values remain guarded.
-    pub fn advertised_and_valid(&mut self, name: &str, args: &Value) {
-        let key = Self::key(name, args);
-        if self.seen.get(&key).is_some_and(|s| s.unadvertised) {
-            self.seen.remove(&key);
-        }
-    }
-    /// Called exclusively for the local pre-dispatch schema error, never tool data.
-    pub fn rejected_unadvertised(&mut self, name: &str, args: &Value) {
-        if let Some(seen) = self.seen.get_mut(&Self::key(name, args)) {
-            seen.unadvertised = true;
-        }
-    }
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
         if matches!(name, "job_status" | "job_output") {
             return None;
@@ -63,9 +48,15 @@ impl Guard {
             .is_some_and(|s| s.denied || (self.last == key && s.unchanged >= 3))
         {
             self.blocked += 1;
-            return Some(
-                json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,"error":"This identical call was denied/uncertain or repeatedly returned unchanged results. Do not re-request the same approval. Inspect different evidence or change inputs/strategy. A new user turn resets this guard."}),
-            );
+            let uncertain_or_denied = self.seen.get(&key).is_some_and(|s| s.denied);
+            return Some(json!({"ok":false,"execution_status":"not_executed",
+            "repetition_blocked":true,"repeated_tool":name,
+            "category":if uncertain_or_denied {"prior_denied_or_uncertain"} else {"repeated_unchanged"},
+            "error":if uncertain_or_denied {
+                "An earlier identical action was denied or its outcome is uncertain. Consult its original result; do not re-request approval."
+            } else {
+                "Repeated identical arguments returned unchanged results. Inspect the previous result for this tool."
+            }}));
         }
         if name == "web_fetch" {
             if let Some(reference) = self.fetches.get(&key) {
@@ -107,12 +98,11 @@ impl Guard {
             self.repetitions += 1;
         } else {
             old.unchanged = 1;
+            self.repetitions = 0;
         }
         let status = result["status"].as_str().unwrap_or("");
         let error = result["error"].as_str().unwrap_or("").to_lowercase();
-        old.unadvertised = false;
-        old.denied = result["category"] == "invalid_arguments"
-            || result["denied"] == true
+        old.denied = result["denied"] == true
             || status.contains("denied")
             || result["execution_status"] == "unknown"
             || error.contains("scope denied")
@@ -134,33 +124,6 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn schema_transition_only_clears_unadvertised_never_dispatched_calls() {
-        let args = json!({"action":"status"});
-        let mut g = Guard::default();
-        g.after("browser", &args, &json!({"category":"invalid_arguments","execution_status":"not_executed","field":"$","expected_type":"advertised tool","actual_type":"unknown tool"}));
-        // A tool-authored lookalike does not grant schema recovery.
-        g.advertised_and_valid("browser", &args);
-        assert!(g.before("browser", &args).is_some());
-        g.rejected_unadvertised("browser", &args);
-        g.advertised_and_valid("other", &args);
-        assert!(g.before("browser", &args).is_some());
-        g.advertised_and_valid("browser", &args);
-        assert!(g.before("browser", &args).is_none());
-        for result in [
-            json!({"denied":true}),
-            json!({"execution_status":"unknown"}),
-            json!({"category":"invalid_arguments","field":"$.action","execution_status":"not_executed"}),
-        ] {
-            let mut g = Guard::default();
-            g.after("browser", &args, &json!({"category":"invalid_arguments","execution_status":"not_executed","field":"$","expected_type":"advertised tool","actual_type":"unknown tool"}));
-            g.rejected_unadvertised("browser", &args);
-            g.advertised_and_valid("browser", &args);
-            g.after("browser", &args, &result);
-            g.advertised_and_valid("browser", &args);
-            assert!(g.before("browser", &args).is_some());
-        }
-    }
     #[test]
     fn recall_blocks_same_page_even_when_interleaved_and_bounds_distinct_pages() {
         let mut guard = super::Guard::default();

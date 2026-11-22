@@ -74,5 +74,5 @@
   "full_file_reads_despite_window_only_prompt": 1,
   "original_constraint_retained": true,
   "native_results_verified": true,
-  "limits": "A finished CLI round is not semantic success. Fresh reads require explicit success, matching disk/hash and coverage of both complete fixture functions. Absent native status is accepted only with a successful saved observation. Comparison-term checks are not a reasoning-quality oracle; narrative conclusions require review. Full-file reads violate the window-only test instruction even if later provider projection is bounded."
+  "limits": "A finished CLI round is not semantic success. Fresh reads are checked against disk/hash independently. Comparison-term checks are not a reasoning-quality oracle; narrative conclusions require review. Full-file reads violate the window-only test instruction even if later provider projection is bounded."
 }

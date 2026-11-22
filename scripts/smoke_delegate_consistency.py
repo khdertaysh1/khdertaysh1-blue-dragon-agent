@@ -136,7 +136,7 @@ def main(binary):
                 value=next(json.loads(m['content']) for m in reversed(saved['messages']) if m['role']=='tool')
                 if wrong_pin:assert value['ok'] is False,value
                 else:
-                    assert value.get('historical') is True and value.get('actions_replayed')==0,{'tool_result':value,'stderr':run.stderr,'last_report':saved.get('last_report'),'provider_errors':state.errors}
+                    assert value['historical'] is True and value['actions_replayed']==0,value
                     assert value['trusted_instruction'] is False and value['current_source_verified'] is False
                     assert value['recorded_outcome']=='observed_return' and 'source_sha256' in value['excerpt']
                     assert len(value['excerpt'].encode())<=1024

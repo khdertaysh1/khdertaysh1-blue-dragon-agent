@@ -112,6 +112,14 @@ impl Provider {
         }
         failure.into()
     }
+    pub fn cooldown_until(&self) -> Result<Option<u64>> {
+        self.coordinator
+            .as_ref()
+            .map_or(Ok(None), |c| c.cooldown_until())
+    }
+    pub fn output_reserve(&self) -> u64 {
+        crate::provider_traffic::output_limit(&self.url, self.delegated).unwrap_or(4096)
+    }
     pub fn metrics(&self) -> Value {
         self.metrics.lock().unwrap().clone()
     }
@@ -121,7 +129,7 @@ impl Provider {
             .as_u64()
             .unwrap_or(0)
             + 1;
-        *metrics = json!({"provider_instance_requests_sent":count,"requested_model":crate::provider_diagnostics::scrub(&self.model,self.key.as_deref(),&[]),
+        *metrics = json!({"output_budget_source":if std::env::var_os("BLUE_DRAGON_MAX_OUTPUT_TOKENS").is_some(){"user_environment"}else{"client_default"},"provider_instance_requests_sent":count,"requested_model":crate::provider_diagnostics::scrub(&self.model,self.key.as_deref(),&[]),
             "history_bytes":messages.iter().map(|m|m.to_string().len()).sum::<usize>(),
             "tool_result_bytes":messages.iter().filter(|m|m["role"]=="tool").map(|m|m["content"].as_str().unwrap_or("").len()).sum::<usize>(),
             "max_output_tokens":crate::provider_traffic::output_limit(&self.url,self.delegated),
@@ -406,6 +414,9 @@ impl Provider {
         if let Some(limit) = crate::provider_traffic::output_limit(&self.url, self.delegated) {
             payload["max_tokens"] = json!(limit);
         }
+        if payload.get("max_tokens").is_none() {
+            payload["max_tokens"] = json!(self.output_reserve());
+        }
         if stream {
             payload["stream"] = json!(true);
         }
@@ -500,9 +511,10 @@ impl Provider {
                 .context("Response missing choices[0].message")?
         };
         if let Some(kind) = reason.and_then(crate::provider_contract::stop_kind) {
-            return Err(crate::provider_contract::incomplete(
+            return Err(crate::provider_contract::incomplete_reason(
                 kind,
                 &crate::provider_contract::text(&message),
+                reason.unwrap_or(""),
             ));
         }
         crate::provider_contract::validate_completion(&message, &tools)?;

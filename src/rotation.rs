@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ProviderFailure {
     pub status: u16,
     pub model_specific: bool,
@@ -18,7 +18,7 @@ pub struct ProviderFailure {
 }
 impl std::fmt::Display for ProviderFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Provider HTTP {}; category={}; code={}; reason={}; request_id={}; cooldown={}s source={}; provider_layer_retries=0",
+        write!(f, "Provider HTTP {}; category={}; code={}; reason={}; request_id={}; cooldown={}s source={}; no same-request retry",
             self.status, if self.context_exceeded {"context_limit"} else if self.status == 400 {"invalid_request"} else if self.model_specific {"explicit_model_failure"} else {"unclassified_scope"},
             self.code.as_deref().unwrap_or("unreported"),self.reason.as_deref().unwrap_or("unreported"),self.request_id.as_deref().unwrap_or("unreported"),self.retry_after,self.retry_after_source)
     }

@@ -11,7 +11,7 @@ import tomllib
 repo = Path.cwd()
 with tempfile.TemporaryDirectory() as temp:
     root = Path(temp)
-    for name in ["LICENSE", "Cargo.toml", "VERSION"]:
+    for name in ["LICENSE", "Cargo.toml"]:
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(repo / name, target)
@@ -30,9 +30,7 @@ with tempfile.TemporaryDirectory() as temp:
                    check=True, capture_output=True)
     folder = root / "release-payload"
     metadata = json.loads((folder / "release.json").read_text())
-    version = (root / "VERSION").read_text().strip()
-    assert metadata["package_version"] == tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
-    assert metadata["tag"] == f"v{version}" and metadata["version_scheme"] == "four-part-public"
+    version = tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
     assert metadata["version"] == version
     assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
         "tag": f"v{version}", "prerelease": str("-" in version).lower()}

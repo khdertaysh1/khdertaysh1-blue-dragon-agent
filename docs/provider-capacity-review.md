@@ -96,22 +96,4 @@ All four CLI rounds finished, source files were unchanged, no full-file read occ
 
 A preceding six-round live trial crossed process restarts without context failure after the reasoning-envelope fix, but it had prompt-adherence failures documented in the measurements. No hours-long quota saturation or physical Android test was performed. The original user's 429 did not reproduce here; its numerical TPM and scope remain unresolved. The remaining fresh-evidence compliance gap prevents claiming fully reliable autonomous investigation or parity with AlphaCode. User review and native acceptance checks remain necessary.
 
-A source archive is provided for review/build; no GitHub push, merge, release/tag change or paid service request occurred. That earlier capacity candidate retained the base alpha.3 Cargo version, so identify this candidate by source commit/hash rather than interpreting the version string as a published upgrade.
-
-## Independent-review follow-up (local only)
-
-The review of `8c870f8` reproduced two defects. Neither is hidden by the earlier successful measurements:
-
-- **Oracle, `a28025f`:** `check_read` now requires explicit success. Native file results that omit status need `observation.ok == true`; any supplied execution status must be a recognized success, even when bytes/hash match. Failed, denied, not-executed, cancelled, stale, unknown and unrecognized states are rejected. Windows must be nonempty and cover both complete function definitions in this specific synthetic fixture. Padding-only or partial-function windows do not establish a fresh comparison. Five unittest methods cover the reported five attacks and additional malformed/conflicting evidence, including the saved-session path.
-- **Runtime storage, `dde9350`:** the read/write cap is consistently 1 MiB, enough for the existing permitted 10,000 events and bounded model cooldown registry. Serialized writes are checked before persistence; an oversized update leaves previous state intact. Existing valid states above the old 64 KiB bound are readable and can be pruned after expiration. Files above the new bound and corrupt/schema-invalid states still fail closed. No service quota, configured RPM ceiling, retry policy or default 60 RPM limit was increased.
-
-The exact CLI regression seeded 2,045 events / 65,518 bytes. One successful request produced 65,551 bytes; the next succeeded at 65,584 bytes. After aging the window, another request pruned it to one event. The same harness fails on the old binary with `Provider budget state invalid`. A separate Rust test fills all 10,000 events, verifies quota rejection rather than storage rejection, and verifies atomic refusal of an oversized write.
-
-Rechecking **six saved live trials** with the stricter oracle changed no prior classifications. The final recorded trial still has **3/4 fresh reads**, and the wrong model-authored source spans remain a limitation. This revalidation made **zero service calls**. The storage CLI regression used four loopback dispatches; it is not a live quota test or an hour-long session.
-
-Follow-up validation: **330 Rust tests**, Clippy all targets with warnings denied, release build, five oracle unittest methods, two traffic tests, CLI storage regression, provider-boundary smoke and delegate integration passed on Linux. The earlier 33-group qualification and live binary hash refer to the earlier implementation, not this follow-up. Follow-up executable SHA256: `45172cc26ede658420a7dccf5efbb9289a03d8c740c25abd6d4e74e0052678c8`. No GitHub/Library upload, release or device test was performed for these review fixes; the previously delivered archive has not been replaced.
-
-
-## Alpha.4 release preparation
-
-The separate `release/0.9.0-alpha.4` candidate incorporates reviewed `def2469` on top of `a35626b`, retaining PR18. Its package/tag are `0.9.0-alpha.4` / `v0.9.0-alpha.4`. This is metadata/documentation and regression-gate preparation, not new model functionality. Earlier live observations and binary hashes above remain historical; final release-candidate checks are recorded separately. No additional live trial, device test or publication is implied.
+A source archive is provided for review/build; no GitHub push, merge, release/tag change or paid service request occurred. Its Cargo version remains the base alpha.3 version, so identify this candidate by source commit/hash rather than interpreting the version string as a published upgrade.

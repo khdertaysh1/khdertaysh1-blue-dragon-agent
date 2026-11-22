@@ -95,6 +95,7 @@ pub fn preflight(messages: &[Value], tools: &Value, model: &str) -> Result<()> {
 pub struct Incomplete {
     pub kind: &'static str,
     pub partial_text: String,
+    pub raw_stop_reason: Option<String>,
 }
 impl std::fmt::Display for Incomplete {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -105,7 +106,22 @@ impl std::error::Error for Incomplete {}
 pub fn incomplete(kind: &'static str, text: &str) -> anyhow::Error {
     Incomplete {
         kind,
+        raw_stop_reason: None,
         partial_text: crate::reasoning::context::clip(text, 16000),
+    }
+    .into()
+}
+pub fn incomplete_reason(kind: &'static str, text: &str, reason: &str) -> anyhow::Error {
+    Incomplete {
+        kind,
+        partial_text: crate::reasoning::context::clip(text, 16000),
+        raw_stop_reason: Some(
+            if reason.len() <= 64 && reason.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+                reason.to_owned()
+            } else {
+                "unrecognized_reason_redacted".into()
+            },
+        ),
     }
     .into()
 }
@@ -137,6 +153,9 @@ pub fn validate_completion(message: &Value, _tools: &Value) -> Result<()> {
         return Err(incomplete("explicit_refusal", &text));
     }
     let batch = calls(message).map_err(|_| incomplete("malformed_tool_call", &text))?;
+    if batch.len() > 8 {
+        return Err(incomplete("tool_batch_limit", &text));
+    }
     let mut seen = BTreeSet::new();
     for call in &batch {
         let valid = identity(call).is_ok_and(|id| seen.insert(id));
@@ -150,7 +169,7 @@ pub fn validate_completion(message: &Value, _tools: &Value) -> Result<()> {
     Ok(())
 }
 pub fn partial_record(error: &Incomplete) -> Value {
-    json!({"kind":error.kind,"partial_text_retained_in_session":true,"partial_characters":error.partial_text.chars().count(),"incomplete":true,"tool_calls_executed":0,"trusted_evidence":false})
+    json!({"raw_stop_reason":error.raw_stop_reason,"classification_source":"client_stop_reason_mapping","kind":error.kind,"partial_text_retained_in_session":true,"partial_characters":error.partial_text.chars().count(),"incomplete":true,"tool_calls_executed":0,"trusted_evidence":false})
 }
 
 #[cfg(test)]
