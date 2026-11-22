@@ -8,6 +8,9 @@ struct Seen {
     unchanged: usize,
     denied: bool,
     unadvertised: bool,
+    block_reason: &'static str,
+    evidence: Option<String>,
+    next_offset: Option<u64>,
 }
 #[derive(Default)]
 pub struct Guard {
@@ -57,6 +60,11 @@ impl Guard {
             seen.unadvertised = true;
         }
     }
+    pub fn link_evidence(&mut self, name: &str, args: &Value, id: &str) {
+        if let Some(seen) = self.seen.get_mut(&Self::key(name, args)) {
+            seen.evidence = Some(id.to_owned());
+        }
+    }
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
         if matches!(name, "job_status" | "job_output") {
             return None;
@@ -65,7 +73,7 @@ impl Guard {
         if name == "recall_context" && (self.recall_reads >= 8 || self.seen.contains_key(&key)) {
             self.blocked += 1;
             return Some(
-                json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","category":if self.seen.contains_key(&key) {"duplicate_recall"} else {"recall_budget_exhausted"},"error":if self.seen.contains_key(&key) {"This page was requested earlier. Use the original result."} else {"Eight history pages already read in this turn. Report available evidence."}}),
+                json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","message_index":args["message_index"],"requested_offset":args["offset"].as_u64().unwrap_or(0),"previous_next_offset":self.seen.get(&key).and_then(|s|s.next_offset),"category":if self.seen.contains_key(&key) {"duplicate_recall"} else {"recall_budget_exhausted"},"error":if self.seen.contains_key(&key) {"This page was requested earlier. Use the original result."} else {"Eight history pages already read in this turn. Report available evidence."}}),
             );
         }
         if self
@@ -74,12 +82,19 @@ impl Guard {
             .is_some_and(|s| s.denied || (self.last == key && s.unchanged >= 3))
         {
             self.blocked += 1;
-            let uncertain_or_denied = self.seen.get(&key).is_some_and(|s| s.denied);
+            let original = &self.seen[&key];
+            let uncertain_or_denied = original.denied;
             return Some(json!({"ok":false,"execution_status":"not_executed",
             "repetition_blocked":true,"repeated_tool":name,
-            "category":if uncertain_or_denied {"prior_denied_or_uncertain"} else {"repeated_unchanged"},
+            "original_evidence_id":self.seen.get(&key).and_then(|s|s.evidence.as_deref()),
+            "category":if uncertain_or_denied {self.seen[&key].block_reason} else {"repeated_unchanged"},
             "error":if uncertain_or_denied {
-                "An earlier identical action was denied or its outcome is uncertain. Consult its original result; do not re-request approval."
+                match original.block_reason {
+                    "prior_user_declined"=>"User declined the earlier action. Stop here.",
+                    "prior_execution_unknown"=>"The earlier action may have executed. Use its evidence and any later page observation; do not replay it.",
+                    "prior_invalid_arguments"=>"The previous arguments were invalid. Consult the original schema diagnostic.",
+                    _=>"The previous action was blocked. Inspect the original evidence."
+                }
             } else {
                 "Repeated identical arguments returned unchanged results. Inspect the previous result for this tool."
             }}));
@@ -169,6 +184,16 @@ impl Guard {
             || error.contains("outcome may be unknown")
             || error.contains("timed out")
             || error.contains("cancelled");
+        old.next_offset = result["next_offset"].as_u64();
+        old.block_reason = if result["approval_source"] == "user_choice" {
+            "prior_user_declined"
+        } else if result["execution_status"] == "unknown" {
+            "prior_execution_unknown"
+        } else if result["category"] == "invalid_arguments" {
+            "prior_invalid_arguments"
+        } else {
+            "prior_action_blocked"
+        };
         old.result = text;
         self.last = key;
         redundant || old.unchanged >= 2
@@ -186,6 +211,27 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retry_reports_original_evidence_and_cause() {
+        for (value, expected) in [
+            (
+                json!({"denied":true,"approval_source":"user_choice"}),
+                "prior_user_declined",
+            ),
+            (
+                json!({"execution_status":"unknown"}),
+                "prior_execution_unknown",
+            ),
+        ] {
+            let mut g = Guard::default();
+            let args = json!({"action":"click"});
+            g.after("browser", &args, &value);
+            g.link_evidence("browser", &args, "E9");
+            let blocked = g.before("browser", &args).unwrap();
+            assert_eq!(blocked["category"], expected);
+            assert_eq!(blocked["original_evidence_id"], "E9");
+        }
+    }
     #[test]
     fn schema_transition_only_clears_unadvertised_never_dispatched_calls() {
         let args = json!({"action":"status"});

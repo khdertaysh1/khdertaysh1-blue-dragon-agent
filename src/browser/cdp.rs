@@ -280,7 +280,7 @@ impl Cdp {
         self.alive = false;
         anyhow::bail!("Browser action deadline exceeded; outcome unknown; reconnect explicitly and inspect before retry")
     }
-    pub fn source_url(&self, request_id: &str) -> Option<&str> {
+    pub fn source_url(&self, request_id: &str) -> Result<&str> {
         observed_response_url(&self.network, request_id)
     }
     pub fn javascript_response(&self, id: &str) -> Result<&str> {
@@ -297,7 +297,6 @@ impl Cdp {
             "Only successful JavaScript responses can be saved"
         );
         self.source_url(id)
-            .context("Response URL unavailable or truncated")
     }
 
     pub fn response_bytes(&mut self, id: &str) -> Result<Vec<u8>> {
@@ -425,15 +424,18 @@ fn is_javascript_mime(mime: &str) -> bool {
     )
 }
 
-fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Option<&'a str> {
+fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Result<&'a str> {
     let response = events
         .iter()
         .rev()
-        .find(|event| event["event"] == "response" && event["request_id"] == id)?;
+        .find(|event| event["event"] == "response" && event["request_id"] == id).context("No retained response with this ID on the current connection; historical captures are separate")?;
     if response["url_truncated"] == true {
-        return None;
+        anyhow::bail!("Recorded response URL is truncated; scope cannot be verified");
     }
-    response["url"].as_str()
+    response["url"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .context("Recorded response has no URL")
 }
 impl Drop for Cdp {
     fn drop(&mut self) {
@@ -567,11 +569,11 @@ mod source_scope_tests {
             json!({"event":"response","request_id":"r","url":"https://outside.test/final"}),
         ]);
         assert_eq!(
-            observed_response_url(&events, "r"),
+            observed_response_url(&events, "r").ok(),
             Some("https://outside.test/final")
         );
         events.back_mut().unwrap()["url_truncated"] = json!(true);
-        assert!(observed_response_url(&events, "r").is_none());
-        assert!(observed_response_url(&events, "unknown").is_none());
+        assert!(observed_response_url(&events, "r").is_err());
+        assert!(observed_response_url(&events, "unknown").is_err());
     }
 }

@@ -19,6 +19,7 @@ mod mcp;
 mod mcp_protocol;
 mod models;
 mod network_history;
+mod operator;
 mod plan;
 mod project;
 mod provider;
@@ -411,7 +412,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -595,6 +596,24 @@ fn run() -> Result<()> {
                                     Err(_) => eprintln!(
                                         "Saved tool evidence unavailable or integrity check failed"
                                     ),
+                                }
+                                continue;
+                            }
+                            cmd if operator::matches(cmd) => {
+                                match agent.operator_command(cmd) {
+                                    Ok(result) => {
+                                        println!("{}", serde_json::to_string_pretty(&result)?)
+                                    }
+                                    Err(error) => eprintln!("{error:#}"),
+                                }
+                                continue;
+                            }
+                            cmd if cmd.split_whitespace().next() == Some("/inventory") => {
+                                match agent.saved_inventory(cmd) {
+                                    Ok(value) => {
+                                        println!("{}", serde_json::to_string_pretty(&value)?)
+                                    }
+                                    Err(error) => eprintln!("{error:#}"),
                                 }
                                 continue;
                             }

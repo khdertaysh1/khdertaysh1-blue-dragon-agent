@@ -233,11 +233,17 @@ impl Browser {
         Ok(())
     }
     fn check_source_scope(&self, args: &Value) -> Result<()> {
-        let observed = self.cdp.as_ref().and_then(|cdp| {
-            args["request_id"]
-                .as_str()
-                .and_then(|id| cdp.source_url(id))
-        });
+        let observed = self
+            .cdp
+            .as_ref()
+            .map(|cdp| {
+                cdp.source_url(
+                    args["request_id"]
+                        .as_str()
+                        .context("CDP source requires a retained request ID")?,
+                )
+            })
+            .transpose()?;
         source_scope_check(&self.scope, args, observed, self.cdp.is_some())
     }
     fn raw(&mut self, action: &str, args: &Value) -> Result<Value> {

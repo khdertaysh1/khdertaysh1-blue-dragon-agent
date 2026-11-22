@@ -199,7 +199,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -713,6 +713,12 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
             serde_json::to_string_pretty(
                 &agent.saved_network(line.trim_start_matches("/network"))?,
             )?
+        }
+        cmd if crate::operator::matches(cmd) => {
+            serde_json::to_string_pretty(&agent.operator_command(cmd)?)?
+        }
+        cmd if cmd.split_whitespace().next() == Some("/inventory") => {
+            serde_json::to_string_pretty(&agent.saved_inventory(cmd)?)?
         }
         "/saved-files" => serde_json::to_string_pretty(&agent.saved_files())?,
         "/report" => agent.report_text(),

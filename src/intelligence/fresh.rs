@@ -136,6 +136,18 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
             suffixes.contains(&extension).then(|| word.to_owned())
         })
         .collect::<Vec<_>>();
+    let historical_network = [
+        "network_events",
+        "saved network",
+        "network capture",
+        "سجل الشبكة المحفوظ",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker));
+    if historical_network && paths.is_empty() && !text.contains("byte") && !text.contains("بايت")
+    {
+        return vec![];
+    }
     let mut expected_window = range.as_ref().and_then(|r| r.as_ref().ok().copied());
     if range.as_ref().is_some_and(Result::is_err) || (explicit_window && paths.len() > 1) {
         return vec![Request {
@@ -288,6 +300,12 @@ mod tests {
             Some("app.js")
         );
         assert!(detect("Do not read app.js again.", &session).is_empty());
+        assert!(detect("Read saved network evidence at message_index=30 with network_events=true and offset=8.", &session).is_empty());
+        assert!(!detect(
+            "Read app.js bytes 0..8 and review saved network evidence",
+            &session
+        )
+        .is_empty());
         assert!(detect("Explain our previous results.", &session).is_empty());
         assert_eq!(
             detect("Read bounded windows of ../outside.js again.", &session)[0]

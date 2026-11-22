@@ -496,6 +496,29 @@ impl Agent {
             json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" || result["category"]=="invalid_arguments" {crate::tool_arguments::summary(&crate::tool_arguments::diagnostic_view(&tool, &result))}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_argument_view(&original),"original_argument_shape":crate::tool_arguments::argument_shape(&tool, &original),"native_action":crate::tool_arguments::native_action(&tool, &original),"result":crate::tool_arguments::diagnostic_view(&tool, &result),"redaction":"User string values omitted, including commands, URLs, tokens and stdout. Only fixed diagnostic vocabulary and native schema paths may be displayed; structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
         )
     }
+    pub fn operator_command(&self, line: &str) -> Result<Value> {
+        anyhow::ensure!(
+            self.tools.allows_url_inspection(),
+            "Read-only mode or cancellation prevents external operator commands"
+        );
+        crate::operator::run(line)
+    }
+    pub fn saved_inventory(&self, line: &str) -> Result<Value> {
+        let mut parts = line.split_whitespace().skip(1);
+        let id = parts
+            .next()
+            .context("Use /inventory EVIDENCE_ID [OFFSET]")?;
+        let offset = parts
+            .next()
+            .map(str::parse::<usize>)
+            .transpose()?
+            .unwrap_or(0);
+        anyhow::ensure!(parts.next().is_none(), "Too many arguments");
+        let record = self.saved_network_capture(id)?;
+        let mut view = crate::network_history::inventory(&record["result"], offset)?;
+        view["original_evidence_id"] = json!(id);
+        Ok(view)
+    }
     pub fn saved_network(&self, arguments: &str) -> Result<Value> {
         let mut fields = arguments.split_whitespace();
         let evidence = fields
@@ -511,15 +534,19 @@ impl Agent {
         self.network_events(evidence, id, offset)
     }
     fn network_events(&self, evidence: &str, id: Option<&str>, offset: usize) -> Result<Value> {
+        let result = self.saved_network_capture(evidence)?;
+        let mut view = crate::network_history::page(&result["result"], id, offset, 8)?;
+        view["original_evidence_id"] = json!(evidence);
+        view["ok"] = json!(true);
+        Ok(view)
+    }
+    fn saved_network_capture(&self, evidence: &str) -> Result<Value> {
         let (tool, args, result) = crate::audit::request_for(&self.session, evidence)?;
         anyhow::ensure!(
             tool == "browser" && args["action"] == "network" && result["ok"] == true,
             "Expected a saved successful browser network observation in this session"
         );
-        let mut view = crate::network_history::page(&result["result"], id, offset, 8)?;
-        view["original_evidence_id"] = json!(evidence);
-        view["ok"] = json!(true);
-        Ok(view)
+        Ok(result)
     }
     pub fn report_text(&self) -> String {
         let mut report = self.session.last_report.clone();
@@ -795,6 +822,29 @@ impl Agent {
                     .filter(|s| s.status != "completed")
                     .count(),
             );
+            for observation in self.session.observations[observation_start..]
+                .iter()
+                .rev()
+                .filter(|o| {
+                    matches!(
+                        o.tool.as_str(),
+                        "read_file_window" | "search_file" | "list_files"
+                    )
+                })
+                .take(3)
+            {
+                if let Ok((_, args, result)) =
+                    crate::audit::request_for(&self.session, &observation.id)
+                {
+                    let details = json!({"path":args["path"],"query":args["query"],"offset":result["byte_offset"],"next_offset":result["next_byte_offset"],"returned_matches":result["matches"].as_array().map(Vec::len),"complete_from_offset":result["complete_from_offset"]});
+                    summary.push_str(&format!(
+                        "\n{} · {} · {}",
+                        observation.id,
+                        observation.tool,
+                        crate::reasoning::context::clip(&details.to_string(), 480)
+                    ));
+                }
+            }
             for action in actions
                 .iter()
                 .filter(|a| a["browser_action"].is_string())
@@ -811,7 +861,10 @@ impl Agent {
                     action["ok"],
                     action["execution_status"],
                     action["category"],
-                    action["evidence_id"]
+                    action
+                        .get("evidence_id")
+                        .filter(|v| !v.is_null())
+                        .unwrap_or(&action["original_evidence_id"])
                 ));
             }
             if let Some(file) = resumed.filter(|_| structured) {
@@ -2086,6 +2139,8 @@ impl Agent {
                     && result["repetition_blocked"] != true
                 {
                     let evidence_id = self.remember_observation(name, &result);
+                    self.loop_guard
+                        .link_evidence(name, &guard_args, &evidence_id);
                     if let Some(observation) = self.session.observations.last_mut() {
                         observation.request_sha256 = Some(crate::intelligence::code::hash(
                             original_args.to_string().as_bytes(),
@@ -2163,6 +2218,7 @@ impl Agent {
                     action["browser_action"] = json!(a);
                     action["category"] = result["category"].clone();
                     action["evidence_id"] = result["evidence_id"].clone();
+                    action["original_evidence_id"] = result["original_evidence_id"].clone();
                 }
                 if resumed.is_some()
                     && ok
