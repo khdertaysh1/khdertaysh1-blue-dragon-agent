@@ -498,7 +498,11 @@ impl ToolBox {
             println!("│ ... diff truncated; use /diff to review staged edits");
         }
         println!("└─────────────────────────────────────────────────────────");
-        print!("Approve this ONE action? [y/N] ");
+        if crate::browser::group_approval(action) {
+            print!("Allow snapshot and network reads for this page and task? [y/N] ");
+        } else {
+            print!("Approve this ONE action? [y/N] ");
+        }
         std::io::stdout().flush()?;
         let answer = crate::terminal_input::approval()?;
         self.user_declined

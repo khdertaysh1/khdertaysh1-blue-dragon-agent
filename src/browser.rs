@@ -43,6 +43,14 @@ impl ConnectionPreference {
     }
 }
 
+pub fn group_approval(action: &str) -> bool {
+    matches!(
+        action,
+        "Browser: snapshot (allow snapshot and network reads on this page for this task)"
+            | "Browser: network (allow snapshot and network reads on this page for this task)"
+    )
+}
+
 pub struct Browser {
     pub scope: crate::scope::Policy,
     home: PathBuf,
