@@ -199,7 +199,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -724,6 +724,13 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         "/status" => serde_json::to_string_pretty(&agent.git_status()?)?,
         "/diff" => agent.git_diff()?,
         "/skills" => serde_json::to_string_pretty(&agent.list_skills()?)?,
+        cmd if matches!(
+            cmd.split_whitespace().next(),
+            Some("/sessions" | "/conversation-search")
+        ) =>
+        {
+            serde_json::to_string_pretty(&agent.history_search(cmd)?)?
+        }
         "/session" => agent.session_id().to_owned(),
         "/doctor" => format!(
             "Model: {} | workspace: {}",

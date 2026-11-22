@@ -37,7 +37,7 @@ pub fn page(record: &Value, id: Option<&str>, offset: usize, limit: usize) -> Re
     }
     let end = offset.saturating_add(events.len());
     Ok(
-        json!({"events":events,"matched_events":selected.len(),"next_offset":(end < selected.len()).then_some(end),"capture_entries_omitted":record["entries_omitted"],"ring_entries_omitted":record["ring_entries_omitted"],"historical":true,"reran_tool":false}),
+        json!({"events":events,"retained_events":rows.len(),"matched_events":selected.len(),"offset":offset,"returned_events":events.len(),"next_offset":(end < selected.len()).then_some(end),"capture_entries_omitted":record["entries_omitted"],"ring_entries_omitted":record["ring_entries_omitted"],"historical":true,"reran_tool":false}),
     )
 }
 #[cfg(test)]
@@ -53,6 +53,9 @@ mod tests {
         assert!(data.to_string().len() > 93460);
         let first = page(&data, Some("298"), 0, 1).unwrap();
         assert_eq!(first["next_offset"], 1);
+        assert_eq!(first["retained_events"], 300);
+        assert_eq!(first["matched_events"], 2);
+        assert_eq!(first["returned_events"], 1);
         assert!(first["events"][0].get("status").is_none());
         let second = page(&data, Some("298"), 1, 1).unwrap();
         assert_eq!(second["events"][0]["status"], 200);

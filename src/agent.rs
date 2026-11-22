@@ -476,6 +476,17 @@ impl Agent {
         self.output(self.model_event());
         Ok(true)
     }
+    pub fn history_search(&self, line: &str) -> Result<Value> {
+        let (cmd, query) = line.split_once(' ').unwrap_or((line, ""));
+        let query = query.trim();
+        if cmd == "/conversation-search" {
+            anyhow::ensure!(!query.is_empty(), "Use /conversation-search WORDS");
+            return Ok(
+                json!({"session":self.session.id,"matches":crate::session::search_turns(&self.session,query,20),"limit":20}),
+            );
+        }
+        crate::session::search_sessions(&self.settings.sessions_dir, query)
+    }
     pub fn plan_text(&self) -> String {
         self.session.plan.display()
     }

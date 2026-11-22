@@ -146,8 +146,12 @@ enum Command {
     Run { task: String },
     /// Check local setup without uploading data
     Doctor,
-    /// List saved local sessions
-    Sessions,
+    /// List saved local sessions, or find a conversation by words and optionally reopen it.
+    Sessions {
+        query: Option<String>,
+        #[arg(long, requires = "query")]
+        open: bool,
+    },
     /// Inspect file types, manifests and language distribution without sending code to AI
     Map,
     /// List user-level local Markdown skills
@@ -288,7 +292,61 @@ fn run() -> Result<()> {
             println!("Sessions : {}", settings.sessions_dir.display());
             Ok(())
         }
-        Some(Command::Sessions) => {
+        Some(Command::Sessions {
+            query: Some(query),
+            open,
+        }) => {
+            anyhow::ensure!(!query.trim().is_empty(), "A search term is required");
+            let view = session::search_sessions(&settings.sessions_dir, &query)?;
+            if !open {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+                return Ok(());
+            }
+            anyhow::ensure!(
+                io::stdin().is_terminal() && io::stdout().is_terminal(),
+                "Opening a session requires an interactive terminal"
+            );
+            let rows = view["sessions"]
+                .as_array()
+                .context("Session results unavailable")?;
+            if rows.is_empty() {
+                println!("No conversation matches");
+                return Ok(());
+            }
+            for (index, row) in rows.iter().enumerate() {
+                println!(
+                    "{}. {} | {} | {}",
+                    index + 1,
+                    row["updated_at"],
+                    row["workspace"],
+                    row["match"]["excerpt"]
+                );
+            }
+            print!("Choose a conversation number (Enter to cancel): ");
+            io::stdout().flush()?;
+            let mut choice = String::new();
+            io::stdin().read_line(&mut choice)?;
+            if choice.trim().is_empty() {
+                return Ok(());
+            }
+            let row = choice
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .and_then(|n| n.checked_sub(1))
+                .and_then(|i| rows.get(i))
+                .context("Invalid conversation number")?;
+            let path = PathBuf::from(row["workspace"].as_str().context("Missing workspace")?);
+            anyhow::ensure!(path.is_dir(), "Saved workspace is unavailable");
+            settings.root = path.canonicalize()?;
+            tui::run(
+                settings,
+                args.read_only,
+                Some(row["id"].as_str().context("Missing ID")?),
+                false,
+            )
+        }
+        Some(Command::Sessions { query: None, .. }) => {
             for info in session::list_sessions(&settings.sessions_dir)? {
                 println!("{} | {} | {}", info.id, info.updated_at, info.workspace);
             }
@@ -353,7 +411,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -464,6 +522,19 @@ fn run() -> Result<()> {
                                 match agent.browser_command(line.trim_start_matches("/browser ")) {
                                     Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
                                     Err(e) => eprintln!("Browser: {e:#}"),
+                                }
+                                continue;
+                            }
+                            cmd if matches!(
+                                cmd.split_whitespace().next(),
+                                Some("/sessions" | "/conversation-search")
+                            ) =>
+                            {
+                                match agent.history_search(cmd) {
+                                    Ok(value) => {
+                                        println!("{}", serde_json::to_string_pretty(&value)?)
+                                    }
+                                    Err(error) => eprintln!("{error}"),
                                 }
                                 continue;
                             }
