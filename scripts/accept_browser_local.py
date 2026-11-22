@@ -66,7 +66,14 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
   def browser_do(action, approve=False, **args):
    return send('/browser do '+json.dumps(dict(action=action,**args)),approve)
   def result(text):
-   return json.JSONDecoder().raw_decode(text[text.index('{'):])[0]
+   # The approval panel can echo the JSON arguments before the actual result.
+   end=text.rsplit('blue-dragon> ',1)[0].rstrip()
+   for start,char in enumerate(end):
+    if char!='{':continue
+    try: obj,used=json.JSONDecoder().raw_decode(end[start:])
+    except ValueError:continue
+    if start+used==len(end):return obj
+   raise AssertionError('No terminal result object: '+end[-1200:])
   net=result(browser_do('network',True))
   same=result(browser_do('snapshot',compact=True))
   assert same['ok'] and same['result']['title']=='Before',same
