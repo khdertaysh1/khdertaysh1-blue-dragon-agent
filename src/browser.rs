@@ -441,6 +441,12 @@ impl Browser {
             .javascript_response(id)?
             .to_owned();
         validate_url(&url)?;
+        if let Some(expected) = args.get("url") {
+            anyhow::ensure!(
+                expected.as_str() == Some(url.as_str()),
+                "Request ID does not match the expected script URL; nothing saved"
+            );
+        }
         self.scope.check(&url, "read")?;
         self.check_save_document_origin(&url)?;
         let epoch = self.status()["connection_epoch"].as_u64();

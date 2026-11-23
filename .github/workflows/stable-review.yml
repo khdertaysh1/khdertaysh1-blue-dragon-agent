@@ -1,0 +1,35 @@
+name: Compare trial with v1.1.13.0
+on:
+  push:
+    branches: [trial/stable-review-1]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: candidate
+      - uses: actions/checkout@v4
+        with:
+          ref: 9d02f9ab8d8bb9cc8a7cc6b6117b82c887e04e62
+          path: published
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python -m pip install aiohttp
+      - name: Test published baseline
+        working-directory: published
+        run: |
+          cargo test --locked
+          cargo build --locked
+          python scripts/accept_browser_save_cdp.py target/debug/blue-dragon
+      - name: Test candidate and compare against original acceptance script
+        working-directory: candidate
+        run: |
+          cargo test --locked
+          cargo build --locked
+          python ../published/scripts/accept_browser_save_cdp.py target/debug/blue-dragon
+          python scripts/accept_browser_save_cdp.py target/debug/blue-dragon
+          python scripts/test_local_workspace.py
+          python scripts/test_provider_budget_storage.py target/debug/blue-dragon

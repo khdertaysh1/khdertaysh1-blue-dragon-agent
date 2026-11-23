@@ -807,7 +807,7 @@ impl Agent {
             if self.completion_state != "needs_verification" {
                 self.completion_state = "interrupted".into();
             }
-            if let Some(partial) = error.downcast_ref::<crate::provider_contract::Incomplete>() {
+            if let Some(partial) = error.downcast_ref::<crate::provider_contract::Incomplete>().filter(|p| !p.partial_text.is_empty()) {
                 self.session.messages.push(json!({"role":"assistant","content":format!("INCOMPLETE HISTORICAL PROVIDER TEXT; not fresh evidence, no tool batch executed. Stop category: {}\n{}",partial.kind,partial.partial_text)}));
             }
             // Always return useful, deterministic evidence even if the provider, context
@@ -1414,7 +1414,12 @@ impl Agent {
                             // The CLI owns stdin synchronously, including approvals.
                             // Do not retry behind unread stop/scope-changing input.
                             self.persist()?;
-                            self.output(AgentEvent::Notice("Provider cooldown active. Returning to the chat prompt to read your next instruction before any further request; no automatic retry in synchronous chat. Original turn and results remain saved.".into()));
+                            let notice = if failure.retry_after > 0 {
+                                "Provider cooldown active. Returning to the chat prompt; original turn and results remain saved."
+                            } else {
+                                "The provider rejected this request. No client wait was added. You can send a new message."
+                            };
+                            self.output(AgentEvent::Notice(notice.into()));
                             return Err(error);
                         }
                         if failure.status == 429 && quota_recovery_used {
@@ -2410,6 +2415,24 @@ fn system_prompt() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ordinary_file_followup_after_status_keeps_official_behavior() {
+        let (mut agent, _work, _state, server) = scripted_agent(vec![
+            tool_call("first", "file_info", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"Recorded file metadata."})),
+            completion(json!({"role":"assistant","content":"You requested file metadata."})),
+            tool_call("again", "file_info", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"Recorded fresh metadata."})),
+        ]);
+        agent.turn("Inspect demo.txt").unwrap();
+        agent.turn("What did I just ask?").unwrap();
+        assert_eq!(agent.session.last_report["actions"], json!([]));
+        agent.turn("Inspect demo.txt again").unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 5);
+        assert!(requests[3]["tools"].as_array().is_some_and(|t| !t.is_empty()));
+        assert_eq!(agent.session.last_report["actions"][0]["ok"], true);
+    }
     fn completion(message: Value) -> Value {
         json!({"choices":[{"message":message}]})
     }
