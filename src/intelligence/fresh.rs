@@ -36,6 +36,23 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         })
         .collect();
     let lower = normalized.to_lowercase();
+    // "first N bytes" names a prefix without spelling out two offsets.
+    let words: Vec<_> = lower.split_whitespace()
+        .map(|word| word.trim_matches(|c: char| matches!(c, '.' | ',' | ';' | '،' | '؛' | ':' | '`')))
+        .collect();
+    let mut prefixes = words.windows(3).filter(|w|
+        matches!(w[0], "first" | "أول" | "اول") && matches!(w[2], "bytes" | "byte" | "بايت"));
+    if let Some(prefix) = prefixes.next() {
+        // A second range or offset must not be silently discarded.
+        if prefixes.next().is_some() || lower.contains("..")
+            || words.iter().any(|w| matches!(*w, "offset" | "offsets" | "إزاحة" | "ازاحة"))
+            || words.iter().filter(|w| matches!(**w, "byte" | "bytes" | "بايت" | "البايت")).count() != 1
+        {
+            return Some(Err(()));
+        }
+        return Some(prefix[1].parse::<u64>().ok().filter(|n| *n > 0)
+            .map(|n| (0, n)).ok_or(()));
+    }
     let marker = ["bytes ", "byte range ", "بايت ", "البايت "]
         .iter()
         .filter_map(|m| lower.find(m).map(|i| i + m.len()))
@@ -265,6 +282,23 @@ pub fn status(requests: &[Request], session: &Session, tools: &ToolBox) -> Value
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn first_bytes_resolves_to_named_file_and_prefix() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        for prompt in [
+            "استخدم file_info على aghanim-trial-01.js ثم اقرأ أول 512 بايت منه باستخدام read_file_window.",
+            "اقرأ أول ٥١٢ بايت من aghanim-trial-01.js",
+            "Read the first 512 bytes of aghanim-trial-01.js",
+        ] {
+            let requests = detect(prompt, &session);
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].path.as_deref(), Some("aghanim-trial-01.js"));
+            assert_eq!(requests[0].expected_window, Some((0, 512)));
+            assert!(requests[0].explicit_window);
+        }
+        assert_eq!(explicit_range("first 512 bytes and bytes 800..900"), Some(Err(())));
+    }
+
     #[test]
     fn rejects_unsuccessful_matching_content() {
         for state in [
