@@ -53,6 +53,21 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         return Some(prefix[1].parse::<u64>().ok().filter(|n| *n > 0)
             .map(|n| (0, n)).ok_or(()));
     }
+    // With a descriptive endpoint the only numeric requirement is coverage
+    // of the starting byte. The report must establish the semantic endpoint.
+    if let Some(start) = words.windows(4).find(|w| {
+        matches!((w[0], w[1], w[3]),
+            ("من", "البايت" | "بايت", "حتى") | ("from" | "at", "byte", "until"))
+    }) {
+        if !lower.contains("..") && words.iter().filter(|w| w.chars().any(|c| c.is_ascii_digit())).count() == 1
+        {
+            if words.windows(2).any(|w| matches!((w[0], w[1]),
+                ("آخر" | "نهاية", "الدالة") | ("function", "ends"))) {
+                return Some(start[2].parse::<u64>().ok()
+                    .and_then(|n| n.checked_add(1).map(|end| (n, end))).ok_or(()));
+            }
+        }
+    }
     let marker = ["bytes ", "byte range ", "بايت ", "البايت "]
         .iter()
         .filter_map(|m| lower.find(m).map(|i| i + m.len()))
@@ -272,7 +287,7 @@ pub fn status(requests: &[Request], session: &Session, tools: &ToolBox) -> Value
             // request without a declared range proves only the actual read window.
             let Some(end)=result["end_byte_offset"].as_u64() else {continue;};
             let Some(size)=result["file_bytes"].as_u64() else {continue;};
-            if end<=offset || result["byte_offset"]!=offset || request.expected_window.is_some_and(|(a,b)|offset>a || end<if request.explicit_window {b} else {b.min(size)}) {state="inconclusive";continue;}
+            if end<=offset || result["byte_offset"]!=offset || request.expected_window.is_some_and(|(a,b)|offset>a || end<if request.explicit_window {b} else {b.min(size)}) {if proof.is_null() {state="inconclusive";} continue;}
             let Ok(current)=tools.read_file_window(path,offset,count) else {state="stale";proof=Value::Null;continue;};
             if current["window_sha256"]!=result["window_sha256"] || current["content"]!=result["content"] || current["end_byte_offset"]!=result["end_byte_offset"] || current["file_bytes"]!=result["file_bytes"] {state="stale";proof=Value::Null;continue;}
             state="verified";
@@ -300,6 +315,17 @@ mod tests {
             assert!(requests[0].explicit_window);
         }
         assert_eq!(explicit_range("first 512 bytes and bytes 800..900"), Some(Err(())));
+    }
+
+    #[test]
+    fn arabic_starting_byte_with_function_endpoint() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        let prompt = "كمّل من الدالة u(e) في الملف المحلي aghanim-trial-01.js. اقرأ ابتداءً من البايت 397 حتى يظهر آخر الدالة.";
+        let requests = detect(prompt, &session);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path.as_deref(), Some("aghanim-trial-01.js"));
+        assert_eq!(requests[0].expected_window, Some((397, 398)));
+        assert_eq!(explicit_range("من البايت 397 حتى 900 ثم نهاية الدالة"), Some(Err(())));
     }
 
     #[test]
