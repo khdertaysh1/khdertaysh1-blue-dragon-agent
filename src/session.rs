@@ -146,6 +146,11 @@ pub fn continuation(input: &str) -> bool {
             | "كمل"
             | "كمّل"
             | "كفي"
+            | "كفيها"
+            | "كفّيها"
+            | "كملها"
+            | "كمّلها"
+            | "تابعها"
             | "كمّل من وين وقفنا"
             | "كمل من وين وقفنا"
     )
@@ -494,10 +499,10 @@ mod tests {
     #[test]
     fn checkpoint_uses_real_user_goals_and_displays_saved_stop() {
         let mut s = new(Path::new("."), "test");
-        s.messages = ["Read the label", "synthetic guidance", "كمّل!"]
+        s.messages = ["Read the label", "synthetic guidance", "كمّل!", "كفّيها"]
             .map(|content| serde_json::json!({"role":"user","content":content}))
             .to_vec();
-        s.user_turns = vec![0, 2];
+        s.user_turns = vec![0, 2, 3];
         s.last_report = serde_json::json!({"task_status":"interrupted","error":"cancelled"});
         let summary = resume_summary(&s);
         assert!(summary.contains("Read the label") && summary.contains("cancelled"));

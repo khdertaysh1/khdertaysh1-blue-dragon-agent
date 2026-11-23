@@ -85,6 +85,7 @@ struct Screen {
     lines: Vec<String>,
     input: String,
     busy: bool,
+    followups: std::collections::VecDeque<String>,
     approval: Option<ApprovalRequest>,
     picker: Option<ModelPicker>,
     approval_scroll: u16,
@@ -112,6 +113,7 @@ impl Screen {
             ],
             input: String::new(),
             busy: false,
+            followups: Default::default(),
             approval: None,
             picker: None,
             approval_scroll: 0,
@@ -183,10 +185,17 @@ impl Screen {
 
     fn submit(&mut self, tx: &Sender<Work>) {
         if self.busy {
-            if !self.input.trim().is_empty() {
-                self.cancelled
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                self.status = "New instruction preserved; cancelling current work. Press Enter after it stops to submit.".into();
+            let text = self.input.trim();
+            if !text.is_empty() {
+                if text.starts_with('/') || self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                    self.status = "Draft kept. Submit after the current task stops.".into();
+                } else {
+                    self.followups.push_back(text.to_owned());
+                    self.input.clear();
+                    self.cursor = 0;
+                    self.log("System:", "Follow-up queued for this conversation after the current task.");
+                    self.status = "Working · follow-up queued".into();
+                }
             }
             return;
         }
@@ -223,6 +232,22 @@ impl Screen {
             self.status = "Working (approval may be requested)".into();
         } else {
             self.status = "Agent worker stopped".into();
+        }
+    }
+
+    fn dispatch_followup(&mut self, tx: &Sender<Work>) {
+        if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            self.followups.clear();
+            return;
+        }
+        if let Some(text) = self.followups.pop_front() {
+            self.log("You:", &text);
+            if tx.send(Work::Prompt(text)).is_ok() {
+                self.busy = true;
+                self.status = "Working on queued follow-up".into();
+            } else {
+                self.status = "Agent worker stopped".into();
+            }
         }
     }
 
@@ -480,6 +505,7 @@ pub fn run(
                             app.status = "Task failed; see transcript".into();
                         }
                     }
+                    app.dispatch_followup(&work_tx);
                 }
                 AgentEvent::ToolResult(summary) => {
                     app.log("Result:", &summary);
@@ -966,7 +992,7 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     );
 
     let prompt = if app.busy {
-        " Draft · Ctrl+C cancel "
+        " Enter queue follow-up · Ctrl+C cancel "
     } else if compact {
         " Enter send · /help "
     } else {
@@ -1446,8 +1472,17 @@ mod tests {
         app.busy = true;
         app.input = "draft".into();
         app.submit(&tx);
-        assert_eq!(app.input, "draft");
-        assert!(app.cancelled.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(app.input.is_empty());
+        assert!(!app.cancelled.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(rx.try_recv().is_err());
+        app.input = "second".into();
+        app.submit(&tx);
+        app.input = "unsent draft".into();
+        app.dispatch_followup(&tx);
+        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "draft"));
+        app.dispatch_followup(&tx);
+        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "second"));
+        assert_eq!(app.input, "unsent draft");
         assert!(rx.try_recv().is_err());
     }
 

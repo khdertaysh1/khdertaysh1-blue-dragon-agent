@@ -1011,6 +1011,8 @@ impl Agent {
                 windows: actions.clone(),
             });
         }
+        let continuation_summary = (resumed.is_none() && session::continuation(prompt))
+            .then(|| session::resume_summary(&self.session));
         let turn_start = self.session.messages.len();
         self.session.user_turns.push(self.session.messages.len());
         self.session
@@ -1252,6 +1254,9 @@ impl Agent {
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
                 let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
+                if let Some(summary) = &continuation_summary {
+                    memory["prior_task_before_continue"] = json!(summary);
+                }
                 if let Some(capture) = self.loop_guard.file_capture() {
                     memory["current_file_capture"] = capture.clone();
                 }
