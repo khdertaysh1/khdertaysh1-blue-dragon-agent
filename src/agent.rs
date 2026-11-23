@@ -820,7 +820,7 @@ impl Agent {
         self.changed_sources = false;
         self.completion_state = "running".into();
         self.rotation.begin_turn();
-        self.loop_guard = crate::reasoning::loops::Guard::default();
+        self.loop_guard = crate::reasoning::loops::Guard::for_task(prompt);
         self.discovery_states.clear();
         let observation_start = self.session.observations.len();
         let result = self.execute_turn(
@@ -2250,7 +2250,7 @@ impl Agent {
                 {
                     let evidence_id = self.remember_observation(name, &result);
                     self.loop_guard
-                        .link_evidence(name, &guard_args, &evidence_id);
+                        .link_evidence(name, &guard_args, &evidence_id, &result);
                     if let Some(observation) = self.session.observations.last_mut() {
                         observation.request_sha256 = Some(crate::intelligence::code::hash(
                             original_args.to_string().as_bytes(),

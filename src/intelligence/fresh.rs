@@ -179,7 +179,19 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     ]
     .iter()
     .any(|marker| text.contains(marker));
-    if historical_network && paths.is_empty() && !text.contains("byte") && !text.contains("بايت")
+    let evidence_reference = text.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| {
+        word.strip_prefix('e').is_some_and(|id| {
+            id.len() >= 6 && id.bytes().all(|digit| digit.is_ascii_digit())
+        })
+    });
+    let historical_result = evidence_reference && [
+        "saved result", "saved evidence", "recorded result", "النتيجة المحفوظة",
+        "الدليل المحفوظ", "الأدلة المحفوظة",
+    ].iter().any(|phrase| text.contains(phrase));
+    if (historical_network || historical_result) && paths.is_empty() && !bounded_only
+        && !["local file", "from disk", "الملف المحلي", "من القرص", "fresh read", "أعد قراءة"]
+            .iter().any(|term| text.contains(term))
+        && !text.contains("byte") && !text.contains("بايت")
     {
         return vec![];
     }
@@ -300,6 +312,15 @@ pub fn status(requests: &[Request], session: &Session, tools: &ToolBox) -> Value
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn historical_network_question_does_not_request_local_source() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        let prompt = "اقرأ النتيجة المحفوظة E000047 فقط وأعطني اسم الملف وحالة HTTP";
+        assert!(detect(prompt, &session).is_empty());
+        let mixed = format!("{prompt} ثم اقرأ الملف المحلي demo.js");
+        assert_eq!(detect(&mixed, &session)[0].path.as_deref(), Some("demo.js"));
+    }
+
     #[test]
     fn first_bytes_resolves_to_named_file_and_prefix() {
         let session = crate::session::new(std::path::Path::new("."), "fixture");
