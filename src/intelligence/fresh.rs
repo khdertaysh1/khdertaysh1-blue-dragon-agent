@@ -98,6 +98,24 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         _ => Err(()),
     })
 }
+fn source_path(word: &str) -> Option<&str> {
+    let suffixes = [
+        "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
+        "java", "yaml", "yml",
+    ];
+    let word = word.trim_matches(|c: char| {
+        matches!(
+            c,
+            '`' | '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ';' | ':' | '،'
+        )
+    });
+    let word = word.trim_end_matches('.');
+    if word.contains("://") || word.len() > 1024 {
+        return None;
+    }
+    let extension = std::path::Path::new(word).extension()?.to_str()?;
+    suffixes.contains(&extension).then_some(word)
+}
 pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if prompt.len() > 25_000 {
         return vec![];
@@ -116,7 +134,11 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     {
         return vec![];
     }
-    let range = explicit_range(prompt);
+    // A filename like bundle-01.js supplies a target, not a byte offset.
+    let range_text = prompt.split_whitespace()
+        .map(|word| if source_path(word).is_some() { "<file>" } else { word })
+        .collect::<Vec<_>>().join(" ");
+    let range = explicit_range(&range_text);
     let explicit_window = range.is_some();
     let bounded_only = explicit_window
         || text.contains("window")
@@ -132,27 +154,8 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if !read {
         return vec![];
     }
-    let suffixes = [
-        "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
-        "java", "yaml", "yml",
-    ];
-    let mut paths = prompt
-        .split_whitespace()
-        .filter_map(|word| {
-            let word = word.trim_matches(|c: char| {
-                matches!(
-                    c,
-                    '`' | '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ';' | ':' | '،'
-                )
-            });
-            let word = word.trim_end_matches('.');
-            if word.contains("://") || word.len() > 1024 {
-                return None;
-            }
-            let extension = std::path::Path::new(word).extension()?.to_str()?;
-            suffixes.contains(&extension).then(|| word.to_owned())
-        })
-        .collect::<Vec<_>>();
+    let mut paths = prompt.split_whitespace().filter_map(source_path)
+        .map(str::to_owned).collect::<Vec<_>>();
     let historical_network = [
         "network_events",
         "saved network",
@@ -354,22 +357,20 @@ mod tests {
     #[test]
     fn native_pairs_hashes_ranges_and_success_are_required() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("app.js"), "const value = 42;\n").unwrap();
+        std::fs::write(dir.path().join("aghanim-trial-01.js"), "const value = 42;\n").unwrap();
         let tools = ToolBox::new(
             dir.path().canonicalize().unwrap(),
             crate::tools::ApprovalMode::ReadOnly,
         );
         let mut session = crate::session::new(dir.path(), "fixture");
-        let request = Request {
-            path: Some("app.js".into()),
-            after_message: 0,
-            requested_at: "fixture".into(),
-            bounded_only: true,
-            expected_window: None,
-            explicit_window: false,
-        };
-        let args = json!({"path":"app.js","byte_offset":0,"byte_count":4096});
-        let result = tools.read_file_window("app.js", 0, 4096).unwrap();
+        let prompt = "افحص الملف المحلي aghanim-trial-01.js. استخدم search_file للبحث عن function. إذا ما لقيتها، جرّب =>. عند أول تطابق، اقرأ الكود المحيط به باستخدام read_file_window. أعطني موضع التطابق بالبايت، ومقتطفاً حرفياً قصيراً يحتوي عليه، واشرح بجملة شو بيعمل الكود الظاهر. إذا المقتطف ما بيكفي لتحديد وظيفة الدالة، اذكر شو قدرت تثبت منه فقط. وإذا ما ظهر أي تطابق، اذكر لحد وين وصل البحث. لا تفتح المتصفح.";
+        let mut requests = detect(prompt, &session);
+        assert_eq!(requests.len(), 1);
+        let request = requests.pop().unwrap();
+        assert_eq!(request.path.as_deref(), Some("aghanim-trial-01.js"));
+        assert!(!request.explicit_window);
+        let args = json!({"path":"aghanim-trial-01.js","byte_offset":0,"byte_count":4096});
+        let result = tools.read_file_window("aghanim-trial-01.js", 0, 4096).unwrap();
         session.messages.push(json!({"role":"assistant","tool_calls":[{"id":"capture","function":{"name":"read_file_window","arguments":args.to_string()}}]}));
         let mut observation = crate::reasoning::observe(1, "read_file_window", &result);
         observation.request_sha256 =
