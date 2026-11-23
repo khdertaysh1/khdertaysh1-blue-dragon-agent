@@ -474,6 +474,9 @@ impl Provider {
                 .and_then(|m| m.remove("_blue_provider_metadata"))
             {
                 self.response_metadata(&metadata);
+                if let Some(shape) = metadata.get("stream_shape") {
+                    self.metrics.lock().unwrap()["stream_shape"] = shape.clone();
+                }
             }
             crate::provider_contract::validate_completion(&message, &tools)?;
             return Ok(message);
