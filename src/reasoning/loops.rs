@@ -26,6 +26,7 @@ pub struct Guard {
     saving_file: bool,
     opened_url: Option<String>,
     network_evidence: Option<String>,
+    capture_summary: Option<Value>,
     // Observed bytes, shared across full and window reads. No live read is skipped.
     read_ranges: BTreeMap<(String, usize), String>,
     redundant_reads: usize,
@@ -78,11 +79,22 @@ impl Guard {
             && result["ok"] == true
         {
             self.network_evidence = Some(id.to_owned());
+            self.capture_summary = self.opened_url.as_deref().and_then(|url| {
+                crate::network_history::file_selection(result, url, id)
+            });
         }
         if let Some(seen) = self.seen.get_mut(&Self::key(name, args)) {
             seen.evidence = Some(id.to_owned());
         }
     }
+    pub fn file_capture(&self) -> Option<&Value> {
+        self.capture_summary.as_ref()
+    }
+
+    pub fn is_file_task(&self) -> bool {
+        self.saving_file
+    }
+
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
         if matches!(name, "job_status" | "job_output") {
             return None;
@@ -163,11 +175,20 @@ impl Guard {
                 Some("open" | "navigate") => {
                     self.opened_url = args["url"].as_str().filter(|_| result["ok"] == true).map(str::to_owned);
                     self.network_evidence = None;
+                    self.capture_summary = None;
+                }
+                Some("snapshot") if result["ok"] == true && result["url"].is_string() => {
+                    if self.opened_url.as_deref() != result["url"].as_str() {
+                        self.opened_url = result["url"].as_str().map(str::to_owned);
+                        self.network_evidence = None;
+                        self.capture_summary = None;
+                    }
                 }
                 Some("snapshot" | "network" | "source" | "status" | "console" | "screenshot" | "wait_for" | "save_response") => {}
                 _ => {
                     self.opened_url = None;
                     self.network_evidence = None;
+                    self.capture_summary = None;
                 }
             }
         }

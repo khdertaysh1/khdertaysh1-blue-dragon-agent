@@ -168,9 +168,52 @@ pub fn inventory(record: &Value, offset: usize) -> Result<Value> {
     )
 }
 
+/// Bounded selection metadata from this capture; the normal browser save still
+/// checks tab ownership, response identity, content and write approval.
+pub(crate) fn file_selection(record: &Value, page: &str, id: &str) -> Option<Value> {
+    let origin = reqwest::Url::parse(page).ok()?.origin();
+    let entries = record["entries"].as_array()?;
+    let mut candidates = Vec::new();
+    for row in entries {
+        let (Some(url), Some(request), Some(status)) =
+            (row["url"].as_str(), row["request_id"].as_str(), row["status"].as_u64())
+        else { continue };
+        if row["event"] != "response" || !(200..300).contains(&status)
+            || row["url_truncated"] == true || url.len() >= 2000
+            || request.is_empty() || request.len() > 128
+        {
+            continue;
+        }
+        let Ok(parsed) = reqwest::Url::parse(url) else { continue };
+        if parsed.origin() != origin || !matches!(parsed.scheme(), "http" | "https") {
+            continue;
+        }
+        if row["mime_type"].as_str().is_some_and(|s| s.contains("javascript"))
+            || row["type"].as_str().is_some_and(|s| s.eq_ignore_ascii_case("script"))
+            || parsed.path().ends_with(".js") || parsed.path().ends_with(".mjs")
+        {
+            candidates.push(json!({"request_id":request,"url":url,"status":status}));
+            if candidates.len() == 2 { break; }
+        }
+    }
+    Some(json!({"network_evidence":id,"observed_script_responses":candidates,
+        "body_saved_by_network":false,
+        "next_step":"If an entry matches the requested file, use browser save_response with its request_id and exact URL. Otherwise report the selection gap or consult the existing capture."}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn file_selection_skips_fonts_errors_and_other_origins() {
+        let entries = [("a.woff2", 200), ("bad.js", 404), ("https://cdn.test/x.js", 200), ("app.js", 200)]
+            .map(|(path, status)| json!({"event":"response","request_id":path,"status":status,
+                "url":reqwest::Url::parse("https://example.test/").unwrap().join(path).unwrap().as_str()}));
+        let view = file_selection(&json!({"entries":entries}), "https://example.test/", "E7").unwrap();
+        assert_eq!(view["observed_script_responses"].as_array().unwrap().len(), 1);
+        assert_eq!(view["observed_script_responses"][0]["request_id"], "app.js");
+        assert_eq!(view["body_saved_by_network"], false);
+    }
     #[test]
     fn request_rows_keep_redirect_hops_failures_and_unpaired_responses() {
         let record = json!({"entries":[

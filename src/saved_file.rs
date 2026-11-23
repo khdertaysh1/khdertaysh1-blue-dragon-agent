@@ -84,6 +84,10 @@ fn recent_checkpoints(session: &Session) -> impl Iterator<Item = Checkpoint> + '
     })
 }
 
+pub(crate) fn save_receipt(session: &Session, id: &str) -> Option<Value> {
+    checkpoint(session, id).ok().map(|entry| entry.metadata())
+}
+
 pub(crate) fn list(session: &Session) -> Value {
     json!({"saved_files":recent_checkpoints(session).take(20)
         .map(|entry|entry.metadata()).collect::<Vec<_>>(),

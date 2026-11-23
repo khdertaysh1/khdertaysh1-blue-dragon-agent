@@ -854,6 +854,31 @@ impl Agent {
                     .filter(|s| s.status != "completed")
                     .count(),
             );
+            if self.loop_guard.is_file_task()
+                && error.downcast_ref::<crate::provider_contract::Incomplete>()
+                    .is_some_and(|partial| partial.kind == "empty_response")
+            {
+                let observations = &self.session.observations[observation_start..];
+                let last = observations.iter().rev().find(|o| o.ok);
+                let receipt = observations.iter().rev()
+                    .filter(|o| o.ok && matches!(o.tool.as_str(), "browser" | "write_file" | "edit_file" | "multi_edit_file"))
+                    .find_map(|o| crate::saved_file::save_receipt(&self.session, &o.id));
+                let arabic = prompt.chars().any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+                let mut lines = vec![if arabic { "رجع ردّ النموذج فارغاً." } else { "The provider returned an empty response." }.to_string()];
+                if let Some(o) = last {
+                    let action = actions.iter().rev().find(|a| a["evidence_id"].as_str() == Some(o.id.as_str()))
+                        .and_then(|a| a["browser_action"].as_str()).unwrap_or("");
+                    let label = if arabic { "آخر عملية ناجحة" } else { "Last successful tool" };
+                    lines.push(format!("{label}: {} {action} ({})", o.tool, o.id));
+                }
+                if let Some(r) = receipt {
+                    let label = if arabic { "آخر حفظ موثّق بهالمهمة" } else { "Last recorded save this turn" };
+                    lines.push(format!("{label}: {} ({} bytes, {})", r["path"], r["bytes"], r["saved_evidence_id"]));
+                } else {
+                    lines.push(if arabic { "ما في إيصال حفظ موثّق بهالمهمة." } else { "No verified save receipt in this turn." }.into());
+                }
+                summary = lines.join("\n");
+            }
             for observation in self.session.observations[observation_start..]
                 .iter()
                 .rev()
@@ -1227,6 +1252,9 @@ impl Agent {
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
                 let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
+                if let Some(capture) = self.loop_guard.file_capture() {
+                    memory["current_file_capture"] = capture.clone();
+                }
                 let (projection_target, usage_feedback) = crate::reasoning::context::usage_target(
                     input_target.unwrap_or(limit.saturating_mul(4) / 5),
                     &self.provider.metrics(),
