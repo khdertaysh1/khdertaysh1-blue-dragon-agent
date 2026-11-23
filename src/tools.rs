@@ -865,6 +865,17 @@ fn fetched_html_title(bytes: &[u8], content_type: &str, incomplete: bool) -> Opt
     (!title.is_empty()).then(|| crate::reasoning::context::clip(&title, 512))
 }
 
+pub(crate) fn saved_page_title(result: &Value) -> Option<String> {
+    if result["ok"] != true || result["storage"] != "session_only" {
+        return None;
+    }
+    if let Some(title) = result["html_title"].as_str().filter(|t| !t.trim().is_empty()) {
+        return Some(crate::reasoning::context::clip(title, 512));
+    }
+    fetched_html_title(result["text"].as_str()?.as_bytes(), result["content_type"].as_str()?,
+        result["truncated"] != false)
+}
+
 pub fn result_summary(r: &Value) -> String {
     let mut t = r["category"]
         .as_str()
