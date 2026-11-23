@@ -706,8 +706,9 @@ impl ToolBox {
             .chars()
             .take(64000)
             .collect::<String>();
+        let title = fetched_html_title(&bytes, &content_type, truncated);
         Ok(
-            json!({"ok":status<400,"status":status,"redirect":redirect,"security_header_indicators":security_header_indicators,"content_type":content_type,"text":text,"truncated":truncated||text.as_bytes()!=bytes,"storage":"session_only","saved_to_disk":false,"captured_bytes":bytes.len(),"text_bytes":text.len(),"note":"Untrusted fetched content held in the session only. No workspace file was written. Redirects not followed; scripts not executed."}),
+            json!({"html_title":title,"ok":status<400,"status":status,"redirect":redirect,"security_header_indicators":security_header_indicators,"content_type":content_type,"text":text,"truncated":truncated||text.as_bytes()!=bytes,"storage":"session_only","saved_to_disk":false,"captured_bytes":bytes.len(),"text_bytes":text.len(),"note":"Untrusted fetched content held in the session only. No workspace file was written. Redirects not followed; scripts not executed."}),
         )
     }
     pub fn run_command(&self, program: &str, args: &[String]) -> Result<Value> {
@@ -850,6 +851,20 @@ pub fn error_result(e: &anyhow::Error) -> Value {
     .find(|c| text.starts_with(c));
     json!({"ok":false,"category":c.unwrap_or("tool_error"),"execution_status":if c.is_some(){"not_executed"}else{"failed"},"error":text})
 }
+// Use the captured response, before clipping the session preview.
+fn fetched_html_title(bytes: &[u8], content_type: &str, incomplete: bool) -> Option<String> {
+    let mime = content_type.split(';').next()?.trim();
+    if incomplete || !mime.eq_ignore_ascii_case("text/html") {
+        return None;
+    }
+    let document = scraper::Html::parse_document(std::str::from_utf8(bytes).ok()?);
+    let selector = scraper::Selector::parse("html > head > title").ok()?;
+    let element = document.select(&selector).next()?;
+    let title = element.text().collect::<String>();
+    let title = title.split_ascii_whitespace().collect::<Vec<_>>().join(" ");
+    (!title.is_empty()).then(|| crate::reasoning::context::clip(&title, 512))
+}
+
 pub fn result_summary(r: &Value) -> String {
     let mut t = r["category"]
         .as_str()
@@ -861,6 +876,14 @@ pub fn result_summary(r: &Value) -> String {
         .to_owned();
     if let Some(e) = r["error"].as_str() {
         t.push_str(&format!(": {}", crate::reasoning::context::clip(e, 300)));
+    }
+    if r["storage"] == "session_only" {
+        if let Some(status) = r["status"].as_u64() {
+            t.push_str(&format!("; HTTP {status}"));
+        }
+        if let Some(title) = r["html_title"].as_str() {
+            t.push_str(&format!("; title={title:?}"));
+        }
     }
     match r["storage"].as_str() {
         Some("session_only") => t.push_str(if r["truncated"] == true {
@@ -1690,6 +1713,29 @@ mod tests {
         assert_eq!(denied.web_fetch("http://127.0.0.1:9").unwrap()["ok"], false);
         assert!(denied.web_fetch("file:///etc/passwd").is_err());
         assert!(denied.create_directory("../escape").is_err());
+    }
+
+    #[test]
+    fn fetch_shows_http_status_and_title_outside_clipped_preview_without_disk_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
+        let approval = std::thread::spawn(move || {
+            rx.recv_timeout(Duration::from_secs(5)).unwrap().respond_to.send(true).unwrap();
+        });
+        let tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let html = format!("<head><!-- <title>wrong</title> {} --><title>أهلا &amp; Hello</title></head>", "x".repeat(70000));
+        let (url, server) = crate::test_support::http(vec![("text/html; charset=utf-8", html)]);
+        let fetched = tools.web_fetch(&url).unwrap();
+        assert_eq!(fetched["truncated"], true);
+        assert_eq!(fetched["html_title"], "أهلا & Hello");
+        assert_eq!(fetched["status"], 200);
+        assert!(!fetched["text"].as_str().unwrap().contains("أهلا"));
+        assert!(result_summary(&fetched).contains("HTTP 200; title="));
+        assert_eq!(fetched["saved_to_disk"], false);
+        assert!(fetched_html_title(b"<title>unfinished", "text/html", true).is_none());
+        assert!(fetched_html_title(b"<title>fake</title>", "text/plain", false).is_none());
+        server.join().unwrap();
+        approval.join().unwrap();
     }
 
     #[test]
