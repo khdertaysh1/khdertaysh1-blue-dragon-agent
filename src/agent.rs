@@ -835,7 +835,7 @@ impl Agent {
             if self.completion_state != "needs_verification" {
                 self.completion_state = "interrupted".into();
             }
-            if let Some(partial) = error.downcast_ref::<crate::provider_contract::Incomplete>() {
+            if let Some(partial) = error.downcast_ref::<crate::provider_contract::Incomplete>().filter(|partial| !partial.partial_text.is_empty()) {
                 self.session.messages.push(json!({"role":"assistant","content":format!("INCOMPLETE HISTORICAL PROVIDER TEXT; not fresh evidence, no tool batch executed. Stop category: {}\n{}",partial.kind,partial.partial_text)}));
             }
             // Always return useful, deterministic evidence even if the provider, context
@@ -1414,6 +1414,13 @@ impl Agent {
                 previous_projection = Some(projection_fingerprint);
                 let sender = self.output.clone();
                 let token = self.cancelled.clone();
+                self.context_stats["request_phase"] = json!(if explain_first {
+                    "conversation_only"
+                } else if report_recovery {
+                    "report_only"
+                } else {
+                    "task"
+                });
                 advertised_definitions = definitions.clone();
                 let response = if self.settings.stream {
                     self.provider.stream(
@@ -1443,6 +1450,7 @@ impl Agent {
                     Ok(message) => {
                         self.last_successful_context = self.context_stats.clone();
                         if explain_first {
+                            anyhow::ensure!(!is_text_tool_envelope(&extract_text(&message)), "Provider returned a tool request as ordinary text; no tool executed");
                             anyhow::ensure!(message["tool_calls"].as_array().is_none_or(Vec::is_empty)
                                 && !looks_like_text_tool_call(&extract_text(&message)),
                                 "Unexpected tool call during a conversation-only reply; no action executed");
@@ -1537,7 +1545,12 @@ impl Agent {
                             // The CLI owns stdin synchronously, including approvals.
                             // Do not retry behind unread stop/scope-changing input.
                             self.persist()?;
-                            self.output(AgentEvent::Notice("Provider cooldown active. Returning to the chat prompt to read your next instruction before any further request; no automatic retry in synchronous chat. Original turn and results remain saved.".into()));
+                            let notice = if failure.retry_after > 0 {
+                                "Provider cooldown active. Returning to the chat prompt; original turn and results remain saved."
+                            } else {
+                                "The provider rejected this request. No client wait was added. You can send a new message."
+                            };
+                            self.output(AgentEvent::Notice(notice.into()));
                             return Err(error);
                         }
                         if failure.status == 429 && quota_recovery_used {
@@ -1613,6 +1626,9 @@ impl Agent {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
+            if calls.is_empty() && is_text_tool_envelope(&extract_text(&message)) {
+                anyhow::bail!("Provider returned a tool request as ordinary text; no tool executed");
+            }
             if report_recovery
                 && (!calls.is_empty() || looks_like_text_tool_call(&extract_text(&message)))
             {
@@ -2648,6 +2664,18 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
     assert!(!route_saved_response(&mut call, &defs));
 }
 
+fn is_text_tool_envelope(text: &str) -> bool {
+    let text = text.trim();
+    if !text.starts_with('{') {
+        return false;
+    }
+    serde_json::from_str::<Value>(text).is_ok_and(|value| {
+        value.as_object().is_some_and(|object| object.len() == 2)
+            && value["tool"].is_string()
+            && value["args"].is_object()
+    })
+}
+
 fn looks_like_text_tool_call(text: &str) -> bool {
     let text = text.to_ascii_lowercase();
     ["<tool_call", "<function=", "<function_call", "[tool_calls]"]
@@ -2674,6 +2702,15 @@ fn system_prompt() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn text_tool_envelope_does_not_complete_a_turn() {
+        let message = json!({"role":"assistant","content":r#"{"tool":"list_files","args":{"path":"."}}"#});
+        let (mut agent, _work, _state, server) = scripted_agent(vec![completion(message)]);
+        let result = agent.run_once("List files in the current directory");
+        assert!(result.unwrap_err().to_string().contains("ordinary text"));
+        assert_eq!(server.join().unwrap().len(), 1);
+        assert!(agent.session.last_report["actions"].as_array().unwrap().is_empty());
+    }
     fn completion(message: Value) -> Value {
         json!({"choices":[{"message":message}]})
     }
