@@ -1,6 +1,31 @@
 //! Extractive continuity index. Never replaces original instructions or evidence.
 use crate::session::Session;
 use serde_json::{json, Value};
+/// Capture the preceding dialogue before the new message becomes the latest goal.
+/// Use only real user turn boundaries; runtime-generated user-role guidance is excluded.
+pub fn prior_dialogue(session: &Session) -> Option<Value> {
+    let mut turns = Vec::new();
+    let mut end = session.messages.len();
+    for &index in session.user_turns.iter().rev().take(4) {
+        if index >= end { continue; }
+        let messages = &session.messages[index..end];
+        end = index;
+        if messages[0]["role"] != "user" { continue; }
+        let Some(request) = messages[0]["content"].as_str() else { continue };
+        let reply = messages.iter().rev()
+            .filter(|m| m["role"] == "assistant" && m.get("tool_calls").is_none_or(|c| c.is_null() || c.as_array().is_some_and(Vec::is_empty)))
+            .filter_map(|m| m["content"].as_str())
+            .find(|text| !text.trim().is_empty() && !text.starts_with("INCOMPLETE HISTORICAL PROVIDER TEXT"));
+        turns.push(json!({"user_index":index,"request":super::context::clip(request, 320),
+            "historical_reply":reply.map(|text| super::context::clip(text, 200))}));
+    }
+    if turns.is_empty() { return None; }
+    turns.reverse();
+    Some(json!({"turns":turns,"previous_status":session.last_report["task_status"],
+        "stop_reason":session.last_report["error"].as_str().map(|e|super::context::clip(e,180)),
+        "last_evidence":session.observations.last().map(|o| &o.id)}))
+}
+
 pub fn derive(session: &Session) -> Value {
     let goal = session.user_turns.last().and_then(|i| {
         session
