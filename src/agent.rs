@@ -1516,6 +1516,15 @@ impl Agent {
                     }
                 }
             };
+            if let Some(calls) = message.get_mut("tool_calls").and_then(Value::as_array_mut) {
+                for call in calls {
+                    if route_saved_response(call, &advertised_definitions) {
+                        self.output(AgentEvent::Notice(
+                            "Resolved save_response as browser(action=save_response).".into(),
+                        ));
+                    }
+                }
+            }
             let calls = message
                 .get("tool_calls")
                 .and_then(Value::as_array)
@@ -2478,6 +2487,48 @@ fn browser_only_constraint_recognizes_the_phone_test() {
     ));
     assert!(browser_only_request("Browser-only: inspect the heading"));
     assert!(!browser_only_request("Read a file, then open the browser"));
+}
+
+// Route the exact native save action through the ordinary browser dispatcher.
+// Never infer a request ID, destination, or a different action from model text.
+fn route_saved_response(call: &mut Value, definitions: &Value) -> bool {
+    if call["function"]["name"] != "save_response"
+        || definitions.as_array().is_some_and(|tools| {
+            tools.iter().any(|tool| tool["function"]["name"] == "save_response")
+        })
+    {
+        return false;
+    }
+    let Some(mut args) = call["function"]["arguments"].as_str()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+    else {
+        return false;
+    };
+    if !args.is_object() || args.get("action").is_some_and(|value| value != "save_response") {
+        return false;
+    }
+    args["action"] = json!("save_response");
+    call["function"]["arguments"] = json!(args.to_string());
+    call["function"]["name"] = json!("browser");
+    true
+}
+
+#[test]
+fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
+    let mut call = json!({"id":"abc","function":{"name":"save_response","arguments":
+        r#"{"request_id":"42","path":"test.js"}"#}});
+    let defs = json!([crate::browser::definition()]);
+    assert!(route_saved_response(&mut call, &defs));
+    let args: Value = serde_json::from_str(call["function"]["arguments"].as_str().unwrap()).unwrap();
+    assert_eq!(call["id"], "abc");
+    assert_eq!(call["function"]["name"], "browser");
+    assert_eq!(args, json!({"request_id":"42","path":"test.js","action":"save_response"}));
+    assert!(crate::tool_arguments::prepare("browser", &args, &defs).is_ok());
+    assert!(crate::tool_arguments::prepare("browser", &args, &json!([])).is_err());
+    call["function"]["name"] = json!("save_response");
+    assert!(!route_saved_response(&mut call, &json!([{"function":{"name":"save_response"}}])));
+    call["function"]["arguments"] = json!(r#"{"action":"click"}"#);
+    assert!(!route_saved_response(&mut call, &defs));
 }
 
 fn looks_like_text_tool_call(text: &str) -> bool {
