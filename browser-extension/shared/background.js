@@ -114,7 +114,7 @@ async function execute(action,args) {
   const keys=Object.keys(envelope).sort().join(',');
   if(envelope.ok) {
     if(keys !== 'blueDragonPageEnvelope,ok,value' || envelope.value === undefined)throw Error('Invalid successful page execution envelope');
-    if(action==='snapshot' && !args.frame_selector && results[0].documentId)
+    if((action==='snapshot' || action==='console') && !args.frame_selector && results[0].documentId)
       envelope.value.document_identity=[envelope.value.url,results[0].documentId];
     if (action === 'click' && envelope.value?.clicked === true) {
       const start = Math.max(0,cursor-ringEvictions);

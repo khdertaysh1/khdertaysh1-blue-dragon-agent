@@ -6,7 +6,7 @@ The current source candidate no longer replaces the automatic alias with a concr
 
 An unknown 429 remains unknown/shared scope. `tpm_rate_limit_exceeded` identifies throughput, not a context-window error or a numerical quota. Provider Retry-After is distinguished from the existing program default; no same-request retry or automatic sleeping loop is added. Durable cooldowns and admission reservations coordinate processes sharing application state. Interrupted outcomes retain reservations and never authorize replay of a tool action.
 
-The candidate defaults free requests to an 8192 estimated input target and 2048 output maximum, with discoverable tool schemas and non-destructive projection. Optional explicit RPM/TPM controls and a local free 200/hour ceiling apply before dispatch. Local counters cannot see all clients behind the same IP, and changing models does not create capacity. See [the exact implementation, measurements and limits](provider-capacity-review.md).
+The candidate defaults free requests to an 8192 estimated input target and 4960 output maximum, with discoverable tool schemas and non-destructive projection. Optional explicit RPM/TPM controls and a local free 200/hour ceiling apply before dispatch. Local counters cannot see all clients behind the same IP, and changing models does not create capacity. See [the exact implementation, measurements and limits](provider-capacity-review.md).
 
 Context and tool results go to the selected service; free upstreams may log or use that data. Live trials use only synthetic fixtures. The original transcript remains local for bounded recall; context projection does not turn historical evidence into fresh observations. Pending tool calls are not hidden to make a request fit.
 

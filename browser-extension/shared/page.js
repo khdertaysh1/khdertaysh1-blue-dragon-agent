@@ -135,7 +135,7 @@ function blueDragonPage(action, args, transportEnvelope = false) {
         ...(e.tagName === 'SELECT' ? optionSummary(e) : {})
       })), scripts: [...document.scripts].map(e => e.src).filter(Boolean).slice(0, 100)};
   }
-  if (action === 'console') return {untrusted_web_content: true, entries: window.__bbStudioConsole.slice(-100), note: 'Extension console capture begins after first interaction; early page logs may be absent.'};
+  if (action === 'console') return {url: location.href, untrusted_web_content: true, entries: window.__bbStudioConsole.slice(-100), note: 'Extension console capture begins after first interaction; early page logs may be absent.'};
   if (action === 'evaluate') {
     if (typeof args.expression !== 'string' || args.expression.length > 16000) throw new Error('Invalid expression');
     // Runs in MAIN/page world, never the privileged extension world.

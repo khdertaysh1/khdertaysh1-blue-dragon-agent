@@ -412,8 +412,8 @@ impl Cdp {
             }
             "document_identity" => self.document_identity(),
             "console" => {
-                self.call("Runtime.evaluate", json!({"expression":"0"}))?;
-                Ok(json!({"entries":self.console}))
+                let identity = self.document_identity()?;
+                Ok(json!({"entries":self.console,"document_identity":identity}))
             }
             "source" => {
                 let id = args["request_id"]

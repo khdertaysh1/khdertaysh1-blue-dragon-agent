@@ -408,9 +408,6 @@ impl Provider {
         {
             payload["max_tokens"] = json!(4096);
         }
-        if self.delegated {
-            payload["max_tokens"] = json!(2048);
-        }
         if let Some(limit) = crate::provider_traffic::output_limit(&self.url, self.delegated) {
             payload["max_tokens"] = json!(limit);
         }
