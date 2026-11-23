@@ -708,7 +708,13 @@ pub fn build_with_budget(
                 // The transcript still preserves these derived records. Under
                 // pressure avoid repeating native excerpts already indexed there.
                 if let Some(notes) = memory.as_object_mut() {
-                    notes.remove("historical_native_evidence");
+                    if let Some(history) = notes.remove("historical_native_evidence") {
+                        if let Some(refs) = history["local_read_refs"].as_array() {
+                            if !refs.is_empty() {
+                                notes.insert("historical_local_read_refs".into(), json!(refs));
+                            }
+                        }
+                    }
                 }
                 if let Some(checkpoint) = memory
                     .get_mut("derived_continuity_checkpoint")

@@ -55,3 +55,33 @@ for(const response of [undefined,[],[{frameId:0}],[{frameId:0,result:null}],
 substitute=()=>{throw Error('executeScript rejected');};
 await assert.rejects(()=>evaluate('1'),/executeScript rejected/);
 console.log('Extension transport: explicit envelopes, null/undefined, Promise failures, malformed/missing results and one-dispatch failure checks passed (mock APIs)');
+
+substitute=undefined;
+const seen={};
+page.window={addEventListener:(name,fn)=>seen[name]=fn,console:{log(){},info(){},warn(){},error(){}}};
+page.setTimeout=setTimeout;
+page.location={href:'https://fixture.test/'};
+let title='old', clicks=0;
+const clickTarget={getClientRects:()=>[{}],matches:()=>false,getAttribute:()=>null,isConnected:true,scrollIntoView(){},
+ click(){clicks++;setTimeout(()=>{
+   title='new';
+   context.record({tabId:7,requestId:'new',method:'GET',url:'https://fixture.test/test'},'request');
+   context.record({tabId:7,requestId:'new',method:'GET',url:'https://fixture.test/test',statusCode:204},'response');
+ },10);}
+};
+page.document.querySelectorAll=()=>[clickTarget];
+page.document.querySelector=()=>({textContent:title});
+context.record({tabId:7,requestId:'old',url:'https://fixture.test/old'},'request');
+const clickResult=await context.execute('click',{selector:'#switch'});
+assert.equal(clicks,1);
+assert.deepEqual(clickResult.changed_fields,[]);
+assert.deepEqual(clickResult.delayed_changed_fields,['heading']);
+assert.deepEqual(Array.from(clickResult.network_interval.events,e=>e.request_id),['new','new']);
+assert.equal(clickResult.network_interval.events[1].status,204);
+assert.equal(clickResult.network_interval.causal_link_verified,false);
+seen.error({message:'Fixture error',filename:'app.js',lineno:12,colno:3});
+const logged=await context.execute('console',{});
+assert.equal(logged.entries.at(-1).kind,'uncaught_exception');
+assert.equal(logged.entries.at(-1).line,12);
+assert.equal(logged.entries.at(-1).column,3);
+console.log('Delayed UI and traffic interval, one click, and uncaught error location passed');

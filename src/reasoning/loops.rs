@@ -146,6 +146,11 @@ impl Guard {
                             == Some(content.as_bytes())
                     });
                 if !redundant {
+                    // A new local observation breaks the streak, even after blocked calls
+                    // to other tools. Individual denied requests remain guarded in seen.
+                    if !content.is_empty() {
+                        self.consecutive_blocks = 0;
+                    }
                     let end = offset.saturating_add(content.len());
                     self.read_ranges.retain(|(p, s), v| {
                         p != path
@@ -217,6 +222,23 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn new_local_windows_break_block_streaks_without_unlocking_declined_calls() {
+        let mut guard = Guard::default();
+        let denied = json!({"path":"locked.txt","content":"x"});
+        guard.after("write_file", &denied, &json!({"denied":true}));
+        for offset in [0, 5, 10, 15] {
+            assert!(guard.before("write_file", &denied).is_some());
+            let args = json!({"path":"demo.txt","byte_offset":offset,"byte_count":5});
+            let window = json!({"byte_offset":offset,"content":"hello"});
+            assert!(!guard.after("read_file_window", &args, &window));
+            assert!(!guard.stalled());
+        }
+        for _ in 0..3 {
+            assert!(guard.before("write_file", &denied).is_some());
+        }
+        assert!(guard.stalled());
+    }
     #[test]
     fn distinct_saved_pages_are_progress_but_identical_recall_still_stops() {
         let mut guard = Guard::default();

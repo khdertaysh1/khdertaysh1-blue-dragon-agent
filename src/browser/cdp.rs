@@ -12,6 +12,13 @@ use tungstenite::{Message, WebSocket};
 
 fn record_network(events: &mut VecDeque<Value>, evictions: &mut usize, value: &Value) {
     let p = &value["params"];
+    if value["method"] == "Network.requestWillBeSent" && p["redirectResponse"].is_object() {
+        let redirect = &p["redirectResponse"];
+        let url = redirect["url"].as_str();
+        push_event(events, evictions, json!({"event":"redirect","request_id":p["requestId"],
+            "url":url.map(|u|u.chars().take(2000).collect::<String>()),
+            "url_truncated":url.is_none_or(|u|u.chars().count()>2000),"status":redirect["status"]}));
+    }
     let event = match value["method"].as_str() {
         Some("Network.requestWillBeSent") => Some(
             json!({"event":"request","request_id":p["requestId"],"url":p["request"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"url_truncated":p["request"]["url"].as_str().is_none_or(|u|u.chars().count()>2000),"method":p["request"]["method"],"type":p["type"]}),
@@ -19,14 +26,20 @@ fn record_network(events: &mut VecDeque<Value>, evictions: &mut usize, value: &V
         Some("Network.responseReceived") => Some(
             json!({"event":"response","request_id":p["requestId"],"url":p["response"]["url"].as_str().unwrap_or("").chars().take(2000).collect::<String>(),"url_truncated":p["response"]["url"].as_str().is_none_or(|url|url.chars().count()>2000),"status":p["response"]["status"],"mime_type":p["response"]["mimeType"],"security_header_indicators":super::inspection::security_header_indicators(&p["response"]["headers"])}),
         ),
+        Some("Network.loadingFailed") => Some(json!({"event":"error","request_id":p["requestId"],
+            "error":p["errorText"].as_str().unwrap_or("").chars().take(200).collect::<String>()})),
         _ => None,
     };
     if let Some(event) = event {
-        events.push_back(event);
-        if events.len() > 300 {
-            events.pop_front();
-            *evictions = evictions.saturating_add(1);
-        }
+        push_event(events, evictions, event);
+    }
+}
+
+fn push_event(events: &mut VecDeque<Value>, evictions: &mut usize, event: Value) {
+    events.push_back(event);
+    if events.len() > 300 {
+        events.pop_front();
+        *evictions = evictions.saturating_add(1);
     }
 }
 fn network_snapshot(events: &VecDeque<Value>, evictions: usize) -> Value {
@@ -219,9 +232,20 @@ impl Cdp {
                 .collect::<String>();
             self.console
                 .push_back(json!({"level":p["type"],"text":text}));
-            if self.console.len() > 200 {
-                self.console.pop_front();
-            }
+        } else if value["method"] == "Runtime.exceptionThrown" {
+            let details = &p["exceptionDetails"];
+            let frame = &details["stackTrace"]["callFrames"][0];
+            let location = |key: &str| details.get(key).or_else(|| frame.get(key));
+            let msg = details["exception"]["description"].as_str()
+                .or(details["text"].as_str()).unwrap_or("Uncaught exception");
+            self.console.push_back(json!({"level":"error","kind":"uncaught_exception",
+                "text":msg.lines().next().unwrap_or("").chars().take(1000).collect::<String>(),
+                "url":location("url").and_then(Value::as_str).map(|u|u.chars().take(2000).collect::<String>()),
+                "line":location("lineNumber").and_then(Value::as_u64).and_then(|v|v.checked_add(1)),
+                "column":location("columnNumber").and_then(Value::as_u64).and_then(|v|v.checked_add(1))}));
+        }
+        if self.console.len() > 200 {
+            self.console.pop_front();
         }
     }
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -248,6 +272,9 @@ impl Cdp {
                     let value: Value = serde_json::from_str(&text)?;
                     if value["id"] == id {
                         if value.get("error").is_some() {
+                            if method == "Network.getResponseBody" {
+                                anyhow::bail!("Response metadata was recorded, but CDP could not provide the body. No file saved.");
+                            }
                             anyhow::bail!("Browser protocol error; action outcome may be unknown. Inspect a snapshot before retrying.");
                         }
                         return Ok(value["result"].clone());
@@ -283,6 +310,20 @@ impl Cdp {
     pub fn source_url(&self, request_id: &str) -> Result<&str> {
         observed_response_url(&self.network, request_id)
     }
+    pub fn script_request_id(&self, url: &str) -> Result<&str> {
+        let mut matches = self.network.iter().filter(|row| {
+            row["event"] == "response"
+                && row["url_truncated"] == false
+                && row["url"] == url
+                && row["status"].as_f64().is_some_and(|n| (200.0..300.0).contains(&n))
+                && row["mime_type"].as_str().is_some_and(is_javascript_mime)
+        }).filter_map(|row| row["request_id"].as_str());
+        let id = matches.next().context("No retained successful script response for this exact URL")?;
+        anyhow::ensure!(matches.all(|other| other == id),
+            "Multiple request IDs for this URL; select the intended observed request ID");
+        Ok(id)
+    }
+
     pub fn javascript_response(&self, id: &str) -> Result<&str> {
         let row = self
             .network
@@ -395,7 +436,23 @@ impl Cdp {
             }
             "snapshot" | "wait_for" | "click" | "fill" | "select" | "set_checked" | "scroll"
             | "evaluate" => {
-                let mut result=self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,args))?;
+                let mut page_args = args.clone();
+                let mut cursor = 0;
+                if action == "click" {
+                    // Drain earlier protocol events while the tab is still untouched.
+                    self.document_identity()?;
+                    cursor = self.network_evictions.saturating_add(self.network.len());
+                    page_args["observe_after_click"] = json!(true);
+                }
+                let mut result=self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,page_args))?;
+                if action == "click" && result["clicked"] == true {
+                    let count = self.network.len().saturating_sub(cursor.saturating_sub(self.network_evictions));
+                    let events: Vec<_> = self.network.iter().skip(self.network.len() - count).take(16)
+                        .map(|row| json!({"event":row["event"],"request_id":row["request_id"],"status":row["status"]})).collect();
+                    result["network_interval"] = json!({"events":events,"retained_event_count":count,
+                        "preview_omitted":count.saturating_sub(16),"ring_gap_possible":self.network_evictions>cursor,
+                        "causal_link_verified":false});
+                }
                 if action == "snapshot" && args.get("frame_selector").is_none() {
                     let identity = self.document_identity()?;
                     if identity[0] == result["url"] {

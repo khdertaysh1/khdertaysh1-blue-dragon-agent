@@ -46,6 +46,8 @@ def test_save(binary):
             if method == "Network.enable":
                 for request_id, url, mime in [
                     ("script", PAGE + "test.js", "text/javascript"),
+                    ("vendor", PAGE + "vendor.js", "text/javascript"),
+                    ("evicted", PAGE + "old.js", "application/javascript"),
                     ("html", PAGE, "text/html"),
                     ("other", "http://127.0.0.1:7771/test.js", "text/javascript"),
                 ]:
@@ -57,6 +59,9 @@ def test_save(binary):
                 result = {"result": {"value": PAGE}}
             elif method == "Network.getResponseBody":
                 retrieved.append(data["params"]["requestId"])
+                if data["params"]["requestId"] == "evicted":
+                    await socket.send_json({"id": data["id"], "error": {"code": -32000}})
+                    continue
                 result = {"body": base64.b64encode(BODY).decode(), "base64Encoded": True}
             await socket.send_json({"id": data["id"], "result": result})
         return socket
@@ -100,13 +105,13 @@ def test_save(binary):
             assert {t["function"]["name"] for t in packet.get("tools", [])} == expected, packet
             result = json.loads(next(m["content"] for m in reversed(packet["messages"]) if m["role"] == "tool"))
             if mode == "large" and count == 1:
-                assert result["end_byte_offset"] <= 2048
-                name, args = "search_file", {"path": "large.js", "query": TAIL.decode(),
-                                            "byte_offset": 0, "scan_bytes": 8 * 1024 * 1024, "max_matches": 1}
+                assert result["end_byte_offset"] == len(LARGE)
+                assert result["content"].endswith(TAIL.decode())
+                # A malformed local search must never run; the next call can still read.
+                name, args = "search_file", {"path": "large.js", "query": 99}
             elif mode == "large" and count == 2:
-                match = result["matches"][0]
-                assert match["byte_offset"] == len(LARGE) - len(TAIL), result
-                name, args = "read_file_window", {"path": "large.js", "byte_offset": match["byte_offset"],
+                assert result["execution_status"] == "not_executed", result
+                name, args = "read_file_window", {"path": "large.js", "byte_offset": len(LARGE) - len(TAIL),
                                                  "byte_count": len(TAIL)}
             else:
                 if mode == "large":
@@ -156,14 +161,18 @@ def test_save(binary):
             work = root / "work"
             work.mkdir()
 
-            def save(request_id, path):
-                return "/browser do " + json.dumps({"action": "save_response",
-                                                    "request_id": request_id, "path": path})
+            def save(request_id, path, url=None):
+                args = {"action": "save_response", "request_id": request_id, "path": path}
+                if url is not None:
+                    args["url"] = url
+                return "/browser do " + json.dumps(args)
 
             commands = [
                 f"/browser attach {websocket_port[0]}",
                 save("script", "cancelled.js"), "n",
-                save("script", "saved.js"), "y",
+                save("vendor", "wrong.js", PAGE + "test.js"),
+                save("evicted", "missing.js"), "y",
+                save("script", "saved.js", PAGE + "test.js"), "y",
                 save("script", "saved.js"),
                 save("script", "../outside.js"),
                 save("other", "other.js"),
@@ -193,7 +202,9 @@ def test_save(binary):
             assert "Only successful JavaScript responses" in output
             digest = hashlib.sha256(BODY).hexdigest()
             assert f'"sha256": "{digest}"' in output
-            assert retrieved == ["script"], retrieved
+            assert "does not match the expected script URL" in output, output
+            assert "could not provide the body" in output, output
+            assert retrieved == ["evicted", "script"], retrieved
             methods_after_save = list(browser_methods)
 
             phase.update(mode="blocked", requests=0)
@@ -205,6 +216,7 @@ def test_save(binary):
             phase.update(mode="good", requests=0)
             continued = chat(["/saved-files", "/resume-file latest Summarize the final declaration.", "/exit"], resume=True)
             assert "Verified saved file" in continued, continued
+            assert "browser_source" in continued and PAGE.rstrip("/") in continued, continued
             assert "Verified byte windows" in continued, continued
             assert "The verified window declares x with value 1." in continued, continued
             assert phase["requests"] == 2, phase
@@ -226,17 +238,19 @@ def test_save(binary):
             assert phase["requests"] == 0
 
             phase.update(mode="review", requests=0)
-            reviewed = chat([f"/browser attach {websocket_port[0]}", "/review-response script reviewed.js", "y", "/exit"])
+            reviewed = chat([f"/browser attach {websocket_port[0]}", f"/review-response {PAGE}test.js reviewed.js", "y", "/exit"])
             assert "Summary (model): Test fixture review" in reviewed, reviewed
             assert "Byte-window coverage:" in reviewed and phase["requests"] == 1, reviewed
             assert (work / "reviewed.js").read_bytes() == BODY
-            assert retrieved == ["script", "script"], retrieved
+            assert retrieved == ["evicted", "script", "script"], retrieved
 
             (work / "large.js").write_bytes(LARGE)
             phase.update(mode="large", requests=0)
             large = chat(["/review-file large.js -- Read the last declaration.", "/exit"])
             assert f"[{len(LARGE)-len(TAIL)}..{len(LARGE)} bytes]" in large, large
-            assert f"{2048+len(TAIL)}/{len(LARGE)} unique bytes" in large, large
+            assert f"2048/{len(LARGE)} unique bytes" in large, large
+            assert "First unread byte: 0." in large, large
+            assert "Search did not execute" in large, large
             assert phase["requests"] == 3 and (work / "large.js").read_bytes() == LARGE, large
 
             phase.update(mode="repair", requests=0)
@@ -256,7 +270,7 @@ def test_save(binary):
             assert "File changed since the review checkpoint" in changed, changed
             assert phase["requests"] == 0
             (work / "large.js").write_bytes(LARGE)
-            continued = chat(["/resume-review", "/resume-review", "/exit"], resume=True)
+            continued = chat(["كمّل المراجعة", "/resume-review", "/exit"], resume=True)
             assert "Resuming with 1 verified byte windows" in continued, continued
             assert "Summary (model): Restored review" in continued, continued
             assert "No unfinished file review" in continued and phase["requests"] == 1, continued

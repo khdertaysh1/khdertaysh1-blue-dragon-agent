@@ -110,3 +110,25 @@ for(const hidden of ['hidden','collapse']){
 }
 assert.equal(scrollCalls,3,'Hidden target must not receive a scroll');
 console.log('CSS-hidden scroll target rejection passed');
+
+// Click reports immediate UI change on a stable URL without replaying the action.
+let heading = 'Closed';
+let dispatched = 0;
+const button = {...common, isConnected:true, getAttribute:()=>null,
+  click(){ dispatched++; heading='Open'; }};
+Object.assign(context.document, {
+  scripts:[{src:'https://example.test/app.js',type:'module'}],
+  querySelector:()=>({textContent:heading}),
+  querySelectorAll:selector => selector === 'h1' ? [] : [button]
+});
+button.id='toggle';
+button.tagName='BUTTON';
+const receipt=run('click',{});
+assert.deepEqual([...receipt.changed_fields],['heading']);
+assert.equal(receipt.effect,'change_observed');
+assert.equal(run('click',{}).effect,'unverified');
+assert.equal(dispatched,2);
+const compact=context.blueDragonPage('snapshot',{compact:true});
+assert.equal(compact.script_tags[0].src,'https://example.test/app.js');
+assert.equal(compact.script_tags[0].type,'module');
+console.log('Same-URL click receipts and script tag identity passed');

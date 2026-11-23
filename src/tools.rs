@@ -235,7 +235,7 @@ impl ToolBox {
             anyhow::bail!("Not a file");
         }
         if path.metadata()?.len() > MAX_TEXT_BYTES as u64 {
-            anyhow::bail!("File exceeds 128 KiB limit");
+            anyhow::bail!("File exceeds 128 KiB limit. Use read_file_window on the same path starting at byte_offset 0 with byte_count 16384, then follow next_byte_offset.");
         }
         let value = fs::read_to_string(&path).context("File is not UTF-8 text")?;
         Ok(
