@@ -497,6 +497,17 @@ impl Agent {
     pub fn plan_text(&self) -> String {
         self.session.plan.display()
     }
+    pub fn previous_page_title(&self) -> Result<String> {
+        let fetch = self.session.observations.iter().rev()
+            .find(|entry| entry.tool == "web_fetch")
+            .context("No recorded web fetch in this session")?;
+        let (tool, _, result) = crate::audit::request_for(&self.session, &fetch.id)?;
+        anyhow::ensure!(tool == "web_fetch", "Evidence does not identify a web fetch");
+        Ok(match crate::tools::saved_page_title(&result) {
+            Some(title) => format!("{} · {title:?}", fetch.id),
+            None => format!("{} · No verified page title in this fetch", fetch.id),
+        })
+    }
     pub fn inspect_saved_tool(&self, id: &str) -> Result<Value> {
         let (tool, original, result) = crate::audit::request_for(&self.session, id)?;
         Ok(
@@ -530,14 +541,21 @@ impl Agent {
         let mut fields = arguments.split_whitespace();
         let evidence = fields
             .next()
-            .context("Use /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET]")?;
-        let id = fields.next().filter(|s| *s != "*");
+            .context("Use /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET]")?;
+        let selector = fields.next();
+        let id = selector.filter(|s| *s != "*");
         let offset = fields
             .next()
             .map(str::parse::<usize>)
             .transpose()?
             .unwrap_or(0);
         anyhow::ensure!(fields.next().is_none(), "Too many arguments");
+        if selector == Some("--rows") {
+            let record = self.saved_network_capture(evidence)?;
+            let mut page = crate::network_history::request_rows(&record["result"], offset, 8)?;
+            page["original_evidence_id"] = json!(evidence);
+            return Ok(page);
+        }
         self.network_events(evidence, id, offset)
     }
     fn network_events(&self, evidence: &str, id: Option<&str>, offset: usize) -> Result<Value> {
@@ -2410,6 +2428,27 @@ fn system_prompt() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn previous_page_title_reads_saved_evidence_without_requests() {
+        let (mut agent, _work, _state, server) = scripted_agent(vec![]);
+        for (fields, expected) in [
+            (json!({"html_title":"Example","truncated":true}), "Example"),
+            (json!({"text":"<title>Older session</title>","truncated":false}), "Older session"),
+            (json!({"text":"<head>","truncated":true}), "No verified page title"),
+        ] {
+            agent.session.messages.push(tool_call("fetch", "web_fetch", json!({"url":"https://example.test/"}))["choices"][0]["message"].clone());
+            let mut result = fields;
+            result["content_type"] = json!("text/html");
+            result["storage"] = json!("session_only");
+            result["ok"] = json!(true);
+            let id = agent.remember_observation("web_fetch", &result);
+            result["evidence_id"] = json!(id);
+            agent.session.messages.push(json!({"role":"tool","tool_call_id":"fetch","content":result.to_string()}));
+            let reply = agent.previous_page_title().unwrap();
+            assert!(reply.contains(expected) && reply.contains(&id), "{reply}");
+        }
+        assert!(server.join().unwrap().is_empty());
+    }
     fn completion(message: Value) -> Value {
         json!({"choices":[{"message":message}]})
     }

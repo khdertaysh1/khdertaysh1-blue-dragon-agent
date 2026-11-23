@@ -46,6 +46,7 @@ def test_save(binary):
             if method == "Network.enable":
                 for request_id, url, mime in [
                     ("script", PAGE + "test.js", "text/javascript"),
+                    ("evicted", PAGE + "evicted.js", "text/javascript"),
                     ("html", PAGE, "text/html"),
                     ("other", "http://127.0.0.1:7771/test.js", "text/javascript"),
                 ]:
@@ -57,6 +58,9 @@ def test_save(binary):
                 result = {"result": {"value": PAGE}}
             elif method == "Network.getResponseBody":
                 retrieved.append(data["params"]["requestId"])
+                if data["params"]["requestId"] == "evicted":
+                    await socket.send_json({"id": data["id"], "error": {"code": -32000, "message": "Response evicted"}})
+                    continue
                 result = {"body": base64.b64encode(BODY).decode(), "base64Encoded": True}
             await socket.send_json({"id": data["id"], "result": result})
         return socket
@@ -162,6 +166,8 @@ def test_save(binary):
 
             commands = [
                 f"/browser attach {websocket_port[0]}",
+                "/browser do " + json.dumps({"action": "save_response", "request_id": "script", "path": "mismatch.js", "url": PAGE + "other.js"}),
+                save("evicted", "missing.js"), "y",
                 save("script", "cancelled.js"), "n",
                 save("script", "saved.js"), "y",
                 save("script", "saved.js"),
@@ -184,6 +190,7 @@ def test_save(binary):
 
             phase.update(mode="save", requests=0)
             output = chat(commands)
+            assert "Request ID does not match" in output and "CDP -32000): Response evicted" in output, output
             assert not model_packets
             assert sorted(p.name for p in work.iterdir() if not p.name.startswith(".")) == ["saved.js"], output
             assert (work / "saved.js").read_bytes() == BODY
@@ -193,7 +200,7 @@ def test_save(binary):
             assert "Only successful JavaScript responses" in output
             digest = hashlib.sha256(BODY).hexdigest()
             assert f'"sha256": "{digest}"' in output
-            assert retrieved == ["script"], retrieved
+            assert retrieved == ["evicted", "script"], retrieved
             methods_after_save = list(browser_methods)
 
             phase.update(mode="blocked", requests=0)
@@ -230,7 +237,7 @@ def test_save(binary):
             assert "Summary (model): Test fixture review" in reviewed, reviewed
             assert "Byte-window coverage:" in reviewed and phase["requests"] == 1, reviewed
             assert (work / "reviewed.js").read_bytes() == BODY
-            assert retrieved == ["script", "script"], retrieved
+            assert retrieved == ["evicted", "script", "script"], retrieved
 
             (work / "large.js").write_bytes(LARGE)
             phase.update(mode="large", requests=0)

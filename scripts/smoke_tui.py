@@ -37,6 +37,8 @@ try:
                     captured.extend(os.read(master, 65536))
             raise AssertionError(f"TUI did not render {text!r}; exit={process.poll()}; tail={bytes(captured[-4096:])!r}")
         wait_for(b"BLUE DRAGON")
+        os.write(master, b"/toolkit self-test\r")
+        wait_for(b"inputs_unchanged")
         os.write(master, b"/help\r")
         wait_for(b"Commands:")
         os.write(master, b"/model free\r")

@@ -140,7 +140,11 @@ pub(crate) fn render(
             })?;
         let (tool, _, result) = crate::audit::request_for(session, &observation.evidence_id)?;
         ensure!(
-            tool == "read_file_window" && result["source_sha256"] == meta["sha256"],
+            tool == "read_file_window"
+                && result["source_sha256"] == meta["sha256"]
+                && result["path"] == meta["path"]
+                && result["byte_offset"] == w["start"]
+                && result["end_byte_offset"] == w["end"],
             "Observation did not cite the verified file"
         );
         let offset = result["content"]

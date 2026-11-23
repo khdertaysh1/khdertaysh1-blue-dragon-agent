@@ -1,3 +1,4 @@
+mod local_toolkit;
 mod agent;
 mod anthropic;
 mod artifacts;
@@ -145,6 +146,11 @@ enum Command {
     Tui,
     /// Execute one task; approval is still required for writes/commands
     Run { task: String },
+    /// Run the offline developer toolkit. Pass its arguments after --.
+    Toolkit {
+        #[arg(last = true)]
+        args: Vec<String>,
+    },
     /// Check local setup without uploading data
     Doctor,
     /// List saved local sessions, or find a conversation by words and optionally reopen it.
@@ -168,6 +174,10 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Cli::parse();
+    if let Some(Command::Toolkit { args: toolkit_args }) = &args.command {
+        print!("{}", local_toolkit::run(&args.root, toolkit_args)?);
+        return Ok(());
+    }
     if let Some(Command::Inspect { url }) = &args.command {
         browser::validate_url(url)?;
     }
@@ -415,7 +425,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /toolkit [args] /page-title /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -590,6 +600,20 @@ fn run() -> Result<()> {
                                         println!("{}", serde_json::to_string_pretty(&view)?)
                                     }
                                     Err(e) => eprintln!("{e}"),
+                                }
+                                continue;
+                            }
+                            line if local_toolkit::matches(line) => {
+                                match local_toolkit::chat(agent.root(), line) {
+                                    Ok(output) => print!("{output}"),
+                                    Err(error) => eprintln!("{error}"),
+                                }
+                                continue;
+                            }
+                            "/page-title" => {
+                                match agent.previous_page_title() {
+                                    Ok(title) => println!("{title}"),
+                                    Err(error) => eprintln!("{error}"),
                                 }
                                 continue;
                             }

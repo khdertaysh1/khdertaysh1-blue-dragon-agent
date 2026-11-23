@@ -70,6 +70,57 @@ pub fn page(record: &Value, id: Option<&str>, offset: usize, limit: usize) -> Re
         json!({"events":events,"coverage":{"raw_headers_examined":false,"request_body_examined":false,"response_body_examined":false,"ring_omission_scope":record["ring_omission_scope"]},"retained_events":rows.len(),"matched_events":selected.len(),"offset":offset,"returned_events":events.len(),"next_offset":(end < selected.len()).then_some(end),"capture_entries_omitted":record["entries_omitted"],"ring_entries_omitted":record["ring_entries_omitted"],"historical":true,"reran_tool":false}),
     )
 }
+/// Pair only a retained request with its own response. A new request starts
+/// a new hop even if a redirect reuses both its ID and URL.
+pub fn request_rows(record: &Value, offset: usize, limit: usize) -> Result<Value> {
+    let entries = record["entries"].as_array().context("No recorded events")?;
+    let mut rows: Vec<Value> = Vec::new();
+    let mut latest = std::collections::BTreeMap::new();
+    for entry in entries {
+        let event = entry["event"].as_str().unwrap_or("");
+        if !matches!(event, "request" | "response" | "redirect" | "error") {
+            continue;
+        }
+        let id = entry["request_id"].as_str().filter(|id| !id.is_empty());
+        let url = entry["url"].as_str();
+        let complete_url = url.is_some_and(|u| !u.is_empty() && (entry["url_truncated"] == false
+            || (entry["url_truncated"].is_null() && u.chars().count() < 2000)));
+        let paired = id.and_then(|id| latest.get(id).copied()).filter(|index: &usize| {
+            let row = &rows[*index];
+            event != "request" && (row["outcome"] == "response_unobserved"
+                || (event == "error" && row["outcome"] == "response_observed"))
+                && ((complete_url && row["url_complete"] == true && row["url"] == entry["url"])
+                || (event == "error" && url.is_none()))
+        });
+        let index = paired.unwrap_or_else(|| {
+            let index = rows.len();
+            rows.push(json!({"request_id":id,"url":url,"url_complete":complete_url,
+                "method":entry["method"],"request_observed":event=="request",
+                "outcome":"response_unobserved"}));
+            if let Some(id) = id { latest.insert(id, index); }
+            index
+        });
+        if event != "request" {
+            let row = &mut rows[index];
+            row["outcome"] = json!(match event {
+                "redirect" => "redirect_observed",
+                "error" => "failure_observed",
+                _ => "response_observed",
+            });
+            for key in ["status", "mime_type", "error"] {
+                if !entry[key].is_null() { row[key] = entry[key].clone(); }
+            }
+        }
+    }
+    let total = rows.len();
+    let selected = rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>();
+    let end = offset.saturating_add(selected.len());
+    Ok(json!({"requests":selected,"retained_request_rows":total,"offset":offset,
+        "next_offset":(end<total).then_some(end),"historical":true,
+        "capture_entries_omitted":record["entries_omitted"],
+        "ring_entries_omitted":record["ring_entries_omitted"],"ring_omission_scope":record["ring_omission_scope"]}))
+}
+
 pub fn inventory(record: &Value, offset: usize) -> Result<Value> {
     use std::collections::{BTreeMap, BTreeSet};
     let rows = record["entries"]
@@ -120,6 +171,30 @@ pub fn inventory(record: &Value, offset: usize) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn request_rows_keep_redirect_hops_failures_and_unpaired_responses() {
+        let record = json!({"entries":[
+            {"event":"request","request_id":"r","url":"a","method":"GET"},
+            {"event":"redirect","request_id":"r","url":"a","status":302},
+            {"event":"request","request_id":"r","url":"b","method":"GET"},
+            {"event":"response","request_id":"r","url":"b","status":200},
+            {"event":"error","request_id":"r","error":"connection reset"},
+            {"event":"response","request_id":"other","url":"b","status":404},
+            {"event":"request","request_id":"pending","url":"c","method":"POST"}],
+            "entries_omitted":3,"ring_entries_omitted":7});
+        let first = request_rows(&record, 0, 2).unwrap();
+        assert_eq!(first["retained_request_rows"], 4);
+        assert_eq!(first["requests"][0]["outcome"], "redirect_observed");
+        assert_eq!(first["requests"][1]["status"], 200);
+        assert_eq!(first["requests"][1]["outcome"], "failure_observed");
+        assert_eq!(first["next_offset"], 2);
+        let next = request_rows(&record, 2, 2).unwrap();
+        assert_eq!(next["requests"][0]["request_observed"], false);
+        assert_eq!(next["requests"][1]["outcome"], "response_unobserved");
+        assert_eq!(next["ring_entries_omitted"], 7);
+        assert!(next["next_offset"].is_null());
+    }
+
     #[test]
     fn historical_network_exposes_saved_indicators_without_inferring_body_contents() {
         let record = json!({"entries":[{"event":"response","mime_type":"text/css","security_header_indicators":{"available":true},"headers":{"Cookie":"private"},"body":"private"}]});

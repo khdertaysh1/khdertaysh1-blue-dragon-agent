@@ -74,9 +74,7 @@ impl ProviderFailure {
         };
         let retry_after = retry_after
             .or_else(|| error["retry_after_seconds"].as_u64())
-            .unwrap_or(if status == 429 {
-                300
-            } else if model_specific || matches!(status, 502 | 503) {
+            .unwrap_or(if status != 429 && (model_specific || matches!(status, 502 | 503)) {
                 60
             } else {
                 0
@@ -232,6 +230,9 @@ mod diagnostic_tests {
             ProviderFailure::from_response(400, None, r#"{"error":{"message":"bad schema"}}"#);
         assert_eq!(invalid.retry_after_source, "program_default");
         assert!(!invalid.model_specific);
+        let unspecified = ProviderFailure::from_response(429, None, "{}");
+        assert_eq!(unspecified.retry_after, 0);
+        assert_eq!(unspecified.retry_after_source, "program_default");
         let body = ProviderFailure::from_response(
             429,
             None,

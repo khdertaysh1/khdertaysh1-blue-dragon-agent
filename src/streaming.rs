@@ -15,6 +15,11 @@ struct Assembly {
     finished: bool,
     stream_end: bool,
     metadata: Value,
+    saw_reasoning: bool,
+    saw_content_parts: bool,
+    saw_message_object: bool,
+    saw_choice: bool,
+    finish_reason: Option<&'static str>,
 }
 
 impl Assembly {
@@ -100,6 +105,15 @@ impl Assembly {
             }
         } else {
             let choice = &v["choices"][0];
+            self.saw_choice |= choice.is_object();
+            self.saw_content_parts |= choice["delta"]["content"].is_array();
+            self.saw_message_object |= choice["message"].is_object();
+            self.saw_reasoning |= ["reasoning", "reasoning_content", "reasoning_details"].iter().any(|key| {
+                let field = &choice["delta"][*key];
+                field.as_str().is_some_and(|s| !s.is_empty())
+                    || field.as_array().is_some_and(|items| !items.is_empty())
+                    || field.is_object()
+            });
             if choice["delta"]["refusal"]
                 .as_str()
                 .is_some_and(|s| !s.is_empty())
@@ -148,15 +162,33 @@ impl Assembly {
                     choice["finish_reason"].as_str().unwrap_or(""),
                 ));
             }
-            if choice["finish_reason"].is_string() {
+            if let Some(reason) = choice["finish_reason"].as_str() {
+                self.finish_reason = Some(match reason {
+                    "stop" => "stop",
+                    "tool_calls" => "tool_calls",
+                    "function_call" => "function_call",
+                    _ => "other",
+                });
                 self.finished = true;
             }
         }
         Ok(())
     }
-    fn finish(self, anthropic: bool) -> Result<Value> {
+    fn finish(mut self, anthropic: bool) -> Result<Value> {
         if !self.finished {
             bail!("Provider stream ended before its completion marker; no tool was executed");
+        }
+        if !anthropic {
+            self.metadata["stream_shape"] = json!({
+                "saw_choice": self.saw_choice,
+                "saw_reasoning": self.saw_reasoning,
+                "saw_content_parts": self.saw_content_parts,
+                "saw_message_object": self.saw_message_object,
+                "visible_characters": self.text.chars().count(),
+                "native_calls": self.calls.len(),
+                "finish_reason": self.finish_reason,
+                "saw_done": self.stream_end
+            });
         }
         let mut calls = Vec::new();
         for (index, call) in self.calls {
@@ -379,5 +411,41 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(ready.arguments["args"], json!(["a b", "مرحبا"]));
         assert_eq!(ready.changes.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod stream_shape_tests {
+    use super::*;
+
+    #[test]
+    fn distinguishes_empty_response_shapes_without_recording_payloads() {
+        for (name, choice) in [
+            ("saw_reasoning", json!({"delta":{"reasoning_content":"private"}})),
+            ("saw_content_parts", json!({"delta":{"content":[{"text":"private"}]}})),
+            ("saw_message_object", json!({"message":{"content":"private"}})),
+            ("empty_delta", json!({"delta":{}})),
+            ("visible", json!({"delta":{"content":"ok"}})),
+        ] {
+            let event = json!({"choices":[choice]});
+            let stream = format!("data: {event}\n\ndata: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: {{\"choices\":[],\"usage\":{{\"completion_tokens\":133}}}}\n\ndata: [DONE]\n\n");
+            let msg = decode(stream.as_bytes(), false, |_| {}, || false).unwrap();
+            let metadata = &msg["_blue_provider_metadata"];
+            let shape = &metadata["stream_shape"];
+            assert_eq!(metadata["usage"]["completion_tokens"], 133);
+            assert_eq!(shape["finish_reason"], "stop");
+            assert_eq!(shape["saw_done"], true);
+            assert!(!metadata.to_string().contains("private"));
+            if name.starts_with("saw_") {
+                assert_eq!(shape[name], true);
+            }
+            let result = crate::provider_contract::validate_completion(&msg, &json!([]));
+            if name == "visible" {
+                result.unwrap();
+                assert_eq!(shape["visible_characters"], 2);
+            } else {
+                assert_eq!(result.unwrap_err().downcast_ref::<crate::provider_contract::Incomplete>().unwrap().kind, "empty_response");
+            }
+        }
     }
 }
