@@ -1122,6 +1122,7 @@ impl Agent {
         };
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
+        let mut recall_report_due = false;
         let mut initial_limit_retry = false;
         let step_limit = if structured {
             self.settings.max_steps.min(8)
@@ -1129,8 +1130,8 @@ impl Agent {
             self.settings.max_steps
         };
         let mut report_repair_used = false;
-        'steps: for step in 0..(step_limit + usize::from(structured)) {
-            if step >= step_limit && !report_repair_used {
+        'steps: for step in 0..=step_limit {
+            if step >= step_limit && !(structured && report_repair_used) && !recall_report_due {
                 break;
             }
             if crate::terminal_input::cancelled()
@@ -2081,6 +2082,9 @@ impl Agent {
                         }
                     }
                 };
+                if name == "recall_context" && result["category"] == "recall_budget_exhausted" {
+                    recall_report_due = true;
+                }
                 if structured && name == "search_file" && argument_error.is_some() {
                     local_search_failed = true;
                     local_read_after_search_failure = false;
@@ -2354,6 +2358,14 @@ impl Agent {
             }
             if denial_violation {
                 anyhow::bail!("Stopped after user denial; no alternative action executed");
+            }
+            if recall_report_due && !report_recovery {
+                report_recovery = true;
+                self.session.messages.push(json!({"role":"user","content":
+                    "History paging reached its turn limit. Give a short final answer using the available evidence. Report observed values with their evidence IDs and mark any missing fields as unverified. Do not call tools or repeat browser actions."}));
+                self.persist()?;
+                self.output(AgentEvent::Notice("History read limit reached. Preparing a short report from existing evidence.".into()));
+                continue 'steps;
             }
             if self.loop_guard.stalled() {
                 if structured
@@ -3356,6 +3368,21 @@ mod tests {
                 .count(),
             1
         );
+    }
+    #[test]
+    fn exhausted_history_budget_gets_one_tool_free_report_at_step_limit() {
+        let mut replies = (0..9).map(|i| tool_call(&format!("r{i}"), "recall_context",
+            json!({"message_index":0,"offset":i*100,"count":100}))).collect::<Vec<_>>();
+        replies.push(completion(json!({"role":"assistant","content":"Partial evidence only."})));
+        let (mut agent, _workspace, _state, server) = scripted_agent(replies);
+        agent.settings.max_steps = 9;
+        agent.session.messages.push(json!({"role":"user","content":"sample ".repeat(250)}));
+        agent.turn("Recall the earlier message using recall_context and summarize available evidence.").unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 10);
+        assert!(requests[9]["tools"].as_array().is_none_or(Vec::is_empty));
+        assert!(agent.session.messages.iter().any(|m| m["role"] == "tool"
+            && m["content"].as_str().unwrap_or("").contains("recall_budget_exhausted")));
     }
     #[test]
     fn long_session_recalls_exact_old_details_without_losing_original_goals() {
