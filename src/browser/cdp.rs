@@ -271,9 +271,16 @@ impl Cdp {
                 Ok(Message::Text(text)) => {
                     let value: Value = serde_json::from_str(&text)?;
                     if value["id"] == id {
-                        if value.get("error").is_some() {
+                        if let Some(error) = value.get("error") {
                             if method == "Network.getResponseBody" {
-                                anyhow::bail!("Response metadata was recorded, but CDP could not provide the body. No file saved.");
+                                let code = error["code"].as_i64().map(|n| n.to_string())
+                                    .unwrap_or_else(|| "unknown".to_owned());
+                                let raw = error["message"].as_str().filter(|s| !s.is_empty())
+                                    .unwrap_or("No protocol message supplied");
+                                // Display bounded protocol text, never terminal control sequences.
+                                let reason: String = raw.chars().take(240)
+                                    .flat_map(char::escape_debug).collect();
+                                anyhow::bail!("Network.getResponseBody (CDP {code}): {reason}. CDP could not provide the body. No file saved.");
                             }
                             anyhow::bail!("Browser protocol error; action outcome may be unknown. Inspect a snapshot before retrying.");
                         }

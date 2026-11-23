@@ -60,7 +60,7 @@ def test_save(binary):
             elif method == "Network.getResponseBody":
                 retrieved.append(data["params"]["requestId"])
                 if data["params"]["requestId"] == "evicted":
-                    await socket.send_json({"id": data["id"], "error": {"code": -32000}})
+                    await socket.send_json({"id": data["id"], "error": {"code": -32000, "message": "Request content was evicted from inspector cache"}})
                     continue
                 result = {"body": base64.b64encode(BODY).decode(), "base64Encoded": True}
             await socket.send_json({"id": data["id"], "result": result})
@@ -203,7 +203,7 @@ def test_save(binary):
             digest = hashlib.sha256(BODY).hexdigest()
             assert f'"sha256": "{digest}"' in output
             assert "does not match the expected script URL" in output, output
-            assert "could not provide the body" in output, output
+            assert "CDP -32000): Request content was evicted from inspector cache" in output, output
             assert retrieved == ["evicted", "script"], retrieved
             methods_after_save = list(browser_methods)
 
