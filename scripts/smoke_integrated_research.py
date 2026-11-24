@@ -4,6 +4,7 @@ No real browser/DOM is exercised; the peer deliberately disconnects after one di
 """
 import argparse, base64, hashlib, http.server, json, os, socket, struct, subprocess, tempfile, threading, time
 from pathlib import Path
+from fixture_intent import reply_to_work_intent
 from urllib.parse import urlparse
 
 CAPS='open navigate snapshot click fill select set_checked scroll evaluate network console source screenshot close'.split()
@@ -110,6 +111,8 @@ def main(binary):
                 packet=json.loads(self.rfile.read(size));state['packets']+=1
                 assert pair_token not in json.dumps(packet),'Pairing token leaked to model'
                 messages=packet['messages'];child='independent read-only research delegate' in str(messages[0]['content'])
+                if reply_to_work_intent(self, packet):
+                    return
                 results=[json.loads(m['content']) for m in messages if m['role']=='tool']
                 if child:
                     who='a' if 'TASK_A' in str(messages[1]['content']) else 'b';step=state['children'].get(who,0)+1;state['children'][who]=step

@@ -3,7 +3,32 @@ use anyhow::{ensure, Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
 
-pub(crate) const REPORT_INSTRUCTION: &str = r#"Return only one JSON object, without Markdown fences: {"summary":"short interpretation","observations":[{"evidence_id":"E000001","quote":"literal excerpt from that window","note":"what this excerpt shows"}],"limits":"what remains unverified"}. Supply 1–3 observations. State which part of each conclusion the quote supports. When control flow, caller context or runtime behavior is missing, mark the dependent conclusion unverified in the summary as well as the limits. A quoted statement alone does not establish downstream behavior. Every quote must be an exact nonempty substring of the cited read_file_window content (not a search result). Keep the summary and limits under 320 characters each, notes under 220 and quotes under 140. Do not claim full-file or runtime verification unless supported."#;
+pub(crate) const REPORT_INSTRUCTION: &str = r#"Return only one JSON object, without Markdown fences: {"summary":"short interpretation","observations":[{"evidence_id":"E000001","quote":"literal excerpt from that window","note":"what this excerpt shows"}],"limits":"what remains unverified"}. Supply 1–3 observations. State which part of each conclusion the quote supports. When control flow, caller context or runtime behavior is missing, mark the dependent conclusion unverified in the summary as well as the limits. For a conditional, identify which branch returns, throws, or falls through. If the branch boundary is outside the window, qualify the conclusion. A quoted statement alone does not establish downstream behavior. Every quote must be an exact nonempty substring of the cited read_file_window content (not a search result). Keep the summary and limits under 320 characters each, notes under 220 and quotes under 140. Do not claim full-file or runtime verification unless supported."#;
+
+pub(crate) fn requests_tail(prompt: &str) -> bool {
+    let Some((_, task)) = prompt
+        .split_once("\nUser task: ")
+        .or_else(|| prompt.split_once("state the limits of interpretation. User task: "))
+    else {
+        return false;
+    };
+    let task = task
+        .strip_suffix(REPORT_INSTRUCTION)
+        .unwrap_or(task)
+        .to_lowercase();
+    [
+        "last function",
+        "final function",
+        "last declaration",
+        "final declaration",
+        "آخر دالة",
+        "اخر دالة",
+        "آخر سطر",
+        "اخر سطر",
+    ]
+    .iter()
+    .any(|phrase| task.contains(*phrase))
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,27 +104,33 @@ pub(crate) fn saved_windows(
 
 pub(crate) fn coverage_line(meta: &Value, actions: &[Value]) -> String {
     let bytes = meta["bytes"].as_u64().unwrap_or(0);
-    let coverage = unique_window_bytes(actions);
-    format!("Byte-window coverage: {coverage}/{bytes} unique bytes. Search matches are excluded.")
+    let (coverage, next) = window_progress(bytes, actions);
+    let next = next.map_or_else(|| "none".to_owned(), |offset| offset.to_string());
+    format!("Byte-window coverage: {coverage}/{bytes} unique bytes. Search matches are excluded. First unread byte: {next}.")
 }
 
-fn unique_window_bytes(actions: &[Value]) -> u64 {
+pub(crate) fn window_progress(bytes: u64, actions: &[Value]) -> (u64, Option<u64>) {
     let mut spans = Vec::new();
     for action in actions {
-        if let Some(w) = action.get("verified_window") {
-            if let (Some(start), Some(end)) = (w["start"].as_u64(), w["end"].as_u64()) {
+        let w = &action["verified_window"];
+        if let (Some(start), Some(end)) = (w["start"].as_u64(), w["end"].as_u64()) {
+            if start < end && end <= bytes {
                 spans.push((start, end));
             }
         }
     }
     spans.sort_unstable();
+    let mut covered = 0;
     let mut end = 0;
-    let mut coverage = 0;
+    let mut prefix = 0;
     for (start, stop) in spans {
-        coverage += stop.saturating_sub(start.max(end));
+        covered += stop.saturating_sub(start.max(end));
         end = end.max(stop);
+        if start <= prefix {
+            prefix = prefix.max(stop);
+        }
     }
-    coverage
+    (covered, (prefix < bytes).then_some(prefix))
 }
 
 pub(crate) fn render(
@@ -107,6 +138,7 @@ pub(crate) fn render(
     meta: &Value,
     actions: &[Value],
     session: &crate::session::Session,
+    tail_requested: bool,
 ) -> Result<String> {
     let report: Report = serde_json::from_str(answer.trim())
         .context("Model did not return the required structured file report")?;
@@ -125,6 +157,7 @@ pub(crate) fn render(
     );
     out.push_str(&coverage_line(meta, actions));
     out.push('\n');
+    let mut cites_tail = false;
     for (index, observation) in report.observations.into_iter().enumerate() {
         let field = format!("observations[{index}]");
         check_text(&format!("{field}.quote"), &observation.quote, 140)?;
@@ -140,7 +173,11 @@ pub(crate) fn render(
             })?;
         let (tool, _, result) = crate::audit::request_for(session, &observation.evidence_id)?;
         ensure!(
-            tool == "read_file_window" && result["source_sha256"] == meta["sha256"],
+            tool == "read_file_window"
+                && result["source_sha256"] == meta["sha256"]
+                && result["path"] == meta["path"]
+                && result["byte_offset"] == w["start"]
+                && result["end_byte_offset"] == w["end"],
             "Observation did not cite the verified file"
         );
         let offset = result["content"]
@@ -150,11 +187,48 @@ pub(crate) fn render(
             as u64;
         let start = w["start"].as_u64().context("Invalid window offset")? + offset;
         let stop = start + observation.quote.len() as u64;
+        cites_tail |= stop > meta["bytes"].as_u64().unwrap_or(0).saturating_sub(2048);
         out.push_str(&format!(
             "- {} [{start}..{stop} bytes] {:?}\n  Interpretation (model): {}\n",
             observation.evidence_id, observation.quote, observation.note
         ));
     }
+    ensure!(
+        !tail_requested || cites_tail,
+        "A review of the file ending requires a quotation from its final window"
+    );
     out.push_str(&format!("Limits (model): {}", report.limits));
     Ok(out)
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tail_goal_is_read_from_the_task_not_snapshot_metadata() {
+        assert!(requests_tail("Review.\nUser task: اشرح آخر دالة"));
+        assert!(requests_tail(
+            "Review.\nUser task: Read the last declaration."
+        ));
+        assert!(!requests_tail(
+            "last function.js\nUser task: explain imports"
+        ));
+    }
+
+    #[test]
+    fn resume_skips_overlaps_and_stops_at_the_first_gap() {
+        let span = |a, b| json!({"verified_window":{"start":a,"end":b}});
+        let spans = [
+            span(12, 20),
+            span(0, 4),
+            span(2, 8),
+            span(0, 4),
+            span(4, 99),
+        ];
+        assert_eq!(window_progress(20, &spans), (16, Some(8)));
+        assert_eq!(window_progress(8, &spans), (8, None));
+        assert_eq!(window_progress(0, &[]), (0, None));
+    }
 }

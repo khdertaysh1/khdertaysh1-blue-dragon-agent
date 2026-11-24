@@ -99,7 +99,15 @@ pub struct Incomplete {
 }
 impl std::fmt::Display for Incomplete {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f,"Provider completion incomplete: {}; partial text retained privately, no tool batch executed",self.kind)
+        if self.partial_text.is_empty() {
+            write!(
+                f,
+                "Provider completion incomplete: {}; no response text or executed tool batch",
+                self.kind
+            )
+        } else {
+            write!(f, "Provider completion incomplete: {}; partial text retained privately, no tool batch executed", self.kind)
+        }
     }
 }
 impl std::error::Error for Incomplete {}
@@ -169,7 +177,7 @@ pub fn validate_completion(message: &Value, _tools: &Value) -> Result<()> {
     Ok(())
 }
 pub fn partial_record(error: &Incomplete) -> Value {
-    json!({"raw_stop_reason":error.raw_stop_reason,"classification_source":"client_stop_reason_mapping","kind":error.kind,"partial_text_retained_in_session":true,"partial_characters":error.partial_text.chars().count(),"incomplete":true,"tool_calls_executed":0,"trusted_evidence":false})
+    json!({"raw_stop_reason":error.raw_stop_reason,"classification_source":"client_stop_reason_mapping","kind":error.kind,"partial_text_retained_in_session":!error.partial_text.is_empty(),"partial_characters":error.partial_text.chars().count(),"incomplete":true,"tool_calls_executed":0,"trusted_evidence":false})
 }
 
 #[cfg(test)]

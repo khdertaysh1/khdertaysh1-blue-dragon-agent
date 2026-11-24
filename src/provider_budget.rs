@@ -172,8 +172,9 @@ impl Coordinator {
         })
     }
     pub fn failure(&self, failure: &crate::rotation::ProviderFailure) -> Result<()> {
-        if !matches!(failure.status, 429 | 502 | 503)
-            && failure.retry_after_source == "program_default"
+        if failure.retry_after == 0
+            || (!matches!(failure.status, 429 | 502 | 503)
+                && failure.retry_after_source == "program_default")
         {
             return Ok(());
         }

@@ -16,6 +16,12 @@ function blueDragonPage(action, args, transportEnvelope = false) {
   if (!window.__bbStudioConsole) {
     const rows = [];
     Object.defineProperty(window, '__bbStudioConsole', { value: rows, configurable: true });
+    window.addEventListener?.('error', event => {
+      if (typeof event.message !== 'string') return;
+      rows.push({level:'error', kind:'uncaught_exception', text:clip(event.message,1000),
+        url:clip(event.filename,2000), line:event.lineno || null, column:event.colno || null});
+      if (rows.length > 200) rows.shift();
+    });
     for (const level of ['log', 'info', 'warn', 'error']) {
       const pageConsole = window.console || globalThis.console;
       const original = pageConsole[level];
@@ -96,18 +102,25 @@ function blueDragonPage(action, args, transportEnvelope = false) {
       automatic_retry:false,note:'Current offsets only; clamping, scroll snapping or page handlers may alter movement. Inspect a fresh snapshot/readiness condition; no completion or end-of-content claim.'};
   }
   if (action === 'snapshot') {
+    const external = Array.from(document.scripts || []).filter(script => script.src);
+    const scriptTags = external.slice(0, args.compact === true ? 12 : 100).map(script => ({
+      src: clip(script.src, 2000), src_truncated: script.src.length > 2000,
+      type: clip(script.type, 80), async: !!script.async, defer: !!script.defer
+    }));
+    const scriptMetadata = external.length ? {script_tags: scriptTags,
+      script_tags_omitted: external.length - scriptTags.length} : {};
     const h1 = [...document.querySelectorAll('h1')].slice(0,4).map(e=>clip(e.innerText || e.textContent,500));
     if (args.compact === true) {
       const selector = args.selector || 'a,button,input,textarea,select,[role="button"]';
       const nodes = [...document.querySelectorAll(selector)];
-      return {untrusted_web_content:true,url:location.href,title:clip(document.title,1000),h1,
+      return {...scriptMetadata,untrusted_web_content:true,url:location.href,title:clip(document.title,1000),h1,
         scripts:Array.from(document.scripts || []).filter(e=>e.src).slice(0,12).map(e=>e.src),
         ready:document.readyState,observation_kind:'current_page_read',compact:true,
         elements:nodes.slice(0,12).map(e=>({selector:selectorFor(e),tag:e.tagName.toLowerCase(),text:clip(e.innerText || e.textContent,500),href:e.tagName==='A'?e.href:undefined})),
         elements_omitted:Math.max(0,nodes.length-12),text:clip(document.body?.innerText,2000),
         limits:'Bounded current DOM read, not browser readiness alone or proof of server-side effects.'};
     }
-    return {untrusted_web_content: true, h1, url: location.href, title: document.title, ready: document.readyState,
+    return {...scriptMetadata,untrusted_web_content: true, h1, url: location.href, title: document.title, ready: document.readyState,
       text: clip(document.body?.innerText),
       frames: [...document.querySelectorAll('iframe')].slice(0,20).map(f => ({selector:selectorFor(f),url:f.src||'',same_origin_accessible:(()=>{try{return !!f.contentDocument;}catch{return false;}})()})),
       forms_total: document.forms.length, forms_omitted: Math.max(0, document.forms.length - 20), forms_truncated: document.forms.length > 20,
@@ -122,7 +135,7 @@ function blueDragonPage(action, args, transportEnvelope = false) {
         ...(e.tagName === 'SELECT' ? optionSummary(e) : {})
       })), scripts: [...document.scripts].map(e => e.src).filter(Boolean).slice(0, 100)};
   }
-  if (action === 'console') return {untrusted_web_content: true, entries: window.__bbStudioConsole.slice(-100), note: 'Extension console capture begins after first interaction; early page logs may be absent.'};
+  if (action === 'console') return {url: location.href, untrusted_web_content: true, entries: window.__bbStudioConsole.slice(-100), note: 'Extension console capture begins after first interaction; early page logs may be absent.'};
   if (action === 'evaluate') {
     if (typeof args.expression !== 'string' || args.expression.length > 16000) throw new Error('Invalid expression');
     // Runs in MAIN/page world, never the privileged extension world.
@@ -150,7 +163,30 @@ function blueDragonPage(action, args, transportEnvelope = false) {
     }
     return {changed, value: clip(el.value, 16000), matched: el.value === args.value, note: 'Observed DOM state only; change handlers may submit forms or make network requests. No retry performed.'};
   }
-  if (action === 'click') { el.scrollIntoView({block: 'center'}); el.click(); return {clicked: true}; }
+  if (action === 'click') {
+    el.scrollIntoView({block: 'center'});
+    // Sample only bounded public UI state. Never read form values.
+    const sample = () => ({
+      target_connected: el.isConnected,
+      target_expanded: el.getAttribute('aria-expanded'),
+      target_pressed: el.getAttribute('aria-pressed'),
+      heading: clip(document.querySelector('h1')?.textContent, 300),
+      url: location.href
+    });
+    const before = sample();
+    el.click();
+    const differences = state => Object.keys(before).filter(key => before[key] !== state[key]);
+    const immediate = differences(sample());
+    const receipt = {clicked:true, changed_fields:immediate, observation:'immediate_dom_sample',
+      effect:immediate.length ? 'change_observed' : 'unverified', automatic_retry:false};
+    if (args.observe_after_click !== true) return receipt;
+    return new Promise(resolve => setTimeout(resolve, 300)).then(() => {
+      const delayed = differences(sample());
+      return {...receipt, observation:'immediate_and_delayed_dom_samples', sample_delay_ms:300,
+        delayed_changed_fields:delayed,
+        effect:immediate.length || delayed.length ? 'change_observed' : 'unverified'};
+    });
+  }
   if (action === 'fill') {
     if (!['INPUT','TEXTAREA','SELECT'].includes(el.tagName) || ['file','checkbox','radio','submit','button'].includes(el.type)) throw new Error('Use a text/select control');
     if (typeof args.value !== 'string' || args.value.length > 16000) throw new Error('Invalid value');

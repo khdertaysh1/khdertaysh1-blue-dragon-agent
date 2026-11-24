@@ -691,7 +691,12 @@ pub fn build_with_budget(
     let mut smallest = usize::MAX;
     let mut memory_tokens = 0;
 
-    for level in 0..=6 {
+    let first_level = if memory["manual_compact"] == true {
+        1
+    } else {
+        0
+    };
+    for level in first_level..=6 {
         let (mut view, archived) = if level == 0 {
             (history.to_vec(), 0)
         } else {
@@ -704,11 +709,31 @@ pub fn build_with_budget(
             object.remove("automatic_browser_indexes");
         }
         if level > 0 {
+            if level >= 5 {
+                // The projection retains source-message references. Avoid paying
+                // for a second rendering of the same recent dialogue.
+                if let Some(turns) = memory["prior_dialogue"]["turns"].as_array() {
+                    let indices: Vec<_> = turns.iter().map(|turn| &turn["user_index"]).collect();
+                    memory["prior_dialogue"] = json!({"original_message_indexes":indices});
+                }
+            }
             if level >= 3 {
                 // The transcript still preserves these derived records. Under
                 // pressure avoid repeating native excerpts already indexed there.
                 if let Some(notes) = memory.as_object_mut() {
-                    notes.remove("historical_native_evidence");
+                    if let Some(history) = notes.remove("historical_native_evidence") {
+                        if let Some(rows) = history["file_receipts"]
+                            .as_array()
+                            .filter(|r| !r.is_empty())
+                        {
+                            notes.insert("historical_file_receipts".into(), json!(rows));
+                        }
+                        if let Some(refs) = history["local_read_refs"].as_array() {
+                            if !refs.is_empty() {
+                                notes.insert("historical_local_read_refs".into(), json!(refs));
+                            }
+                        }
+                    }
                 }
                 if let Some(checkpoint) = memory
                     .get_mut("derived_continuity_checkpoint")

@@ -346,6 +346,14 @@ pub(crate) fn request_for(
     session: &crate::session::Session,
     id: &str,
 ) -> Result<(String, Value, Value)> {
+    let (name, args, result) = paired_request_for(session, id)?;
+    Ok((name, normalized_arguments(args)?, result))
+}
+
+pub(crate) fn paired_request_for(
+    session: &crate::session::Session,
+    id: &str,
+) -> Result<(String, Value, Value)> {
     if session.observations.iter().filter(|e| e.id == id).count() != 1 {
         bail!("Evidence ID must identify exactly one observation");
     }
@@ -384,11 +392,7 @@ pub(crate) fn request_for(
             bail!("Automatic evidence request/result integrity mismatch");
         }
         crate::browser::validate_url(&origin.url)?;
-        return Ok((
-            observation.tool.clone(),
-            normalized_arguments(json!({"url":origin.url}))?,
-            result,
-        ));
+        return Ok((observation.tool.clone(), json!({"url":origin.url}), result));
     }
     if observation.automatic_request.is_some() {
         bail!("Automatic provenance does not belong to a tool-result message");
@@ -443,7 +447,7 @@ pub(crate) fn request_for(
             }) {
                 bail!("Original request integrity mismatch");
             }
-            let args = normalized_arguments(raw_args)?;
+
             let result: Value =
                 serde_json::from_str(message["content"].as_str().context("Missing result")?)?;
             if result
@@ -459,7 +463,7 @@ pub(crate) fn request_for(
             {
                 bail!("Native result integrity mismatch");
             }
-            return Ok((observation.tool.clone(), args, result));
+            return Ok((observation.tool.clone(), raw_args, result));
         }
     }
     bail!("Missing original tool request")

@@ -1,5 +1,44 @@
 # Release notes
 
+## 1.1.14.0
+
+Coding and defensive QA release. Open a public URL for its current page, request metadata and console. Automatic dependency discovery and cross-file tracing operate on local development sources. Historical lab results remain readable. The lab runner and its separate training suite are excluded from this release.
+
+Install and launch from a terminal, from the project folder you want to work on.
+
+**Linux x64, Apple Silicon macOS and Android ARM64 (Termux with curl)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.0/scripts/start.sh | bash
+```
+
+**Windows x64 (PowerShell)**
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.0/scripts/start.ps1').Content))
+```
+
+
+- Run two local code-review delegates with `/swarm PATH | TASK`. The implementation and test reviews run concurrently and their results are collected with each agent's evidence.
+- Use `/httpflow EVIDENCE_ID [OFFSET]` to page through previously recorded browser requests and outcomes. Use the existing `/websearch WORDS` with a configured JSON-enabled SearXNG endpoint.
+- Use `/desktop open PATH` to launch a workspace text file in Notepad, TextEdit, or an installed Mousepad, Gedit or Kate editor (including Termux:X11).
+- Compact fetch receipts retain bounded complete URL values verified against the original result hashes. Older records with only hashes remain identifiable.
+
+- Verify exact script URL arguments for supported literal curl downloads against ordered HTML references. Preserve bounded file receipts across context projection.
+- Verify the saved three-column SHA-256 TSV against named local JavaScript files after reading the report back.
+- Advertise full-file reads for named source files, offer the missing read schema on the next eligible request, and keep detailed evidence in the session report.
+
+- Use `run --json TASK` for a single result or `run --ndjson TASK` for live events and the final result. Approval prompts go to stderr, with the same stdin approval rules.
+- Use `/compact` in chat or TUI to show a local recap and keep a compact projection for later requests, including after resuming the session.
+- Open the TUI model picker with Ctrl+T while idle.
+- Load project conventions from a workspace-root UTF-8 `AGENTS.md` of up to 16 KiB on session open or resume.
+- Read-only tasks default to 48 steps. Set `--max-steps` or `BLUE_DRAGON_MAX_STEPS` (1–100) to override the normal turn limit.
+
+- Preserve file references and conversation context across follow-ups.
+- Improve Arabic and English byte-range requests for local files.
+- Retain browser network observations during approved response saves.
+- Record bounded stream diagnostics when a provider returns an empty completion.
+
 ## 1.1.12.0 — cumulative R2–R11 update
 
 - Improve Termux input, including multiline paste, cancellation and Arabic rendering.

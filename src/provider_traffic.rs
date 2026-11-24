@@ -33,7 +33,7 @@ pub fn is_kilo(url: &str) -> bool {
 pub fn output_limit(url: &str, delegated: bool) -> Option<u64> {
     positive_env("BLUE_DRAGON_MAX_OUTPUT_TOKENS", 16384).or_else(|| {
         (is_kilo(url) || delegated || positive_env("BLUE_DRAGON_TPM", 100_000_000).is_some())
-            .then_some(2048)
+            .then_some(4960)
     })
 }
 pub fn input_budget(url: &str) -> Option<usize> {

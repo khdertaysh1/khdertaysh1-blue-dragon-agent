@@ -23,6 +23,12 @@ pub fn core() -> BTreeSet<String> {
 /// Advertise browser capability for URL-bearing tasks without granting access.
 pub fn for_prompt(prompt: &str) -> BTreeSet<String> {
     let mut selected = core();
+    if prompt
+        .split_whitespace()
+        .any(|w| !w.contains("://") && crate::intelligence::fresh::source_path(w).is_some())
+    {
+        selected.insert("read_file".into());
+    }
     if prompt.split_whitespace().any(|word| {
         let word = word
             .trim_matches(|c: char| matches!(c, '(' | ')' | '[' | ']' | '<' | '>' | '\"' | '\''));

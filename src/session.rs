@@ -14,6 +14,8 @@ pub struct Session {
     pub updated_at: DateTime<Utc>,
     pub messages: Vec<Value>,
     #[serde(default)]
+    pub compact_context: bool,
+    #[serde(default)]
     pub plan: crate::plan::Plan,
     #[serde(default)]
     pub last_report: Value,
@@ -64,6 +66,7 @@ pub fn new(root: &Path, model: &str) -> Session {
         model: model.to_string(),
         updated_at: Utc::now(),
         messages: Vec::new(),
+        compact_context: false,
         plan: crate::plan::Plan::default(),
         last_report: Value::Null,
         review_checkpoint: None,
@@ -146,6 +149,11 @@ pub fn continuation(input: &str) -> bool {
             | "كمل"
             | "كمّل"
             | "كفي"
+            | "كفيها"
+            | "كفّيها"
+            | "كملها"
+            | "كمّلها"
+            | "تابعها"
             | "كمّل من وين وقفنا"
             | "كمل من وين وقفنا"
     )
@@ -494,10 +502,10 @@ mod tests {
     #[test]
     fn checkpoint_uses_real_user_goals_and_displays_saved_stop() {
         let mut s = new(Path::new("."), "test");
-        s.messages = ["Read the label", "synthetic guidance", "كمّل!"]
+        s.messages = ["Read the label", "synthetic guidance", "كمّل!", "كفّيها"]
             .map(|content| serde_json::json!({"role":"user","content":content}))
             .to_vec();
-        s.user_turns = vec![0, 2];
+        s.user_turns = vec![0, 2, 3];
         s.last_report = serde_json::json!({"task_status":"interrupted","error":"cancelled"});
         let summary = resume_summary(&s);
         assert!(summary.contains("Read the label") && summary.contains("cancelled"));

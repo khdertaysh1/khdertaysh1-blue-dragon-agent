@@ -34,6 +34,7 @@ function record(details, event) {
   if (traffic.length > 300) {traffic.shift();ringEvictions++;}
 }
 api.webRequest.onBeforeRequest.addListener(d => record(d,'request'), {urls:['http://*/*','https://*/*']});
+api.webRequest.onBeforeRedirect?.addListener(d => record(d,'redirect'), {urls:['http://*/*','https://*/*']});
 api.webRequest.onCompleted.addListener(d => record(d,'response'), {urls:['http://*/*','https://*/*']}, ['responseHeaders']);
 api.webRequest.onErrorOccurred.addListener(d => record(d,'error'), {urls:['http://*/*','https://*/*']});
 api.tabs.onRemoved.addListener(id => {managed.delete(id);if(currentTab===id)currentTab=null;});
@@ -103,15 +104,27 @@ async function execute(action,args) {
   }
   if(!['snapshot','wait_for','click','fill','select','set_checked','scroll','evaluate','console'].includes(action))throw Error('Unsupported action');
   await readyTab(currentTab);
-  const results=await api.scripting.executeScript({target:{tabId:currentTab},world:'MAIN',func:blueDragonPage,args:[action,args,true]});
+  const cursor = traffic.length + ringEvictions;
+  const observedTab = currentTab;
+  const pageArgs = action === 'click' ? {...args, observe_after_click:true} : args;
+  const results=await api.scripting.executeScript({target:{tabId:currentTab},world:'MAIN',func:blueDragonPage,args:[action,pageArgs,true]});
   if(!Array.isArray(results) || results.length !== 1 || results[0]?.frameId !== 0 || results[0]?.error)throw Error('Page execution failed or returned no main-frame result');
   const envelope=results[0].result;
   if(!envelope || typeof envelope !== 'object' || Array.isArray(envelope) || envelope.blueDragonPageEnvelope !== 1 || typeof envelope.ok !== 'boolean')throw Error('Missing or invalid page execution envelope; inspect before retry');
   const keys=Object.keys(envelope).sort().join(',');
   if(envelope.ok) {
     if(keys !== 'blueDragonPageEnvelope,ok,value' || envelope.value === undefined)throw Error('Invalid successful page execution envelope');
-    if(action==='snapshot' && !args.frame_selector && results[0].documentId)
+    if((action==='snapshot' || action==='console') && !args.frame_selector && results[0].documentId)
       envelope.value.document_identity=[envelope.value.url,results[0].documentId];
+    if (action === 'click' && envelope.value?.clicked === true) {
+      const start = Math.max(0,cursor-ringEvictions);
+      const events = traffic.slice(start).filter(row => row.tab === observedTab);
+      envelope.value.network_interval = {
+        events:events.slice(0,16).map(({event,request_id,status}) => ({event,request_id,status})),
+        retained_event_count:events.length, preview_omitted:Math.max(0,events.length-16),
+        ring_gap_possible:ringEvictions>cursor, causal_link_verified:false
+      };
+    }
     return envelope.value;
   }
   if(keys !== 'blueDragonPageEnvelope,error,ok' || typeof envelope.error !== 'string')throw Error('Invalid failed page execution envelope');

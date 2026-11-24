@@ -85,6 +85,7 @@ struct Screen {
     lines: Vec<String>,
     input: String,
     busy: bool,
+    followups: std::collections::VecDeque<String>,
     approval: Option<ApprovalRequest>,
     picker: Option<ModelPicker>,
     approval_scroll: u16,
@@ -112,6 +113,7 @@ impl Screen {
             ],
             input: String::new(),
             busy: false,
+            followups: Default::default(),
             approval: None,
             picker: None,
             approval_scroll: 0,
@@ -183,10 +185,31 @@ impl Screen {
 
     fn submit(&mut self, tx: &Sender<Work>) {
         if self.busy {
-            if !self.input.trim().is_empty() {
-                self.cancelled
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                self.status = "New instruction preserved; cancelling current work. Press Enter after it stops to submit.".into();
+            let text = self.input.trim();
+            if !text.is_empty() {
+                if text == "/scope clear" {
+                    self.cancelled
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.jobs.cancel_all();
+                    self.approve(false);
+                    self.status =
+                        "Cancellation requested. Press Enter after stop to clear scope.".into();
+                    return;
+                }
+                if text.starts_with('/')
+                    || self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    self.status = "Draft kept. Submit after the current task stops.".into();
+                } else {
+                    self.followups.push_back(text.to_owned());
+                    self.input.clear();
+                    self.cursor = 0;
+                    self.log(
+                        "System:",
+                        "Follow-up queued for this conversation after the current task.",
+                    );
+                    self.status = "Working · follow-up queued".into();
+                }
             }
             return;
         }
@@ -199,7 +222,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -223,6 +246,22 @@ impl Screen {
             self.status = "Working (approval may be requested)".into();
         } else {
             self.status = "Agent worker stopped".into();
+        }
+    }
+
+    fn dispatch_followup(&mut self, tx: &Sender<Work>) {
+        if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            self.followups.clear();
+            return;
+        }
+        if let Some(text) = self.followups.pop_front() {
+            self.log("You:", &text);
+            if tx.send(Work::Prompt(text)).is_ok() {
+                self.busy = true;
+                self.status = "Working on queued follow-up".into();
+            } else {
+                self.status = "Agent worker stopped".into();
+            }
         }
     }
 
@@ -480,6 +519,7 @@ pub fn run(
                             app.status = "Task failed; see transcript".into();
                         }
                     }
+                    app.dispatch_followup(&work_tx);
                 }
                 AgentEvent::ToolResult(summary) => {
                     app.log("Result:", &summary);
@@ -636,6 +676,16 @@ pub fn run(
             }
             continue;
         }
+        if !app.busy
+            && key.code == KeyCode::Char('t')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            if work_tx.send(Work::Slash("/models".into())).is_ok() {
+                app.busy = true;
+                app.status = "Loading model choices".into();
+            }
+            continue;
+        }
         let can_type = !key.modifiers.contains(KeyModifiers::CONTROL)
             && app.input.chars().count() < MAX_INPUT_CHARS;
         match key.code {
@@ -704,6 +754,7 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/memory ") => serde_json::to_string_pretty(
             &agent.memory_command(line.trim_start_matches("/memory "))?,
         )?,
+        "/compact" => agent.compact_context()?,
         "/context" => serde_json::to_string_pretty(&agent.context_status())?,
         "/findings" => agent.findings_text()?,
         "/rotation" => serde_json::to_string_pretty(&agent.rotation_status())?,
@@ -966,7 +1017,7 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     );
 
     let prompt = if app.busy {
-        " Draft · Ctrl+C cancel "
+        " Enter queue follow-up · Ctrl+C cancel "
     } else if compact {
         " Enter send · /help "
     } else {
@@ -1446,8 +1497,17 @@ mod tests {
         app.busy = true;
         app.input = "draft".into();
         app.submit(&tx);
-        assert_eq!(app.input, "draft");
-        assert!(app.cancelled.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(app.input.is_empty());
+        assert!(!app.cancelled.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(rx.try_recv().is_err());
+        app.input = "second".into();
+        app.submit(&tx);
+        app.input = "unsent draft".into();
+        app.dispatch_followup(&tx);
+        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "draft"));
+        app.dispatch_followup(&tx);
+        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "second"));
+        assert_eq!(app.input, "unsent draft");
         assert!(rx.try_recv().is_err());
     }
 

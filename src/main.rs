@@ -9,6 +9,7 @@ mod continuity;
 mod delegates;
 mod edit_proposals;
 mod exact_file;
+mod file_receipts;
 mod file_review;
 mod intelligence;
 mod jobs;
@@ -104,8 +105,9 @@ struct Cli {
     /// Compatibility flag: verified same-provider free recovery is automatic unless --no-rotation.
     #[arg(long)]
     free_model_fallback: bool,
-    #[arg(long, global=true, default_value_t=24, value_parser=clap::value_parser!(u16).range(1..=100))]
-    max_steps: u16,
+    /// Maximum steps per turn (24 by default, 48 for read-only work).
+    #[arg(long, global=true, env="BLUE_DRAGON_MAX_STEPS", value_parser=clap::value_parser!(u16).range(1..=100))]
+    max_steps: Option<u16>,
     #[arg(long, global=true, default_value_t=32768, value_parser=clap::value_parser!(u32).range(8192..=1048576), help="Context window budget including tools and reply reserve; match the selected model")]
     context_tokens: u32,
     #[arg(
@@ -144,7 +146,15 @@ enum Command {
     /// Full-screen terminal with live answers and per-action approvals
     Tui,
     /// Execute one task; approval is still required for writes/commands
-    Run { task: String },
+    Run {
+        task: String,
+        /// Write a single JSON result to stdout.
+        #[arg(long, conflicts_with = "ndjson")]
+        json: bool,
+        /// Stream one JSON event per line, followed by a result.
+        #[arg(long)]
+        ndjson: bool,
+    },
     /// Check local setup without uploading data
     Doctor,
     /// List saved local sessions, or find a conversation by words and optionally reopen it.
@@ -157,6 +167,48 @@ enum Command {
     Map,
     /// List user-level local Markdown skills
     Skills,
+}
+
+fn run_machine(
+    settings: Settings,
+    approval: ApprovalMode,
+    resume: Option<&str>,
+    task: &str,
+    stream: bool,
+) -> Result<()> {
+    let _input_guard = terminal_input::Guard::with_output(true)?;
+    let mut agent = Agent::new(settings, approval, resume)?;
+    let (tx, rx) = std::sync::mpsc::sync_channel(64);
+    agent.set_output(tx);
+    let reader = std::thread::spawn(move || -> Result<Option<String>> {
+        let mut answer = None;
+        for event in rx {
+            if stream {
+                println!("{}", serde_json::to_string(&event)?);
+                io::stdout().flush()?;
+            }
+            if let agent::AgentEvent::Answer(text) = event {
+                answer = Some(text);
+            }
+        }
+        Ok(answer)
+    });
+    let mut result = agent.run_once(task);
+    let report = agent.last_turn_report();
+    let status = report["task_status"].clone();
+    if result.is_ok() && report["finished"] == false {
+        result = Err(anyhow::anyhow!("Task incomplete ({status})"));
+    }
+    let id = agent.session_id().to_owned();
+    drop(agent);
+    let answer = reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("Event output interrupted"))??;
+    println!(
+        "{}",
+        serde_json::json!({"event":"result","session":id,"task_status":status,"ok":result.is_ok(),"answer":answer,"error":result.as_ref().err().map(ToString::to_string)})
+    );
+    result
 }
 
 fn main() {
@@ -265,7 +317,11 @@ fn run() -> Result<()> {
     settings.stream = !args.no_stream;
     settings.free_rotation = !args.no_rotation;
     settings.free_model_fallback = !args.no_rotation || args.free_model_fallback;
-    settings.max_steps = usize::from(args.max_steps);
+    settings.max_steps =
+        usize::from(
+            args.max_steps
+                .unwrap_or(if args.read_only { 48 } else { 24 }),
+        );
     settings.context_tokens = args.context_tokens as usize;
     settings.project_memory = !args.no_project_memory;
     match args.command {
@@ -385,6 +441,11 @@ fn run() -> Result<()> {
             } else {
                 ApprovalMode::Ask
             };
+            if let Some(Command::Run { task, json, ndjson }) = &cmd {
+                if *json || *ndjson {
+                    return run_machine(settings, approval, args.resume.as_deref(), task, *ndjson);
+                }
+            }
             let _input_guard = terminal_input::Guard::start()?;
             let mut agent = Agent::new(settings, approval, args.resume.as_deref())?;
             print_banner();
@@ -393,7 +454,7 @@ fn run() -> Result<()> {
                 agent.model_status()
             );
             match cmd {
-                Some(Command::Run { task }) => agent.run_once(&task),
+                Some(Command::Run { task, .. }) => agent.run_once(&task),
                 Some(Command::Inspect { url }) => agent.run_once(&url),
                 Some(Command::Url(words)) => agent.run_once(&words[0]),
                 None | Some(Command::Chat) => {
@@ -415,7 +476,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -493,6 +554,10 @@ fn run() -> Result<()> {
                                     Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
                                     Err(e) => eprintln!("Memory: {e:#}"),
                                 };
+                                continue;
+                            }
+                            "/compact" => {
+                                println!("{}", agent.compact_context()?);
                                 continue;
                             }
                             "/context" => {

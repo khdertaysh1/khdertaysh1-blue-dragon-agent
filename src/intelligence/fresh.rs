@@ -36,6 +36,73 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         })
         .collect();
     let lower = normalized.to_lowercase();
+    let lower = lower
+        .replace("sha-256", "digest")
+        .replace("sha256", "digest");
+    // "first N bytes" names a prefix without spelling out two offsets.
+    let words: Vec<_> = lower
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|c: char| matches!(c, '.' | ',' | ';' | '،' | '؛' | ':' | '`'))
+        })
+        .collect();
+    let mut prefixes = words.windows(3).filter(|w| {
+        matches!(w[0], "first" | "أول" | "اول") && matches!(w[2], "bytes" | "byte" | "بايت")
+    });
+    if let Some(prefix) = prefixes.next() {
+        // A second range or offset must not be silently discarded.
+        if prefixes.next().is_some()
+            || lower.contains("..")
+            || words
+                .iter()
+                .any(|w| matches!(*w, "offset" | "offsets" | "إزاحة" | "ازاحة"))
+            || words
+                .iter()
+                .filter(|w| matches!(**w, "byte" | "bytes" | "بايت" | "البايت"))
+                .count()
+                != 1
+        {
+            return Some(Err(()));
+        }
+        return Some(
+            prefix[1]
+                .parse::<u64>()
+                .ok()
+                .filter(|n| *n > 0)
+                .map(|n| (0, n))
+                .ok_or(()),
+        );
+    }
+    // With a descriptive endpoint the only numeric requirement is coverage
+    // of the starting byte. The report must establish the semantic endpoint.
+    if let Some(start) = words.windows(4).find(|w| {
+        matches!(
+            (w[0], w[1], w[3]),
+            ("من", "البايت" | "بايت", "حتى") | ("from" | "at", "byte", "until")
+        )
+    }) {
+        if !lower.contains("..")
+            && words
+                .iter()
+                .filter(|w| w.chars().any(|c| c.is_ascii_digit()))
+                .count()
+                == 1
+            && words.windows(2).any(|w| {
+                matches!(
+                    (w[0], w[1]),
+                    ("آخر" | "نهاية", "الدالة") | ("function", "ends")
+                )
+            })
+        {
+            return Some(
+                start[2]
+                    .parse::<u64>()
+                    .ok()
+                    .and_then(|n| n.checked_add(1).map(|end| (n, end)))
+                    .ok_or(()),
+            );
+        }
+    }
     let marker = ["bytes ", "byte range ", "بايت ", "البايت "]
         .iter()
         .filter_map(|m| lower.find(m).map(|i| i + m.len()))
@@ -81,6 +148,28 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         _ => Err(()),
     })
 }
+pub(crate) fn source_path(word: &str) -> Option<&str> {
+    let suffixes = [
+        "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
+        "java", "yaml", "yml", "tsv", "csv",
+    ];
+    let word = word.trim_matches(|c: char| {
+        matches!(
+            c,
+            '`' | '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ';' | ':' | '،'
+        )
+    });
+    let word = word.trim_end_matches('.');
+    let word = word
+        .strip_prefix('و')
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_alphanumeric()))
+        .unwrap_or(word);
+    if word.contains("://") || word.len() > 1024 {
+        return None;
+    }
+    let extension = std::path::Path::new(word).extension()?.to_str()?;
+    suffixes.contains(&extension).then_some(word)
+}
 pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if prompt.len() > 25_000 {
         return vec![];
@@ -99,7 +188,34 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     {
         return vec![];
     }
-    let range = explicit_range(prompt);
+    let historical_network = [
+        "network_events",
+        "saved network",
+        "network capture",
+        "سجل الشبكة المحفوظ",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker));
+    // A filename like bundle-01.js supplies a target, not a byte offset.
+    let range_text = prompt
+        .split_whitespace()
+        .filter(|word| {
+            // A stored network event offset selects a history page.
+            let cursor = word
+                .trim_end_matches(['.', ',', '،'])
+                .strip_prefix("offset=");
+            !(historical_network && cursor.is_some_and(|value| value.parse::<u64>().is_ok()))
+        })
+        .map(|word| {
+            if source_path(word).is_some() {
+                "<file>"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let range = explicit_range(&range_text);
     let explicit_window = range.is_some();
     let bounded_only = explicit_window
         || text.contains("window")
@@ -115,36 +231,43 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if !read {
         return vec![];
     }
-    let suffixes = [
-        "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
-        "java", "yaml", "yml",
-    ];
     let mut paths = prompt
         .split_whitespace()
-        .filter_map(|word| {
-            let word = word.trim_matches(|c: char| {
-                matches!(
-                    c,
-                    '`' | '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ';' | ':' | '،'
-                )
-            });
-            let word = word.trim_end_matches('.');
-            if word.contains("://") || word.len() > 1024 {
-                return None;
-            }
-            let extension = std::path::Path::new(word).extension()?.to_str()?;
-            suffixes.contains(&extension).then(|| word.to_owned())
-        })
+        .filter_map(source_path)
+        .map(str::to_owned)
         .collect::<Vec<_>>();
-    let historical_network = [
-        "network_events",
-        "saved network",
-        "network capture",
-        "سجل الشبكة المحفوظ",
-    ]
-    .iter()
-    .any(|marker| text.contains(marker));
-    if historical_network && paths.is_empty() && !text.contains("byte") && !text.contains("بايت")
+    let evidence_reference = text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| {
+            word.strip_prefix('e')
+                .is_some_and(|id| id.len() >= 6 && id.bytes().all(|digit| digit.is_ascii_digit()))
+        });
+    let historical_result = evidence_reference
+        && [
+            "saved result",
+            "saved evidence",
+            "recorded result",
+            "النتيجة المحفوظة",
+            "الدليل المحفوظ",
+            "الأدلة المحفوظة",
+        ]
+        .iter()
+        .any(|phrase| text.contains(phrase));
+    if (historical_network || historical_result)
+        && paths.is_empty()
+        && !bounded_only
+        && ![
+            "local file",
+            "from disk",
+            "الملف المحلي",
+            "من القرص",
+            "fresh read",
+            "أعد قراءة",
+        ]
+        .iter()
+        .any(|term| text.contains(term))
+        && !text.contains("byte")
+        && !text.contains("بايت")
     {
         return vec![];
     }
@@ -252,7 +375,7 @@ pub fn status(requests: &[Request], session: &Session, tools: &ToolBox) -> Value
             // request without a declared range proves only the actual read window.
             let Some(end)=result["end_byte_offset"].as_u64() else {continue;};
             let Some(size)=result["file_bytes"].as_u64() else {continue;};
-            if end<=offset || result["byte_offset"]!=offset || request.expected_window.is_some_and(|(a,b)|offset>a || end<if request.explicit_window {b} else {b.min(size)}) {state="inconclusive";continue;}
+            if end<=offset || result["byte_offset"]!=offset || request.expected_window.is_some_and(|(a,b)|offset>a || end<if request.explicit_window {b} else {b.min(size)}) {if proof.is_null() {state="inconclusive";} continue;}
             let Ok(current)=tools.read_file_window(path,offset,count) else {state="stale";proof=Value::Null;continue;};
             if current["window_sha256"]!=result["window_sha256"] || current["content"]!=result["content"] || current["end_byte_offset"]!=result["end_byte_offset"] || current["file_bytes"]!=result["file_bytes"] {state="stale";proof=Value::Null;continue;}
             state="verified";
@@ -265,6 +388,49 @@ pub fn status(requests: &[Request], session: &Session, tools: &ToolBox) -> Value
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn historical_network_question_does_not_request_local_source() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        let prompt = "اقرأ النتيجة المحفوظة E000047 فقط وأعطني اسم الملف وحالة HTTP";
+        assert!(detect(prompt, &session).is_empty());
+        let mixed = format!("{prompt} ثم اقرأ الملف المحلي demo.js");
+        assert_eq!(detect(&mixed, &session)[0].path.as_deref(), Some("demo.js"));
+    }
+
+    #[test]
+    fn first_bytes_resolves_to_named_file_and_prefix() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        for prompt in [
+            "استخدم file_info على aghanim-trial-01.js ثم اقرأ أول 512 بايت منه باستخدام read_file_window.",
+            "اقرأ أول ٥١٢ بايت من aghanim-trial-01.js",
+            "Read the first 512 bytes of aghanim-trial-01.js",
+        ] {
+            let requests = detect(prompt, &session);
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].path.as_deref(), Some("aghanim-trial-01.js"));
+            assert_eq!(requests[0].expected_window, Some((0, 512)));
+            assert!(requests[0].explicit_window);
+        }
+        assert_eq!(
+            explicit_range("first 512 bytes and bytes 800..900"),
+            Some(Err(()))
+        );
+    }
+
+    #[test]
+    fn arabic_starting_byte_with_function_endpoint() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        let prompt = "كمّل من الدالة u(e) في الملف المحلي aghanim-trial-01.js. اقرأ ابتداءً من البايت 397 حتى يظهر آخر الدالة.";
+        let requests = detect(prompt, &session);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path.as_deref(), Some("aghanim-trial-01.js"));
+        assert_eq!(requests[0].expected_window, Some((397, 398)));
+        assert_eq!(
+            explicit_range("من البايت 397 حتى 900 ثم نهاية الدالة"),
+            Some(Err(()))
+        );
+    }
+
     #[test]
     fn rejects_unsuccessful_matching_content() {
         for state in [
@@ -320,22 +486,26 @@ mod tests {
     #[test]
     fn native_pairs_hashes_ranges_and_success_are_required() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("app.js"), "const value = 42;\n").unwrap();
+        std::fs::write(
+            dir.path().join("aghanim-trial-01.js"),
+            "const value = 42;\n",
+        )
+        .unwrap();
         let tools = ToolBox::new(
             dir.path().canonicalize().unwrap(),
             crate::tools::ApprovalMode::ReadOnly,
         );
         let mut session = crate::session::new(dir.path(), "fixture");
-        let request = Request {
-            path: Some("app.js".into()),
-            after_message: 0,
-            requested_at: "fixture".into(),
-            bounded_only: true,
-            expected_window: None,
-            explicit_window: false,
-        };
-        let args = json!({"path":"app.js","byte_offset":0,"byte_count":4096});
-        let result = tools.read_file_window("app.js", 0, 4096).unwrap();
+        let prompt = "افحص الملف المحلي aghanim-trial-01.js. استخدم search_file للبحث عن function. إذا ما لقيتها، جرّب =>. عند أول تطابق، اقرأ الكود المحيط به باستخدام read_file_window. أعطني موضع التطابق بالبايت، ومقتطفاً حرفياً قصيراً يحتوي عليه، واشرح بجملة شو بيعمل الكود الظاهر. إذا المقتطف ما بيكفي لتحديد وظيفة الدالة، اذكر شو قدرت تثبت منه فقط. وإذا ما ظهر أي تطابق، اذكر لحد وين وصل البحث. لا تفتح المتصفح.";
+        let mut requests = detect(prompt, &session);
+        assert_eq!(requests.len(), 1);
+        let request = requests.pop().unwrap();
+        assert_eq!(request.path.as_deref(), Some("aghanim-trial-01.js"));
+        assert!(!request.explicit_window);
+        let args = json!({"path":"aghanim-trial-01.js","byte_offset":0,"byte_count":4096});
+        let result = tools
+            .read_file_window("aghanim-trial-01.js", 0, 4096)
+            .unwrap();
         session.messages.push(json!({"role":"assistant","tool_calls":[{"id":"capture","function":{"name":"read_file_window","arguments":args.to_string()}}]}));
         let mut observation = crate::reasoning::observe(1, "read_file_window", &result);
         observation.request_sha256 =

@@ -23,11 +23,35 @@ pub struct Guard {
     cached_reuses: usize,
     consecutive_cached: usize,
     recall_reads: usize,
+    saving_file: bool,
+    opened_url: Option<String>,
+    network_evidence: Option<String>,
+    capture_summary: Option<Value>,
     // Observed bytes, shared across full and window reads. No live read is skipped.
     read_ranges: BTreeMap<(String, usize), String>,
     redundant_reads: usize,
 }
 impl Guard {
+    pub fn for_task(prompt: &str) -> Self {
+        let text = prompt.to_lowercase();
+        let saving_file = ["save", "download", "احفظ", "حفظ", "نزّل", "نزل", "تحميل"]
+            .iter()
+            .any(|word| text.contains(word))
+            && ![
+                "reload",
+                "refresh the page",
+                "reopen",
+                "أعد تحميل الصفحة",
+                "أعد فتح",
+            ]
+            .iter()
+            .any(|word| text.contains(word));
+        Self {
+            saving_file,
+            ..Self::default()
+        }
+    }
+
     fn key(name: &str, args: &Value) -> String {
         if name == "recall_context" && args["network_events"] == true {
             return format!(
@@ -61,11 +85,30 @@ impl Guard {
             seen.unadvertised = true;
         }
     }
-    pub fn link_evidence(&mut self, name: &str, args: &Value, id: &str) {
+    pub fn link_evidence(&mut self, name: &str, args: &Value, id: &str, result: &Value) {
+        if name == "browser"
+            && args["action"] == "network"
+            && self.opened_url.is_some()
+            && result["ok"] == true
+        {
+            self.network_evidence = Some(id.to_owned());
+            self.capture_summary = self
+                .opened_url
+                .as_deref()
+                .and_then(|url| crate::network_history::file_selection(result, url, id));
+        }
         if let Some(seen) = self.seen.get_mut(&Self::key(name, args)) {
             seen.evidence = Some(id.to_owned());
         }
     }
+    pub fn file_capture(&self) -> Option<&Value> {
+        self.capture_summary.as_ref()
+    }
+
+    pub fn is_file_task(&self) -> bool {
+        self.saving_file
+    }
+
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
         if matches!(name, "job_status" | "job_output") {
             return None;
@@ -102,6 +145,22 @@ impl Guard {
                 "Repeated identical arguments returned unchanged results. Inspect the previous result for this tool."
             }}));
         }
+        if name == "browser"
+            && self.saving_file
+            && matches!(args["action"].as_str(), Some("open" | "navigate"))
+            && self.opened_url.is_some()
+            && self.opened_url.as_deref() == args["url"].as_str()
+        {
+            if let Some(id) = self.network_evidence.as_deref() {
+                self.blocked += 1;
+                self.consecutive_blocks += 1;
+                return Some(
+                    json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,
+                    "category":"network_already_captured","original_evidence_id":id,
+                    "error":"This document already has a network capture. Continue from its recorded request or page the existing capture. Use browser action save_response for the requested file. If no suitable response is present, report the missing evidence."}),
+                );
+            }
+        }
         if name == "web_fetch" {
             if let Some(reference) = self.fetches.get(&key) {
                 self.cached_reuses += 1;
@@ -130,6 +189,34 @@ impl Guard {
         if matches!(name, "job_status" | "job_output") {
             return false;
         }
+        if name == "browser" && self.saving_file {
+            match args["action"].as_str() {
+                Some("open" | "navigate") => {
+                    self.opened_url = args["url"]
+                        .as_str()
+                        .filter(|_| result["ok"] == true)
+                        .map(str::to_owned);
+                    self.network_evidence = None;
+                    self.capture_summary = None;
+                }
+                Some("snapshot") if result["ok"] == true && result["url"].is_string() => {
+                    if self.opened_url.as_deref() != result["url"].as_str() {
+                        self.opened_url = result["url"].as_str().map(str::to_owned);
+                        self.network_evidence = None;
+                        self.capture_summary = None;
+                    }
+                }
+                Some(
+                    "snapshot" | "network" | "source" | "status" | "console" | "screenshot"
+                    | "wait_for" | "save_response",
+                ) => {}
+                _ => {
+                    self.opened_url = None;
+                    self.network_evidence = None;
+                    self.capture_summary = None;
+                }
+            }
+        }
         let mut redundant = false;
         if matches!(name, "read_file" | "read_file_window") {
             if let (Some(path), Some(content)) = (args["path"].as_str(), result["content"].as_str())
@@ -146,6 +233,11 @@ impl Guard {
                             == Some(content.as_bytes())
                     });
                 if !redundant {
+                    // A new local observation breaks the streak, even after blocked calls
+                    // to other tools. Individual denied requests remain guarded in seen.
+                    if !content.is_empty() {
+                        self.consecutive_blocks = 0;
+                    }
                     let end = offset.saturating_add(content.len());
                     self.read_ranges.retain(|(p, s), v| {
                         p != path
@@ -218,6 +310,42 @@ impl Guard {
 mod tests {
     use super::*;
     #[test]
+    fn file_task_preserves_capture_across_read_only_actions() {
+        let mut guard = Guard::for_task("Open the page and save a file");
+        let open = json!({"action":"open","url":"https://example.test/"});
+        let network = json!({"action":"network"});
+        let ok = json!({"ok":true});
+        guard.after("browser", &open, &ok);
+        guard.after("browser", &network, &ok);
+        guard.link_evidence("browser", &network, "E000047", &ok);
+        guard.after("list_files", &json!({}), &ok);
+        let blocked = guard.before("browser", &open).unwrap();
+        assert_eq!(blocked["original_evidence_id"], "E000047");
+        assert!(guard
+            .before("browser", &json!({"action":"save_response"}))
+            .is_none());
+        guard.after("browser", &json!({"action":"click"}), &ok);
+        assert!(guard.before("browser", &open).is_none());
+    }
+
+    #[test]
+    fn new_local_windows_break_block_streaks_without_unlocking_declined_calls() {
+        let mut guard = Guard::default();
+        let denied = json!({"path":"locked.txt","content":"x"});
+        guard.after("write_file", &denied, &json!({"denied":true}));
+        for offset in [0, 5, 10, 15] {
+            assert!(guard.before("write_file", &denied).is_some());
+            let args = json!({"path":"demo.txt","byte_offset":offset,"byte_count":5});
+            let window = json!({"byte_offset":offset,"content":"hello"});
+            assert!(!guard.after("read_file_window", &args, &window));
+            assert!(!guard.stalled());
+        }
+        for _ in 0..3 {
+            assert!(guard.before("write_file", &denied).is_some());
+        }
+        assert!(guard.stalled());
+    }
+    #[test]
     fn distinct_saved_pages_are_progress_but_identical_recall_still_stops() {
         let mut guard = Guard::default();
         for offset in [0, 8, 16] {
@@ -251,7 +379,7 @@ mod tests {
             let mut g = Guard::default();
             let args = json!({"action":"click"});
             g.after("browser", &args, &value);
-            g.link_evidence("browser", &args, "E9");
+            g.link_evidence("browser", &args, "E9", &value);
             let blocked = g.before("browser", &args).unwrap();
             assert_eq!(blocked["category"], expected);
             assert_eq!(blocked["original_evidence_id"], "E9");

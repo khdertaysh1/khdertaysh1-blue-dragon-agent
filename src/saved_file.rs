@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     sync::atomic::AtomicBool,
 };
 
@@ -18,10 +18,15 @@ struct Checkpoint {
     path: String,
     size: u64,
     sha256: String,
+    browser_source: Option<Value>,
 }
 impl Checkpoint {
     fn metadata(&self) -> Value {
-        json!({"saved_evidence_id":self.id,"path":self.path,"bytes":self.size,"sha256":self.sha256})
+        let mut metadata = json!({"saved_evidence_id":self.id,"path":self.path,"bytes":self.size,"sha256":self.sha256});
+        if let Some(source) = &self.browser_source {
+            metadata["browser_source"] = source.clone();
+        }
+        metadata
     }
 }
 
@@ -60,6 +65,9 @@ fn checkpoint(session: &Session, id: &str) -> Result<Checkpoint> {
         path: path.into(),
         size,
         sha256: digest.into(),
+        browser_source: (tool == "browser").then(|| json!({
+            "origin":result["source_origin"], "request_id":result.get("request_id").unwrap_or(&args["request_id"])
+        })),
     })
 }
 
@@ -74,6 +82,10 @@ fn recent_checkpoints(session: &Session) -> impl Iterator<Item = Checkpoint> + '
             None
         }
     })
+}
+
+pub(crate) fn save_receipt(session: &Session, id: &str) -> Option<Value> {
+    checkpoint(session, id).ok().map(|entry| entry.metadata())
 }
 
 pub(crate) fn list(session: &Session) -> Value {
@@ -115,13 +127,30 @@ impl SavedFile {
                 path: path.into(),
                 size,
                 sha256,
+                browser_source: None,
             },
             snapshot,
         })
     }
 
-    pub(crate) fn seed(&self, cancelled: &AtomicBool) -> Result<(Value, Value)> {
-        let args = json!({"path":self.checkpoint.path,"byte_offset":0,"byte_count":2048});
+    pub(crate) fn seed(&self, tail: bool, cancelled: &AtomicBool) -> Result<(Value, Value)> {
+        let mut offset = if tail {
+            self.checkpoint.size.saturating_sub(2048)
+        } else {
+            0
+        };
+        if offset > 0 {
+            let mut file = self.snapshot.try_clone()?;
+            file.seek(SeekFrom::Start(offset))?;
+            let mut prefix = [0; 4];
+            file.read_exact(&mut prefix)?;
+            let skip = prefix
+                .iter()
+                .position(|byte| byte & 0xc0 != 0x80)
+                .context("Invalid UTF-8 boundary in file tail")?;
+            offset += skip as u64;
+        }
+        let args = json!({"path":self.checkpoint.path,"byte_offset":offset,"byte_count":2048});
         let result = self.invoke("read_file_window", &args, cancelled)?;
         Ok((args, result))
     }

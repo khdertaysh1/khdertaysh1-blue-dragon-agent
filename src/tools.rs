@@ -235,7 +235,7 @@ impl ToolBox {
             anyhow::bail!("Not a file");
         }
         if path.metadata()?.len() > MAX_TEXT_BYTES as u64 {
-            anyhow::bail!("File exceeds 128 KiB limit");
+            anyhow::bail!("File exceeds 128 KiB limit. Use read_file_window on the same path starting at byte_offset 0 with byte_count 16384, then follow next_byte_offset.");
         }
         let value = fs::read_to_string(&path).context("File is not UTF-8 text")?;
         Ok(
@@ -489,21 +489,34 @@ impl ToolBox {
             }
         }
         crate::terminal_input::prepare_approval()?;
-        println!("\n┌─ APPROVAL REQUIRED ──────────────────────────────────────");
-        println!("│ {action}");
+        let mut output = crate::terminal_input::prompt_output();
+        writeln!(
+            output,
+            "\n┌─ APPROVAL REQUIRED ──────────────────────────────────────"
+        )?;
+        writeln!(output, "│ {action}")?;
         for line in detail.lines().take(140) {
-            println!("│ {line}");
+            writeln!(output, "│ {line}")?;
         }
         if detail.lines().count() > 140 {
-            println!("│ ... diff truncated; use /diff to review staged edits");
+            writeln!(
+                output,
+                "│ ... diff truncated; use /diff to review staged edits"
+            )?;
         }
-        println!("└─────────────────────────────────────────────────────────");
+        writeln!(
+            output,
+            "└─────────────────────────────────────────────────────────"
+        )?;
         if crate::browser::group_approval(action) {
-            print!("Allow snapshot and network reads for this page and task? [y/N] ");
+            write!(
+                output,
+                "Allow snapshot and network reads for this page and task? [y/N] "
+            )?;
         } else {
-            print!("Approve this ONE action? [y/N] ");
+            write!(output, "Approve this ONE action? [y/N] ")?;
         }
-        std::io::stdout().flush()?;
+        output.flush()?;
         let answer = crate::terminal_input::approval()?;
         self.user_declined
             .store(!answer, std::sync::atomic::Ordering::Relaxed);
@@ -706,9 +719,24 @@ impl ToolBox {
             .chars()
             .take(64000)
             .collect::<String>();
-        Ok(
-            json!({"ok":status<400,"status":status,"redirect":redirect,"security_header_indicators":security_header_indicators,"content_type":content_type,"text":text,"truncated":truncated||text.as_bytes()!=bytes,"storage":"session_only","saved_to_disk":false,"captured_bytes":bytes.len(),"text_bytes":text.len(),"note":"Untrusted fetched content held in the session only. No workspace file was written. Redirects not followed; scripts not executed."}),
-        )
+        let mut result = json!({"ok":status<400,"status":status,"redirect":redirect,"security_header_indicators":security_header_indicators,"content_type":content_type,"text":text,"truncated":truncated||text.as_bytes()!=bytes,"storage":"session_only","saved_to_disk":false,"captured_bytes":bytes.len(),"text_bytes":text.len(),"note":"Untrusted fetched content held in the session only. No workspace file was written. Redirects not followed; scripts not executed."});
+        if !truncated
+            && (200..300).contains(&status)
+            && content_type
+                .split(';')
+                .next()
+                .is_some_and(|s| s.trim().eq_ignore_ascii_case("text/html"))
+        {
+            if let Ok(body) = std::str::from_utf8(&bytes) {
+                let urls = crate::file_receipts::page_links(&reqwest::Url::parse(raw)?, body);
+                result["script_url_hashes"] = json!(urls
+                    .iter()
+                    .map(|u| crate::intelligence::code::hash(u.as_bytes()))
+                    .collect::<Vec<_>>());
+                result["first_script_urls"] = json!(urls.iter().take(2).collect::<Vec<_>>());
+            }
+        }
+        Ok(result)
     }
     pub fn run_command(&self, program: &str, args: &[String]) -> Result<Value> {
         self.run_command_with_timeout(program, args, 30)

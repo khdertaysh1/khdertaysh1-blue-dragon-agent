@@ -16,6 +16,14 @@ use std::{
     },
     time::Duration,
 };
+static MACHINE_OUTPUT: AtomicBool = AtomicBool::new(false);
+pub fn prompt_output() -> Box<dyn Write> {
+    if MACHINE_OUTPUT.load(Ordering::Relaxed) {
+        Box::new(io::stderr())
+    } else {
+        Box::new(io::stdout())
+    }
+}
 static CANCELLED: AtomicBool = AtomicBool::new(false);
 pub fn cancelled() -> bool {
     CANCELLED.load(Ordering::Relaxed)
@@ -35,12 +43,21 @@ fn state() -> &'static Mutex<Input> {
 }
 pub struct Guard {
     interactive: bool,
+    machine: bool,
     #[cfg(unix)]
     previous: Option<libc::sighandler_t>,
 }
 impl Guard {
     pub fn start() -> Result<Self> {
-        let interactive = io::stdin().is_terminal() && io::stdout().is_terminal();
+        Self::with_output(false)
+    }
+    pub fn with_output(machine: bool) -> Result<Self> {
+        let interactive = io::stdin().is_terminal()
+            && if machine {
+                io::stderr().is_terminal()
+            } else {
+                io::stdout().is_terminal()
+            };
         #[cfg(unix)]
         let mut previous = None;
         if interactive {
@@ -58,10 +75,16 @@ impl Guard {
                     interrupt as *const () as libc::sighandler_t,
                 ));
             }
-            execute!(io::stdout(), EnableBracketedPaste)?;
+            if machine {
+                execute!(io::stderr(), EnableBracketedPaste)?;
+            } else {
+                execute!(io::stdout(), EnableBracketedPaste)?;
+            }
         }
+        MACHINE_OUTPUT.store(machine, Ordering::Relaxed);
         Ok(Self {
             interactive,
+            machine,
             #[cfg(unix)]
             previous,
         })
@@ -69,8 +92,13 @@ impl Guard {
 }
 impl Drop for Guard {
     fn drop(&mut self) {
+        MACHINE_OUTPUT.store(false, Ordering::Relaxed);
         if self.interactive {
-            let _ = execute!(io::stdout(), DisableBracketedPaste);
+            if self.machine {
+                let _ = execute!(io::stderr(), DisableBracketedPaste);
+            } else {
+                let _ = execute!(io::stdout(), DisableBracketedPaste);
+            }
             let _ = terminal::disable_raw_mode();
             #[cfg(unix)]
             if let Some(previous) = self.previous {
@@ -174,7 +202,10 @@ pub fn prepare_approval() -> Result<()> {
             }
         }
         if !i.draft.is_empty() {
-            println!("Conversation draft retained; approval requires a NEW Y or N choice.");
+            writeln!(
+                prompt_output(),
+                "Conversation draft retained; approval requires a NEW Y or N choice."
+            )?;
         }
     }
     Ok(())
@@ -201,11 +232,11 @@ pub fn approval() -> Result<bool> {
         match event::read()? {
             Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
                 KeyCode::Char('y' | 'Y') => {
-                    println!("y");
+                    writeln!(prompt_output(), "y")?;
                     return Ok(true);
                 }
                 KeyCode::Char('n' | 'N') => {
-                    println!("n");
+                    writeln!(prompt_output(), "n")?;
                     return Ok(false);
                 }
                 KeyCode::Char('d') if k.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -218,7 +249,10 @@ pub fn approval() -> Result<bool> {
             },
             Event::Paste(s) => {
                 append(&mut state().lock().unwrap(), &s)?;
-                println!("Pasted draft retained; choose Y/N separately.");
+                writeln!(
+                    prompt_output(),
+                    "Pasted draft retained; choose Y/N separately."
+                )?;
             }
             _ => {}
         }

@@ -6,6 +6,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+from fixture_intent import reply_to_work_intent
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,10 @@ def main(binary):
     class Model(http.server.BaseHTTPRequestHandler):
         def log_message(self,*_):pass
         def do_POST(self):
-            packet=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(packet)
+            packet=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if reply_to_work_intent(self, packet):
+                return
+            requests.append(packet)
             step=len(requests)
             if step==1:args={'action':'list','server':'fixture'}
             elif step in (2,5):args={'action':'read','server':'fixture','uri':'fixture://schema'}
@@ -49,7 +53,7 @@ def main(binary):
             assert log.read_text()==before,'Resume must not reconnect or read the stale catalog'
             restored=json.loads(paths[0].read_text());latest=[json.loads(m['content']) for m in restored['messages'] if m['role']=='tool'][-1]
             assert latest['ok'] is False and len(requests)==6,latest
-            print(json.dumps({'status':'passed','stdio_resource_reads':1,'unlisted_uri_requests':0,'resume_server_requests':0,'model_requests':6,'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest()}))
+            print(json.dumps({'status':'passed','stdio_resource_reads':1,'unlisted_uri_requests':0,'resume_server_requests':0,'model_requests_outside_intent_round':6,'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest()}))
     finally:server.shutdown();server.server_close();thread.join(timeout=3)
 
 if __name__=='__main__':
