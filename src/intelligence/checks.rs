@@ -18,6 +18,8 @@ pub struct Contract {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proof {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub different_value: Option<Value>,
     pub evidence_id: String,
     pub message_index: usize,
     pub workspace_fingerprint: String,
@@ -78,10 +80,18 @@ impl Contract {
             return;
         }
         for (n, c) in self.checks.iter().enumerate() {
-            if c.tool == name && c.arguments == *args && result.pointer(&c.field) == Some(&c.equals)
-            {
-                self.observations[n] = Some(proof.clone());
+            if c.tool != name || c.arguments != *args {
+                continue;
             }
+            let actual = result.pointer(&c.field);
+            if actual == Some(&c.equals) {
+                self.observations[n] = Some(proof.clone());
+            } else if name == "file_info" {
+                // Only expose typed native metadata. Missing fields leave the check pending.
+                self.observations[n] = actual.filter(|v| v.is_boolean() || v.is_u64())
+                    .map(|value| Proof { different_value: Some(value.clone()), ..proof.clone() });
+            }
+
         }
     }
     pub fn invalidate(&mut self) {
@@ -90,8 +100,10 @@ impl Contract {
     pub fn status(&self, fingerprint: Option<&str>) -> Value {
         let rows=self.checks.iter().enumerate().map(|(i,c)|{
    let proof=self.observations.get(i).and_then(Option::as_ref);
-   let observed=proof.is_some_and(|p|fingerprint==Some(p.workspace_fingerprint.as_str()));
-   json!({"criterion":c,"observed":observed,"evidence":proof,"freshness":if observed && proof.is_some_and(|p|p.coverage_complete){"matches_bounded_workspace_snapshot"}else if observed{"snapshot_coverage_limited"}else{"missing_or_stale"}})
+   let current = proof.filter(|p| fingerprint == Some(p.workspace_fingerprint.as_str()));
+   let different = current.and_then(|p| p.different_value.as_ref());
+   let observed = current.is_some() && different.is_none();
+   json!({"criterion":c,"observed":observed,"different_value":different,"evidence":proof,"freshness":if different.is_some(){"observed_different_value"}else if observed && proof.is_some_and(|p|p.coverage_complete){"matches_bounded_workspace_snapshot"}else if observed{"snapshot_coverage_limited"}else{"missing_or_stale"}})
   }).collect::<Vec<_>>();
         let satisfied = !rows.is_empty() && rows.iter().all(|r| r["observed"] == true);
         json!({"declaration_state":if rows.is_empty(){"not_declared"}else{"declared"},"checks":rows,"all_declared_checks_observed":satisfied,"semantic_task_correctness_proven":false,"note":"Exact tool/input/native-result checks with bounded workspace freshness. Model-authored criteria can still be insufficient; no prose, historical memory or stdout banner is treated as task success."})
@@ -124,6 +136,7 @@ mod tests {
                 &json!({"program":"fixture","args":[]}),
                 &json!({"exit_code":0,"execution_status":status}),
                 Proof {
+                    different_value: None,
                     evidence_id: "E1".into(),
                     message_index: 1,
                     workspace_fingerprint: "current".into(),
@@ -143,6 +156,7 @@ mod tests {
             &json!({"program":"echo","args":["passed"]}),
             &json!({"ok":true,"exit_code":0}),
             Proof {
+                different_value: None,
                 evidence_id: "E6".into(),
                 message_index: 6,
                 workspace_fingerprint: "snap".into(),
@@ -155,6 +169,7 @@ mod tests {
             &json!({"program":"cargo","args":["test"]}),
             &json!({"ok":true,"stdout":"passed"}),
             Proof {
+                different_value: None,
                 evidence_id: "E7".into(),
                 message_index: 7,
                 workspace_fingerprint: "snap".into(),
@@ -167,6 +182,7 @@ mod tests {
             &json!({"program":"cargo","args":["test"]}),
             &json!({"ok":true,"exit_code":0}),
             Proof {
+                different_value: None,
                 evidence_id: "E4".into(),
                 message_index: 4,
                 workspace_fingerprint: "snap".into(),
@@ -179,6 +195,7 @@ mod tests {
             &json!({"program":"cargo","args":["test"]}),
             &json!({"ok":true,"exit_code":0}),
             Proof {
+                different_value: None,
                 evidence_id: "E8".into(),
                 message_index: 8,
                 workspace_fingerprint: "snap".into(),

@@ -964,6 +964,7 @@ impl Agent {
             anyhow::bail!("Task prompt exceeds 25KiB limit");
         }
         let browser_only = browser_only_request(prompt);
+        let no_browser = no_browser_request(prompt);
         if browser_only && resumed.is_some() {
             anyhow::bail!(
                 "Browser-only task cannot resume a file review. Start a new browser task."
@@ -1180,7 +1181,7 @@ impl Agent {
                     self.session.vision_destination.as_deref(),
                     self.provider.vision_destination().as_deref(),
                 )?;
-                let definitions = if report_recovery {
+                let mut definitions = if report_recovery {
                     json!([])
                 } else if user_denied_action {
                     if denied_artifact_read {
@@ -1210,6 +1211,11 @@ impl Agent {
                 } else {
                     self.definitions()
                 };
+                if no_browser {
+                    if let Some(items) = definitions.as_array_mut() {
+                        items.retain(|d| d["function"]["name"] != "browser");
+                    }
+                }
                 let mut limit_source = "configured_context";
                 let mut limit = self
                     .context_ceiling
@@ -1238,6 +1244,14 @@ impl Agent {
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
                 let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
+                if !self.session.fresh_source_requests.is_empty() {
+                    let captures: Vec<_> = actions.iter().filter_map(|a| a.get("local_capture")).rev().take(8).collect();
+                    memory["local_read_progress"] = json!({
+                        "requested": &self.session.fresh_source_requests,
+                        "recent_captures_this_turn": captures,
+                        "note": "Match paths and byte intervals to the request before choosing another read. A capture records an earlier read in this turn. Final freshness is checked separately."
+                    });
+                }
                 let (projection_target, usage_feedback) = crate::reasoning::context::usage_target(
                     input_target.unwrap_or(limit.saturating_mul(4) / 5),
                     &self.provider.metrics(),
@@ -1528,6 +1542,9 @@ impl Agent {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
+            if no_browser && calls.iter().any(|c| c["function"]["name"] == "browser") {
+                anyhow::bail!("Browser use was excluded by the user. The requested tool batch was not executed.");
+            }
             if report_recovery
                 && (!calls.is_empty() || looks_like_text_tool_call(&extract_text(&message)))
             {
@@ -1628,6 +1645,22 @@ impl Agent {
                                 .then_some(self.code_index.fingerprint.as_str()),
                             self.changed_sources,
                         );
+                    if needs_review && !self.tools.has_active_jobs() {
+                        let status = self.check_status();
+                        if let Some(rows) = status["checks"].as_array() {
+                            if !rows.is_empty() && rows.iter().all(|r| r["observed"] == true || !r["different_value"].is_null()) {
+                                let differences: Vec<_> = rows.iter().filter(|r| !r["different_value"].is_null())
+                                    .map(|r| format!("{} {} expected {}, observed {} ({})",
+                                        r["criterion"]["arguments"]["path"], r["criterion"]["field"],
+                                        r["criterion"]["equals"], r["different_value"], r["evidence"]["evidence_id"]))
+                                    .collect();
+                                if !differences.is_empty() {
+                                    self.completion_state = "needs_verification".into();
+                                    anyhow::bail!("Local checks completed with a mismatch: {}", differences.join(", "));
+                                }
+                            }
+                        }
+                    }
                     if needs_review && completion_reviews == 0 && !report_recovery {
                         completion_reviews += 1;
                         self.session
@@ -2212,6 +2245,7 @@ impl Agent {
                             &guard_args,
                             &result,
                             crate::intelligence::checks::Proof {
+                                different_value: None,
                                 evidence_id: evidence_id.clone(),
                                 message_index: self.session.messages.len(),
                                 workspace_fingerprint: self.code_index.fingerprint.clone(),
@@ -2265,6 +2299,16 @@ impl Agent {
                     denied_artifact_read = name == "source_artifact";
                 }
                 let mut action = json!({"tool":name,"ok":ok,"step":step+1,"execution_status":result["execution_status"],"cached_result":result["cached_result"]==true});
+                if matches!(name, "read_file" | "read_file_window")
+                    && ok && result["content"].is_string() && result["evidence_id"].is_string()
+                    && !crate::reasoning::claims::is_historical(&result)
+                    && !crate::reasoning::claims::unverified_execution(&result)
+                {
+                    action["local_capture"] = json!({
+                        "path": result["path"], "tool": name, "evidence_id": result["evidence_id"],
+                        "byte_offset": result["byte_offset"], "end_byte_offset": result["end_byte_offset"]
+                    });
+                }
                 if let Some(a) = browser_action {
                     action["ok"] = json!(
                         ok && !crate::reasoning::claims::unverified_execution(&result)
@@ -2429,6 +2473,14 @@ fn interrupted_summary(
     lines.join("\n")
 }
 
+fn no_browser_request(prompt: &str) -> bool {
+    let text = prompt.to_lowercase();
+    ["بدون متصفح", "بدون المتصفح", "من دون متصفح", "من دون المتصفح",
+     "بدون ما تفتح المتصفح", "من دون ما تفتح المتصفح", "لا تفتح المتصفح",
+     "without a browser", "without the browser", "keep the browser closed",
+     "do not open the browser"].iter().any(|phrase| text.contains(*phrase))
+}
+
 fn browser_only_request(prompt: &str) -> bool {
     let text = prompt.to_ascii_lowercase();
     let text = text.trim_start();
@@ -2566,6 +2618,8 @@ mod tests {
         assert_eq!(report["finished"], true);
         assert_eq!(report["fresh_source_checks"]["all_observed"], true);
         assert_eq!(report["fresh_source_checks"]["checks"].as_array().unwrap().len(), 2);
+        assert_eq!(report["actions"][0]["local_capture"]["path"], "demo.txt");
+        assert_eq!(report["actions"][1]["local_capture"]["path"], "copy.txt");
     }
     #[test]
     fn repeated_status_reports_unready_connection_without_claiming_page_read() {
@@ -2737,6 +2791,17 @@ mod tests {
             .is_some_and(|s| s.contains("اشرح المشروع"))));
     }
     #[test]
+    fn excluded_browser_is_neither_advertised_nor_dispatched() {
+        let (mut agent, _workspace, _state, server) = scripted_agent(vec![
+            tool_call("browser", "browser", json!({"action":"status"}))
+        ]);
+        assert!(agent.turn("اقرأ العنوان بدون متصفح").unwrap_err().to_string().contains("excluded"));
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "browser"));
+        assert!(agent.session.last_report["actions"].as_array().unwrap().is_empty());
+    }
+    #[test]
     fn native_acceptance_check_is_observed_only_after_exact_tool_result() {
         let checks = json!({"checks":[{"label":"Original file size","tool":"file_info","arguments":{"path":"demo.txt"},"field":"/bytes","equals":20}]});
         let (mut agent, _workspace, _state, server) = scripted_agent(vec![
@@ -2756,16 +2821,16 @@ mod tests {
         );
     }
     #[test]
-    fn unperformed_check_gets_one_review_and_remains_unverified() {
+    fn observed_file_size_mismatch_reports_the_value_without_another_review() {
         let checks = json!({"checks":[{"label":"Wrong file size","tool":"file_info","arguments":{"path":"demo.txt"},"field":"/bytes","equals":999}]});
         let (mut agent, _workspace, _state, server) = scripted_agent(vec![
             tool_call("c1", "set_task_checks", checks),
             tool_call("r1", "file_info", json!({"path":"demo.txt"})),
             completion(json!({"role":"assistant","content":"Everything passed."})),
-            completion(json!({"role":"assistant","content":"No new verification available."})),
         ]);
-        agent.turn("Verify demo.txt size").unwrap();
-        assert_eq!(server.join().unwrap().len(), 4);
+        let error = agent.turn("Verify demo.txt size").unwrap_err();
+        assert!(error.to_string().contains("expected 999, observed 20"));
+        assert_eq!(server.join().unwrap().len(), 3);
         assert_eq!(
             agent.session.last_report["task_status"],
             "needs_verification"

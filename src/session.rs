@@ -658,6 +658,7 @@ mod tests {
         s.task_checks
             .observations
             .push(Some(crate::intelligence::checks::Proof {
+                different_value: None,
                 evidence_id: "E000003".into(),
                 message_index: 3,
                 workspace_fingerprint: "fixture".into(),
