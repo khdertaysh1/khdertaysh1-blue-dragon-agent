@@ -1297,7 +1297,7 @@ impl Agent {
         let mut report_recovery = false;
         let mut recall_report_due = false;
         let download_contract = !crate::file_receipts::download_targets(prompt).is_empty();
-        let mut explain_first = !explicit_open_request(prompt)
+        let mut explain_first = !explicit_task_request(prompt)
             && !download_contract
             && self.session.fresh_source_requests.is_empty()
             && resumed.is_none()
@@ -1629,18 +1629,24 @@ impl Agent {
                 match response {
                     Ok(message) => {
                         self.last_successful_context = self.context_stats.clone();
-                        if message["tool_calls"].as_array().is_none_or(Vec::is_empty)
-                            && is_text_tool_envelope(&extract_text(&message))
-                            && !report_recovery
+                        let native_calls = message["tool_calls"]
+                            .as_array()
+                            .is_some_and(|calls| !calls.is_empty());
+                        let reply = extract_text(&message);
+                        let invalid_routing_reply =
+                            explain_first && (native_calls || looks_like_text_tool_call(&reply));
+                        if !report_recovery
+                            && (invalid_routing_reply
+                                || (!native_calls && is_text_tool_envelope(&reply)))
                         {
                             if text_tool_retry_used {
                                 if prompt
                                     .chars()
                                     .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c))
                                 {
-                                    anyhow::bail!("المزوّد كتب طلب الأداة كنص مرة ثانية. ما تنفّذ أي أمر من هالرد.");
+                                    anyhow::bail!("المزوّد رجّع طلب أداة بصيغة غير متوقعة مرة ثانية. ما تنفّذ أي أمر من هالرد.");
                                 }
-                                anyhow::bail!("Provider returned a tool request as ordinary text again; no tool executed for that reply");
+                                anyhow::bail!("Provider returned another unexpected tool request or tool request as ordinary text; no tool executed for that reply");
                             }
                             text_tool_retry_used = true;
                             text_tool_correction = Some(if explain_first {
@@ -1649,19 +1655,16 @@ impl Agent {
                                 " Format correction: answer in ordinary prose using available evidence, or use a native tool call from the advertised tools if necessary. Use only listed browser actions (for example open, snapshot, network). Do not invent actions or request IDs. Resolve site references from this conversation, asking for the URL if ambiguous. No action was performed by the previous text reply."
                             });
                             self.output(AgentEvent::Notice(
-                                "Retrying a text-form tool request once; no action executed."
-                                    .into(),
+                                "Requesting one corrected reply; no action executed.".into(),
                             ));
                             continue;
                         }
                         text_tool_correction = None;
                         if explain_first {
-                            anyhow::ensure!(message["tool_calls"].as_array().is_none_or(Vec::is_empty)
-                                && !looks_like_text_tool_call(&extract_text(&message)),
-                                "Unexpected tool call during a conversation-only reply; no action executed");
                             let text = extract_text(&message);
                             if text.trim() == "REQUEST_NEW_WORK" {
                                 explain_first = false;
+                                text_tool_retry_used = false;
                                 previous_projection = None;
                                 continue;
                             }
@@ -3097,12 +3100,22 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
 
 // An explicit imperative can start a normal tool-enabled turn immediately.
 // Keep questions and quoted instructions in the existing conversation router.
-fn explicit_open_request(prompt: &str) -> bool {
+fn explicit_task_request(prompt: &str) -> bool {
     let mut words = prompt.split_whitespace();
-    matches!(
-        words.next(),
-        Some("افتح" | "افتحلي" | "افتحي" | "افتحوا" | "إفتح")
-    ) && words.next().is_some()
+    let verb = words.next();
+    let Some(object) = words.next() else {
+        return false;
+    };
+    match verb {
+        Some("افتح" | "افتحلي" | "افتحي" | "افتحوا" | "إفتح") => true,
+        Some("اعمل" | "اعمللي" | "اعملي" | "اعملّي" | "أنشئ" | "انشئ" | "اكتب") => {
+            matches!(object, "ملف" | "ملفاً" | "ملفا")
+                || std::path::Path::new(object.trim_matches('`'))
+                    .extension()
+                    .is_some_and(|ext| !ext.is_empty())
+        }
+        _ => false,
+    }
 }
 
 // The provider assembles the complete reply independently of the live display.
@@ -3190,7 +3203,7 @@ mod tests {
         let actions = agent.session.last_report["actions"].as_array().unwrap();
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0]["browser_action"], "status");
-        assert!(!explicit_open_request("كيف افتح الموقع؟"));
+        assert!(!explicit_task_request("كيف افتح الموقع؟"));
     }
 
     #[test]
@@ -3353,6 +3366,70 @@ mod tests {
         );
         assert_eq!(agent.session.last_report["actions"], json!([]));
     }
+    #[test]
+    fn arabic_create_file_followup_writes_after_approval() {
+        let demo = "const {total, discount} = require('./prices.js');\nfor (const [p,q] of [[25,3],[25,4],[50,3]]) console.log(discount(total(p,q)));\n";
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("prior", "read_file", json!({"path":"prices.js"})),
+            completion(json!({"role":"assistant","content":"قرأت الملف."})),
+            tool_call(
+                "write",
+                "write_file",
+                json!({"path":"demo.js","content":demo}),
+            ),
+            completion(json!({"role":"assistant","content":"كتبت الملف."})),
+        ]);
+        std::fs::write(
+            root.path().join("prices.js"),
+            "exports.total=(p,q)=>p*q; exports.discount=n=>n>=100?n*0.9:n;",
+        )
+        .unwrap();
+        agent.turn("اقرأ prices.js").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let approval = std::thread::spawn(move || {
+            rx.recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap()
+                .respond_to
+                .send(true)
+                .unwrap()
+        });
+        agent
+            .turn("اعمل demo.js يستورد الدالتين من prices.js")
+            .unwrap();
+        approval.join().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("demo.js")).unwrap(),
+            demo
+        );
+        assert!(server.join().unwrap()[2]["tools"]
+            .as_array()
+            .is_some_and(|t| !t.is_empty()));
+    }
+
+    #[test]
+    fn unexpected_native_call_during_status_question_is_discarded() {
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("prior", "file_info", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"Checked file."})),
+            tool_call(
+                "unexpected",
+                "write_file",
+                json!({"path":"unexpected.js","content":"bad"}),
+            ),
+            completion(json!({"role":"assistant","content":"قرأت حجم الملف."})),
+        ]);
+        agent.turn("Inspect demo.txt").unwrap();
+        agent.turn("شو صار معك؟").unwrap();
+        let requests = server.join().unwrap();
+        assert!(requests[2..]
+            .iter()
+            .all(|r| r["tools"].as_array().is_none_or(Vec::is_empty)));
+        assert!(requests[3].to_string().contains("Format correction"));
+        assert!(!root.path().join("unexpected.js").exists());
+        assert_eq!(agent.session.last_report["actions"], json!([]));
+    }
+
     #[test]
     fn followup_text_tool_retry_stays_in_conversation_mode() {
         let (mut agent, _work, _state, server) = scripted_agent(vec![
