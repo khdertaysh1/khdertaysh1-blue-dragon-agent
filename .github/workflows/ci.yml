@@ -1,7 +1,7 @@
 name: Blue Dragon — Rust CI
 on:
   push:
-    branches: [main, release/coding-v1.1.14.0]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -315,7 +315,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   qualification:
-    name: Coding and defensive QA qualification
+    name: Integrated pinned local-lab qualification
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -328,10 +328,17 @@ jobs:
           node-version: "24"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Checkout reviewed loopback lab
+        uses: actions/checkout@v4
+        with:
+          repository: khdertaysh1/Between-Bytes-Web-Labs
+          ref: c396c90f2e7ed080f71368ce9edb5cd630098b09
+          path: target/reviewed-web-lab
+          persist-credentials: false
       - run: cargo build --locked --release
       # Keep run evidence outside the cached Cargo target directory.
       - name: Qualify one candidate binary
-        run: python scripts/qualify_local.py --binary target/release/blue-dragon --output "$RUNNER_TEMP/qualification-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --timeout 120
+        run: python scripts/qualify_local.py --binary target/release/blue-dragon --lab target/reviewed-web-lab --output "$RUNNER_TEMP/qualification-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --timeout 120
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -341,7 +348,7 @@ jobs:
           retention-days: 14
   publish:
     name: Publish verified binaries
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/coding-v1.1.14.0')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [test, android, android-runtime, installer, browser, qualification]
     runs-on: ubuntu-latest
     permissions:

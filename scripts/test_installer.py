@@ -112,7 +112,7 @@ esac
         (fixtures / "release.json").write_text(json.dumps(public_manifest));manifest()
         assert "does not match the requested version" in run("--version","v1.2.1.0",ok=False)
         assert target.read_bytes()==installed
-    for invalid in ["v1.1.9.1", "v1.1.9.0.0", "v1.1.9.0-alpha", "v1.1", "v1.1.9;echo"]:
+    for invalid in ["v1.1.9.01", "v1.1.9.0.0", "v1.1.9.0-alpha", "v1.1", "v1.1.9;echo"]:
         assert "Invalid version tag" in run("--version",invalid,ok=False)
     # Every failure below must preserve the working installation.
     assert "existing installation was not changed" in run(ok=False, extra={"TEST_DOWNLOAD_FAILURE": "1"})

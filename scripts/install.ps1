@@ -1,48 +1,34 @@
-$ErrorActionPreference = "Stop"
-$Repo = "khdertaysh1/khdertaysh1-blue-dragon-agent"
-$InstallDir = Join-Path $env:LOCALAPPDATA "blue-dragon\bin"
-
-$Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "blue-dragon-installer" }
-$Asset = $Release.assets | Where-Object { $_.name -match "(?i)windows.*\.zip$" } | Select-Object -First 1
-if (-not $Asset) { throw "No Windows .zip asset found in release $($Release.tag_name)." }
-
-$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("blue-dragon-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
-$ZipPath = Join-Path $TmpDir $Asset.name
-
+param()
+$ErrorActionPreference = 'Stop'
+$tag = 'v1.1.14.1'
+$assets = "https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/download/$tag"
+$name = 'blue-dragon-windows-x64.exe'
+$dir = Join-Path $env:LOCALAPPDATA 'BlueDragon\bin'
+[void][IO.Directory]::CreateDirectory($dir)
+$stage = Join-Path $dir ([Guid]::NewGuid().ToString())
+[void][IO.Directory]::CreateDirectory($stage)
 try {
-    Write-Host "Downloading $($Asset.name) ($($Release.tag_name))..."
-    Invoke-WebRequest -Uri $Asset.browser_download_url -OutFile $ZipPath
-
-    $SumAsset = $Release.assets | Where-Object { $_.name -match "(?i)(sha256|checksums)" } | Select-Object -First 1
-    if ($SumAsset) {
-        $SumPath = Join-Path $TmpDir $SumAsset.name
-        Invoke-WebRequest -Uri $SumAsset.browser_download_url -OutFile $SumPath
-        $ExpectedLine = Get-Content $SumPath | Where-Object { $_ -match [regex]::Escape($Asset.name) } | Select-Object -First 1
-        if ($ExpectedLine) {
-            $Expected = ($ExpectedLine -split "\s+")[0].ToLower()
-            $Actual = (Get-FileHash -Algorithm SHA256 -Path $ZipPath).Hash.ToLower()
-            if ($Actual -ne $Expected) { throw "SHA256 mismatch for $($Asset.name)." }
-            Write-Host "SHA256 verified."
-        }
+    $checks = (Invoke-WebRequest -UseBasicParsing "$assets/SHA256SUMS.txt").Content
+    if ($checks -is [byte[]]) { $checks = [Text.Encoding]::UTF8.GetString($checks) }
+    foreach ($item in @($name, 'LICENSES.txt')) {
+        $path = Join-Path $stage $item
+        $pattern = '(?m)^([0-9a-f]{64})  ' + [regex]::Escape($item) + '\r?$'
+        $rows = [regex]::Matches($checks, $pattern)
+        if ($rows.Count -ne 1) { throw "Missing or ambiguous checksum for $item" }
+        Invoke-WebRequest -UseBasicParsing "$assets/$item" -OutFile $path
+        if ((Get-FileHash $path -Algorithm SHA256).Hash -ne $rows[0].Groups[1].Value) { throw "Checksum mismatch for $item" }
     }
-
-    $ExtractDir = Join-Path $TmpDir "out"
-    Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
-    $Exe = Get-ChildItem -Path $ExtractDir -Recurse -Filter "blue-dragon.exe" | Select-Object -First 1
-    if (-not $Exe) { throw "blue-dragon.exe not found inside archive." }
-
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    Copy-Item -Path $Exe.FullName -Destination (Join-Path $InstallDir "blue-dragon.exe") -Force
-
-    $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if (-not $UserPath -or ($UserPath -split ";" | Where-Object { $_ -eq $InstallDir }).Count -eq 0) {
-        [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir".Trim(";"), "User")
-        $env:Path = "$env:Path;$InstallDir"
+    $candidate = Join-Path $stage $name
+    if ((& $candidate --version) -ne "blue-dragon $($tag.Substring(1))" -or $LASTEXITCODE -ne 0) { throw 'Version verification failed' }
+    $installed = Join-Path $dir 'blue-dragon.exe'
+    Copy-Item (Join-Path $stage 'LICENSES.txt') (Join-Path $dir 'LICENSES.txt') -Force
+    if (Test-Path -LiteralPath $installed) {
+        [IO.File]::Replace($candidate, $installed, (Join-Path $stage 'previous.exe'))
+    } else {
+        [IO.File]::Move($candidate, $installed)
     }
-
-    Write-Host "Installed Blue Dragon $($Release.tag_name) to $InstallDir"
-    Write-Host "Open a new terminal and run: blue-dragon"
 } finally {
-    Remove-Item -Path $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $stage -Recurse -Force
 }
+& $installed --version
+exit $LASTEXITCODE

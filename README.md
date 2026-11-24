@@ -25,7 +25,10 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> **Blue Dragon 1.1.14.0** supports coding, local project review, and browser QA. [One-command setup for Windows, Linux, macOS and Termux](docs/RELEASE_NOTES.md#11140).
+> [!IMPORTANT]
+> **Development preview.** The published baseline is [0.9.0-alpha.6](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.6). This source tree prepares **1.1.9.0**; its review and final CI are still pending. The installer downloads published releases, not unpublished source changes. See [release notes](docs/RELEASE_NOTES.md) and [version mapping](docs/PUBLIC_VERSION.md).
+>
+> Physical Android/Termux testing and sustained live-model reliability remain unverified. Provider quotas can still cause HTTP 429. See [trial evidence and limits](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
 
 ## The Dragon
 
@@ -105,7 +108,7 @@ Workspace research includes local structural code search, historical notes scope
 
 ## Browser and automatic free models
 
-Open the TUI from your project directory. A public URL opens the requested page and records page, network and console observations.
+After installation, run `blue-dragon 'https://example.com'`, or paste a URL into chat/TUI. The agent prepares the browser and collects DOM, forms, JavaScript indicators, network and console before model analysis. Relevant URL inputs receive at most two benign DOM execution checks, with observed proof separated from static hints. Termux first use installs official Chromium automatically and runs it in the background unless X11 is available; no ADB setup is required for this path. Initial inspection reads need no individual confirmations; further interactions still require approval. See [URL inspection and platform limits](docs/URL_INSPECTION.md). Physical Android validation remains pending.
 
 Use `/model blue-free` for gateway automatic free-model routing and `/rotation` for its status. Firefox extension pairing and advanced Chrome ADB attachment remain available: [browser instructions](docs/BROWSER.md), [free routing policy](docs/FREE_ROTATION.md).
 

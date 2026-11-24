@@ -6,7 +6,6 @@ import http.server
 import json
 import os
 from pathlib import Path
-from fixture_intent import reply_to_work_intent
 import subprocess
 import tempfile
 import threading
@@ -65,8 +64,6 @@ def run(binary, scoped, comparison=False, reflection=None, redirect_case=None):
         def do_POST(self):
             nonlocal evidence_id
             request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-            if reply_to_work_intent(self, request):
-                return
             requests.append(request)
             if comparison and len(requests) in (1, 3, 5):
                 name = 'web_fetch'

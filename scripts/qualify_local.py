@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Sequential offline/loopback qualification of one immutable Blue Dragon binary.
 No downloads, real browsers, live providers, remote repository writes or installs.
-Coding and defensive QA qualification. Logs may contain fixture data.
+The reviewed pinned lab must already exist locally. Logs may contain fixture data.
 """
 import argparse,hashlib,json,os,platform,shutil,signal,subprocess,sys,time
 from pathlib import Path
+from lab_matrix import LAB_COMMIT
 
 
 def sha(path):
@@ -24,13 +25,16 @@ def stop(process):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary',type=Path,required=True)
+    parser.add_argument('--lab',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True,help='New directory; existing output is never overwritten')
     parser.add_argument('--timeout',type=int,default=120,help='Per-group seconds, 15..300')
     args=parser.parse_args()
     if not 15<=args.timeout<=300:parser.error('timeout must be 15..300')
-    repo=Path(__file__).resolve().parent.parent;binary=args.binary.resolve();output=args.output.resolve()
+    repo=Path(__file__).resolve().parent.parent;binary=args.binary.resolve();lab=args.lab.resolve();output=args.output.resolve()
     if not binary.is_file():parser.error('binary must be an existing regular file')
     commit=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
+    if subprocess.check_output(['git','-C',str(lab),'rev-parse','HEAD'],text=True).strip()!=LAB_COMMIT:parser.error('lab commit mismatch')
+    subprocess.run(['git','-C',str(lab),'diff','--quiet','HEAD','--'],check=True)
     output.mkdir(parents=True,exist_ok=False)
     env={k:v for k,v in os.environ.items() if k.upper() in {'PATH','SYSTEMROOT','WINDIR','TMP','TEMP','COMSPEC','PATHEXT','LANG','LC_ALL'}}
     home=output/'isolated-home';home.mkdir()
@@ -41,6 +45,8 @@ def main():
     groups.append(('marked_natural_user_recall',[sys.executable,str(repo/'scripts/smoke_long_user_projection.py'),str(binary),'--marked'],True))
     groups.append(('distinct_user_recall',[sys.executable,str(repo/'scripts/smoke_long_user_projection.py'),str(binary),'--distinct'],True))
     groups.append(('structured_user_projection',[sys.executable,str(repo/'scripts/smoke_long_user_projection.py'),str(binary),'--structured'],True))
+    for name in ['lab_matrix','smoke_lab_runner','smoke_source_discovery','smoke_dynamic_discovery','smoke_scoped_flow','smoke_call_bridge']:
+        groups.append((name,[sys.executable,str(repo/'scripts'/f'{name}.py'),str(binary),'--lab',str(lab)],True))
     groups.append(('public_version',[sys.executable,str(repo/'scripts/test_public_version.py'),'--binary',str(binary)],True))
     groups.append(('models_offline',[sys.executable,str(repo/'scripts/smoke_models.py')],True))
     for name in ['smoke_tui','smoke_job_shutdown','test_pty_shutdown','test_installer','test_source_upgrade','test_release_payload']:
@@ -52,8 +58,8 @@ def main():
     groups.append(('workflow_oracle_controls',[sys.executable,str(repo/'scripts/test_benchmark_alpha_workflows.py')],True))
     groups.append(('edit_workflow_blue_preflight',[sys.executable,str(repo/'scripts/benchmark_alpha_workflows.py'),'--blue',str(binary),'--output',str(output/'edit-workflow-blue.json')],True))
     groups.append(('runtime_benchmark',[sys.executable,str(repo/'scripts/benchmark_runtime.py'),'--candidate',str(binary),'--repeats','3','--output',str(output/'runtime.json')],True))
-    report={'schema':1,'source_commit':commit,'source_dirty_at_start':bool(subprocess.check_output(['git','-C',str(repo),'status','--porcelain'],text=True).strip()),'platform':platform.platform(),'python':sys.version.split()[0],'binary_sha256':sha(binary),'groups':[],
-        'limits':['Synthetic/offline and loopback fixtures only; no OS network isolation claim.','No real browser, physical Termux, Windows/macOS execution or live provider qualification.','No Alpha runtime comparison; deterministic runtime tests do not measure model quality.','POSIX process groups are terminated on timeout; Windows only terminates the immediate process.','Group pass means its assertions and exit code passed; no count or coverage equivalence across groups.']}
+    report={'schema':1,'source_commit':commit,'source_dirty_at_start':bool(subprocess.check_output(['git','-C',str(repo),'status','--porcelain'],text=True).strip()),'platform':platform.platform(),'python':sys.version.split()[0],'lab_commit':LAB_COMMIT,'binary_sha256':sha(binary),'groups':[],
+        'limits':['Synthetic/offline fixtures and reviewed loopback lab only; no OS network isolation claim.','No real browser, physical Termux, Windows/macOS execution or live provider qualification.','No Alpha runtime comparison; deterministic runtime tests do not measure model quality.','POSIX process groups are terminated on timeout; Windows only terminates the immediate process.','Group pass means its assertions and exit code passed; no count or coverage equivalence across groups.']}
     def save():
         temp=output/'summary.tmp';temp.write_text(json.dumps(report,indent=2)+'\n');temp.replace(output/'summary.json')
     save()

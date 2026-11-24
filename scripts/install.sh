@@ -8,7 +8,7 @@ requested=''
 bin_dir=''
 stage=''
 fail() { printf 'Blue Dragon: %s\n' "$*" >&2; exit 1; }
-valid_tag() { [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.0|-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]]; }
+valid_tag() { [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.(0|[1-9][0-9]*)|-[A-Za-z0-9][A-Za-z0-9.-]*)?$ ]]; }
 cleanup() { if [[ -n "$stage" ]]; then rm -rf -- "$stage"; fi; }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -19,7 +19,7 @@ while (($#)); do
     --version) (($# >= 2)) || fail '--version needs a release tag'; requested="$2"; shift 2 ;;
     --bin-dir) (($# >= 2)) || fail '--bin-dir needs a directory'; bin_dir="$2"; shift 2 ;;
     --help|-h)
-      printf 'Usage: bash install.sh [--version vA.B.C.0 or legacy vX.Y.Z[-prerelease]] [--bin-dir DIR]\nRun again to update. No Git, Rust, root or API key required.\n'
+      printf 'Usage: bash install.sh [--version vA.B.C.D or legacy vX.Y.Z[-prerelease]] [--bin-dir DIR]\nRun again to update. No Git, Rust, root or API key required.\n'
       exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac

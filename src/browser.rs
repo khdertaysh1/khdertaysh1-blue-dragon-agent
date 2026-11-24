@@ -294,17 +294,6 @@ impl Browser {
         first_page["readiness"] = readiness;
         self.scope
             .check(first_page["url"].as_str().unwrap_or(""), "read")?;
-        if !local_project_url(&reqwest::Url::parse(url)?)
-            || !local_project_url(&reqwest::Url::parse(
-                first_page["url"].as_str().unwrap_or(url),
-            )?)
-        {
-            return Ok(
-                json!({"untrusted_web_content":true,"requested_url":url,"page":first_page,
-                "network":self.raw("network",&json!({}))?,"console":self.raw("console",&json!({}))?,
-                "limits":"Current page only. Further interactions require a user task."}),
-            );
-        }
         let mut related_pages = Vec::new();
         let mut page = first_page.clone();
         // One same-origin registration/login page, when the landing page has no form.
@@ -879,15 +868,6 @@ fn validate_form_action(action: &str, args: &Value) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn local_project_url(url: &reqwest::Url) -> bool {
-    url.host_str()
-        .and_then(|host| {
-            host.trim_matches(['[', ']'])
-                .parse::<std::net::IpAddr>()
-                .ok()
-        })
-        .is_some_and(|ip| ip.is_loopback())
-}
 pub fn validate_url(value: &str) -> Result<()> {
     if value.len() > 4096 {
         anyhow::bail!("Browser URL exceeds 4096 UTF-8 bytes");
