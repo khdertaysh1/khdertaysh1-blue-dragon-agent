@@ -296,8 +296,11 @@ impl Guard {
         self.last = key;
         redundant || old.unchanged >= 2
     }
-    pub fn stalled(&self) -> bool {
+    pub fn repeated_file_reads(&self) -> bool {
         self.redundant_reads >= 3
+    }
+    pub fn stalled(&self) -> bool {
+        self.repeated_file_reads()
             || self.consecutive_blocks >= 3
             || self.repetitions >= 8
             || self.consecutive_cached >= 3

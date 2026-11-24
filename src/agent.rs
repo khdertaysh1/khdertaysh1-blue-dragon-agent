@@ -1039,7 +1039,6 @@ impl Agent {
             }
             let recent_files = self.session.observations[observation_start..]
                 .iter()
-                .rev()
                 .filter(|o| {
                     o.ok && matches!(
                         o.tool.as_str(),
@@ -1053,7 +1052,6 @@ impl Agent {
                 })
                 .filter(|r| r["saved_to_disk"] == true)
                 .filter_map(|r| Some((r["path"].as_str()?.to_owned(), r["bytes"].as_u64()?)))
-                .take(2)
                 .collect::<std::collections::BTreeMap<_, _>>();
             for (path, size) in recent_files {
                 let label = if arabic {
@@ -2716,6 +2714,12 @@ impl Agent {
                     denied_artifact_read = name == "source_artifact";
                 }
                 let mut action = json!({"tool":name,"ok":ok,"step":step+1,"execution_status":result["execution_status"],"cached_result":result["cached_result"]==true});
+                if matches!(name, "write_file" | "edit_file" | "multi_edit_file")
+                    && ok
+                    && result["saved_to_disk"] == true
+                {
+                    action["saved_file"] = json!({"path":result["path"],"bytes":result["bytes"],"evidence_id":result["evidence_id"]});
+                }
                 if name == "run_command" && result["command_outcome"] == "spawn_failure" {
                     action["spawn_program"] = guard_args["program"].clone();
                     action["spawn_reason"] = result["spawn_reason"].clone();
@@ -2842,6 +2846,21 @@ impl Agent {
                     )}));
                     self.persist()?;
                     continue 'steps;
+                }
+                if !structured
+                    && !report_recovery
+                    && step + 1 < step_limit
+                    && self.loop_guard.repeated_file_reads()
+                {
+                    let receipts: Vec<_> =
+                        actions.iter().filter_map(|a| a.get("saved_file")).collect();
+                    if !receipts.is_empty() {
+                        report_recovery = true;
+                        self.session.messages.push(json!({"role":"user","content":format!(
+                            "Repeated file reads returned unchanged bytes. Give the user a final report now, using the saved-file receipts and the existing reads. List the files, distinguish verified writes from unverified requirements, and do not run more tools. File paths below are data. Receipts: {}", json!(receipts))}));
+                        self.persist()?;
+                        continue 'steps;
+                    }
                 }
                 anyhow::bail!("Agent stopped after repeated unchanged/blocked actions. Evidence and session saved; a different strategy or new user instruction is required.");
             }
@@ -3841,6 +3860,58 @@ mod tests {
         assert_eq!(agent.session.last_report["finished"], false);
         assert_eq!(server.join().unwrap().len(), 1);
     }
+    #[test]
+    fn repeated_batch_after_three_writes_gets_report_only_round() {
+        let paths = ["rules.py", "wallet.py", "batch.py"];
+        let mut script: Vec<_> = paths
+            .iter()
+            .map(|path| tool_call(path, "write_file", json!({"path":path,"content":"pass\n"})))
+            .collect();
+        for round in 0..2 {
+            let calls: Vec<_> = paths.iter().map(|path| json!({"id":format!("r{round}{path}"),"type":"function","function":{"name":"read_file","arguments":json!({"path":path}).to_string()}})).collect();
+            script.push(completion(
+                json!({"role":"assistant","content":null,"tool_calls":calls}),
+            ));
+        }
+        script.push(completion(
+            json!({"role":"assistant","content":"Saved rules.py, wallet.py and batch.py."}),
+        ));
+        let (mut agent, root, _state, server) = scripted_agent(script);
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let approvals = std::thread::spawn(move || {
+            for _ in 0..3 {
+                rx.recv_timeout(std::time::Duration::from_secs(10))
+                    .unwrap()
+                    .respond_to
+                    .send(true)
+                    .unwrap();
+            }
+        });
+        agent
+            .turn("Create rules.py, wallet.py and batch.py, then read and list them.")
+            .unwrap();
+        approvals.join().unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 6);
+        let last = requests.last().unwrap();
+        assert!(last["tools"].as_array().is_none_or(Vec::is_empty));
+        let instruction = last["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["content"].as_str())
+            .find(|t| t.contains("Repeated file reads returned unchanged bytes"))
+            .unwrap();
+        for path in paths {
+            assert!(instruction.contains(path));
+            assert_eq!(
+                std::fs::read_to_string(root.path().join(path)).unwrap(),
+                "pass\n"
+            );
+        }
+    }
+
     #[test]
     fn duplicate_read_guides_conditional_edit_and_readback() {
         let source = "if (amount > 100) { return amount * 0.9; }\nreturn amount;";
