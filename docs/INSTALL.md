@@ -2,7 +2,11 @@
 
 ## Install and start
 
-Use the [one-line command for your platform](../README.md#quick-start) from the project folder you want to work in. It downloads the executable for release `v1.1.14.1`, checks its SHA-256 and reported version, and opens the terminal interface. On a fresh Termux installation, run `pkg install curl` first if curl is missing.
+Use the [one-line command for your platform](../README.md#quick-start) from the project folder you want to work in. It downloads the executable for release `v1.1.14.2`, checks its SHA-256 and reported version, and opens the terminal interface. On a fresh Termux installation, run `pkg install curl` first if curl is missing.
+
+## Native installer candidates
+
+For Debian/Ubuntu amd64 and Apple Silicon macOS, open a completed CI run and look under **Artifacts** for `native-installer-Linux-X64` or `native-installer-macOS-ARM64`. Extract the downloaded ZIP to get the Debian package or unsigned macOS installer. The quick-start commands above use the release binaries. [CI runs](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml)
 
 ## Start again
 
@@ -21,7 +25,7 @@ To check which version is installed, replace `--provider free tui` with `--versi
 On Termux, Linux and macOS, the [Unix installer](../scripts/install.sh) supports a specific release tag, a custom directory and a rollback copy. It requires Bash, curl, jq and a SHA-256 utility. To install this release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/install.sh | bash -s -- --version v1.1.14.1
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/install.sh | bash -s -- --version v1.1.14.2
 ```
 
 Omitting `--version` selects the first compatible published release in GitHub's release list, which can include prereleases. The pinned quick-start command always selects the version in its URL.
@@ -29,7 +33,7 @@ Omitting `--version` selects the first compatible published release in GitHub's 
 On Windows, the [PowerShell installer](../scripts/install.ps1) downloads the x64 executable and prints its version. Run this in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/install.ps1').Content))
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/install.ps1').Content))
 ```
 
 ## Use an earlier version

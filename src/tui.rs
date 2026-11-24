@@ -35,7 +35,6 @@ use crate::{
     tui_text::{move_caret, visible_input, visual_line},
 };
 
-const RELEASE: &str = "R11";
 const BLUE: Color = Color::Rgb(89, 229, 255);
 const SURFACE: Color = Color::Rgb(8, 21, 34);
 const GREEN: Color = Color::Rgb(111, 218, 178);
@@ -91,7 +90,7 @@ struct Screen {
     approval_scroll: u16,
     scroll_up: usize,
     status: String,
-    mode: &'static str,
+    model: String,
     workspace: String,
     cursor: usize,
     draft: String,
@@ -101,7 +100,7 @@ struct Screen {
 }
 
 impl Screen {
-    fn new(mode: &'static str, workspace: String) -> Self {
+    fn new(model: impl Into<String>, workspace: String) -> Self {
         Self {
             motion: std::env::var("BLUE_DRAGON_MOTION").as_deref() == Ok("1")
                 && std::env::var_os("NO_COLOR").is_none()
@@ -119,7 +118,7 @@ impl Screen {
             approval_scroll: 0,
             scroll_up: 0,
             status: "Ready".into(),
-            mode,
+            model: model.into(),
             workspace,
             cursor: 0,
             draft: String::new(),
@@ -403,7 +402,7 @@ pub fn run(
         )?
     };
     let mut app = Screen::new(
-        crate::models::interface_mode(&settings.base_url, &settings.model),
+        format!("{} | {}", settings.model, settings.safe_endpoint()),
         settings.root.display().to_string(),
     );
 
@@ -500,7 +499,7 @@ pub fn run(
                         "Choose free model: arrows, type to filter, Enter select, Esc close".into();
                 }
                 AgentEvent::Notice(text) => app.log("System:", &text),
-                AgentEvent::Model { mode, .. } => app.mode = mode,
+                AgentEvent::Model(model) => app.model = model,
                 AgentEvent::Plan(text) => app.plan = text,
                 AgentEvent::ToolStart(name) => {
                     app.log("Tool:", &name);
@@ -999,12 +998,22 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     } else {
         &app.status
     };
-    let headline = format!(" Blue Dragon {RELEASE} · {} · {state}", app.mode);
+    let headline = format!(" {} · {state}", app.model);
     let available = usize::from(outer[2].width.saturating_sub(if compact { 0 } else { 2 }));
     let status = if headline.width() <= available {
         format!("{headline}\n {details}")
     } else {
-        format!(" Blue Dragon {RELEASE}\n {} · {state}", app.mode)
+        // The header already shows the state. Give both model and provider
+        // a line on phone-sized terminals.
+        if let Some((model, provider)) = app.model.split_once(" | ") {
+            let model = model.strip_prefix("Blue Free → ").unwrap_or(model);
+            let host = provider
+                .split_once("://")
+                .map_or(provider, |(_, host)| host);
+            format!("{model}\n{host}")
+        } else {
+            app.model.clone()
+        }
     };
     let status_widget = Paragraph::new(status).style(Style::default().fg(MUTED));
     frame.render_widget(
@@ -1241,35 +1250,38 @@ mod tests {
     }
 
     #[test]
-    fn footer_shows_release_and_mode_without_a_model_or_endpoint() {
+    fn footer_shows_active_model_and_provider_on_mobile() {
         let mut app = Screen::new(
-            crate::models::interface_mode(crate::models::KILO_BASE, crate::models::KILO_MODEL),
+            "Blue Free → kilo-auto/free | https://ai-gateway.kilo.ai",
             "/work".into(),
         );
+        for width in [23, 40, 90] {
+            let mut terminal =
+                Terminal::new(ratatui::backend::TestBackend::new(width, 24)).unwrap();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            let screen = rendered_text(&terminal);
+            for value in ["kilo-auto/free", "ai-gateway.kilo.ai", "READY"] {
+                assert!(screen.contains(value), "{screen}");
+            }
+            assert!(!screen.contains("R11"));
+        }
+        app.model = "other/model:free | https://openrouter.ai".into();
+        app.status = "Task failed; see transcript".into();
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 18)).unwrap();
         terminal.draw(|frame| draw(frame, &app)).unwrap();
         let screen = rendered_text(&terminal);
         assert!(
-            screen.contains("Blue Dragon R11 · Blue Free · READY"),
-            "{screen}"
+            screen.contains("other/model:free")
+                && screen.contains("openrouter.ai")
+                && screen.contains("ERROR")
         );
-        assert!(!screen.contains("kilo-auto/free") && !screen.contains("ai-gateway"));
-        let mut narrow = Terminal::new(ratatui::backend::TestBackend::new(23, 16)).unwrap();
-        narrow.draw(|frame| draw(frame, &app)).unwrap();
-        let narrow_text = rendered_text(&narrow);
-        assert!(
-            narrow_text.contains("Blue Dragon R11") && narrow_text.contains("Blue Free · READY")
-        );
+    }
+
+    #[test]
+    fn arabic_conversation_wrap_preserves_words() {
         assert_eq!(
             wrap_conversation_line("مرحبا بالعالم", 8),
             vec!["مرحبا ", "بالعالم"]
-        );
-        app.status = "Task failed; see transcript".into();
-        terminal.draw(|frame| draw(frame, &app)).unwrap();
-        assert!(rendered_text(&terminal).contains("Blue Dragon R11 · Blue Free · ERROR"));
-        assert_eq!(
-            crate::models::interface_mode("https://example.com/v1", "a-model"),
-            "Custom"
         );
     }
 

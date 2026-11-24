@@ -65,6 +65,28 @@ jobs:
           curl() { local args=("$@"); local n=${#args[@]}; local url=${args[n-3]}; cp "$fixture/${url##*/}" "${args[n-1]}"; }
           export -f curl
           env HOME="$RUNNER_TEMP/install-home" bash scripts/start.sh --version
+      - name: Build native Unix installer candidate
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python scripts/package_native_unix.py target/release/blue-dragon native-candidates
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            dpkg-deb --extract native-candidates/*.deb "$RUNNER_TEMP/deb-test"
+            cmp target/release/blue-dragon "$RUNNER_TEMP/deb-test/usr/bin/blue-dragon"
+            "$RUNNER_TEMP/deb-test/usr/bin/blue-dragon" --version
+          else
+            pkgutil --expand-full native-candidates/*.pkg "$RUNNER_TEMP/pkg-test"
+            payload=$(find "$RUNNER_TEMP/pkg-test" -type f -path '*/usr/local/bin/blue-dragon')
+            cmp target/release/blue-dragon "$payload"
+            "$payload" --version
+          fi
+      - name: Upload native installer for testing
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-installer-${{ runner.os }}-${{ runner.arch }}
+          path: native-candidates/
+          if-no-files-found: error
       - name: Keep desktop candidates available for PR testing
         if: github.event_name == 'pull_request' && (runner.os == 'Windows' || runner.os == 'macOS')
         uses: actions/upload-artifact@v4

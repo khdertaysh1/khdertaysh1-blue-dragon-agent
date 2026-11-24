@@ -8,23 +8,29 @@ Blue Dragon is a Rust coding agent for the terminal. Open it in your project to 
 
 ## Quick Start
 
-Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.1** and verify the executable's SHA-256 and reported version.
+Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.2** and verify the executable's SHA-256 and reported version.
 
 **Linux x64, macOS on Apple Silicon, or Android ARM64 in Termux** (Bash and curl)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/start.sh | bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/start.sh | bash
 ```
 
 **Windows x64** (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/start.ps1').Content))
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/start.ps1').Content))
 ```
 
-The [release downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.1) include all four binaries, checksums, and the browser extensions. CI exercises desktop builds and an Android emulator. Physical Termux testing and sustained live-model reliability are separate checks. See [release notes](docs/RELEASE_NOTES.md), [install options](docs/INSTALL.md), and the [CI run](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/45470692162).
+The release includes platform binaries, SHA-256 checksums and browser extensions. For a first session on your phone, follow the Termux walkthrough. [Downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.2) · [Termux walkthrough](docs/FIRST_SESSION.md) · [Install and update](docs/INSTALL.md)
 
-[First session on Termux](docs/FIRST_SESSION.md) · [Documentation](docs/README.md)
+## What's new in 1.1.14.2
+
+- The session footer shows your active model and provider, including on narrow phone screens.
+- You can ask the agent to open a site in Arabic, for example `افتح الموقع` after sharing a URL. If the provider prints an action as JSON, the agent requests a corrected tool call. A repeated formatting failure gets a plain-language explanation.
+- If the browser can no longer save a response, the interruption report identifies recent actions and attempted filenames. A repeated lookup of missing browser history identifies the message the agent checked.
+
+[Full release notes](docs/RELEASE_NOTES.md) · [Documentation](docs/README.md)
 
 ## Capabilities
 
@@ -39,7 +45,7 @@ The [release downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-a
 | **Skills** | Opt-in local Markdown workflows, without running bundled scripts |
 | **Safety controls** | `--read-only`, protected-path checks and deny-by-default noninteractive approvals |
 | **Terminal** | Full-screen `tui`, streamed responses, approval overlay, cancellation, plan pane; CLI `chat`, `run` and diagnostics |
-| **MCP** | Opt-in stdio servers, approved launch/discovery/tool calls; no auto-execution of repository config |
+| **MCP** | Connect a stdio server explicitly, approve tool calls, and list or read its text resources. [MCP guide](docs/MCP_RESOURCE_CONTEXT.md) |
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
 | **Real browser** | Connect via CDP or a paired Firefox/Chromium extension to inspect page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
