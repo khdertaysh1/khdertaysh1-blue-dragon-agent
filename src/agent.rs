@@ -1300,7 +1300,8 @@ impl Agent {
         let mut report_recovery = false;
         let mut recall_report_due = false;
         let download_contract = !crate::file_receipts::download_targets(prompt).is_empty();
-        let mut explain_first = !download_contract
+        let mut explain_first = !explicit_open_request(prompt)
+            && !download_contract
             && self.session.fresh_source_requests.is_empty()
             && resumed.is_none()
             && prior_dialogue.is_some()
@@ -1601,13 +1602,16 @@ impl Agent {
                     "task"
                 });
                 advertised_definitions = definitions.clone();
+                let mut structured_prefix = None;
                 let response = if self.settings.stream {
                     self.provider.stream(
                         &request_messages,
                         definitions,
                         |text| {
                             stream_received = true;
-                            if buffer_for_review {
+                            if buffer_for_review
+                                || hold_structured_delta(&mut structured_prefix, text)
+                            {
                                 return;
                             }
                             emitted = true;
@@ -1632,12 +1636,20 @@ impl Agent {
                             && is_text_tool_envelope(&extract_text(&message))
                             && !report_recovery
                         {
-                            anyhow::ensure!(!text_tool_retry_used, "Provider returned a tool request as ordinary text again; no tool executed for that reply");
+                            if text_tool_retry_used {
+                                if prompt
+                                    .chars()
+                                    .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c))
+                                {
+                                    anyhow::bail!("المزوّد كتب طلب الأداة كنص مرة ثانية. ما تنفّذ أي أمر من هالرد.");
+                                }
+                                anyhow::bail!("Provider returned a tool request as ordinary text again; no tool executed for that reply");
+                            }
                             text_tool_retry_used = true;
                             text_tool_correction = Some(if explain_first {
                                 " Format correction: answer the user's question from the available conversation, or return exactly REQUEST_NEW_WORK if another action is needed. No tools are available in this phase."
                             } else {
-                                " Format correction: answer in ordinary prose using available evidence, or use a native tool call from the advertised tools if necessary. No action was performed by the previous text reply."
+                                " Format correction: answer in ordinary prose using available evidence, or use a native tool call from the advertised tools if necessary. Use only listed browser actions (for example open, snapshot, network). Do not invent actions or request IDs. Resolve site references from this conversation, asking for the URL if ambiguous. No action was performed by the previous text reply."
                             });
                             self.output(AgentEvent::Notice(
                                 "Retrying a text-form tool request once; no action executed."
@@ -3086,8 +3098,39 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
     assert!(!route_saved_response(&mut call, &defs));
 }
 
+// An explicit imperative can start a normal tool-enabled turn immediately.
+// Keep questions and quoted instructions in the existing conversation router.
+fn explicit_open_request(prompt: &str) -> bool {
+    let mut words = prompt.split_whitespace();
+    matches!(
+        words.next(),
+        Some("افتح" | "افتحلي" | "افتحي" | "افتحوا" | "إفتح")
+    ) && words.next().is_some()
+}
+
+// The provider assembles the complete reply independently of the live display.
+// Hold structured-looking replies until validation, including split SSE chunks.
+fn hold_structured_delta(state: &mut Option<bool>, delta: &str) -> bool {
+    if state.is_none() {
+        *state = delta
+            .trim_start()
+            .chars()
+            .next()
+            .map(|c| matches!(c, '{' | '`'));
+    }
+    state.unwrap_or(true)
+}
+
 fn is_text_tool_envelope(text: &str) -> bool {
     let text = text.trim();
+    let text = if let Some(fenced) = text
+        .strip_prefix("```json")
+        .or_else(|| text.strip_prefix("```"))
+    {
+        fenced.strip_suffix("```").unwrap_or(text).trim()
+    } else {
+        text
+    };
     if !text.starts_with('{') {
         return false;
     }
@@ -3128,6 +3171,43 @@ fn system_prompt() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ordinary_arabic_open_recovers_native_call_without_history_only_round() {
+        let envelope = r#"{"tool":"recall_context","args":{"message_index":18,"request_id":"all"}}
+{"tool":"browser","args":{"action":"wait_for_load"}}
+{"tool":"browser","args":{"action":"get_network_events"}}"#;
+        let (mut agent, _work, _state, server) = scripted_agent(vec![
+            tool_call("previous", "file_info", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"Recorded file metadata."})),
+            completion(json!({"role":"assistant","content":envelope})),
+            tool_call("native", "browser", json!({"action":"status"})),
+            completion(json!({"role":"assistant","content":"المتصفح غير متصل."})),
+        ]);
+        agent.turn("Inspect demo.txt").unwrap();
+        agent.turn("افتح الموقع ونزل ملف جافا واحفظو").unwrap();
+        let requests = server.join().unwrap();
+        assert!(requests[2]["tools"]
+            .as_array()
+            .is_some_and(|t| !t.is_empty()));
+        assert!(requests[3].to_string().contains("Format correction"));
+        let actions = agent.session.last_report["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["browser_action"], "status");
+        assert!(!explicit_open_request("كيف افتح الموقع؟"));
+    }
+
+    #[test]
+    fn structured_stream_stays_hidden_until_complete_reply_validation() {
+        let mut state = None;
+        for chunk in [" ", "{", "\"tool\":", "\"browser\"}"] {
+            assert!(hold_structured_delta(&mut state, chunk));
+        }
+        assert!(!hold_structured_delta(&mut None, "تمام"));
+        assert!(is_text_tool_envelope(
+            "```json\n{\"tool\":\"browser\",\"args\":{}}\n```"
+        ));
+    }
+
     #[test]
     fn repeated_missing_network_history_reports_without_another_model_turn() {
         let args = json!({"message_index":99,"network_events":true});
