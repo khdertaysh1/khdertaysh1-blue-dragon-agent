@@ -47,7 +47,7 @@ pub enum AgentEvent {
     Answer(String),
     Delta(String),
     Plan(String),
-    Model { details: String, mode: &'static str },
+    Model(String),
     Notice(String),
     ModelChoices(Vec<crate::models::ModelChoice>, String),
     Finished(std::result::Result<(), String>),
@@ -224,7 +224,7 @@ impl Agent {
                     .join("\n")
             ),
             AgentEvent::Notice(text) => println!("[Blue Dragon] {text}"),
-            AgentEvent::Model { details, .. } => println!("Model: {details}"),
+            AgentEvent::Model(details) => println!("Model: {details}"),
             AgentEvent::Plan(text) => println!("\nPlan:\n{text}"),
             AgentEvent::Delta(text) => {
                 use std::io::Write;
@@ -247,10 +247,7 @@ impl Agent {
         &self.settings.model
     }
     pub fn model_event(&self) -> AgentEvent {
-        AgentEvent::Model {
-            details: self.model_status(),
-            mode: crate::models::interface_mode(&self.settings.base_url, self.provider.model()),
-        }
+        AgentEvent::Model(self.model_status())
     }
     pub fn model_status(&self) -> String {
         format!(
