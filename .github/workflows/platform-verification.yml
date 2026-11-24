@@ -1,0 +1,91 @@
+name: Verify 1.1.14.0 platform builds
+on:
+  push:
+    branches: [validation/v1.1.14.0-platforms]
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dc53e39abea34576754b9cb846bfd6ca7863eee4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: cargo test --locked --all-targets
+      - run: cargo build --locked --release
+      - name: Launch binary and verify saved conversation handling
+        shell: bash
+        run: |
+          binary=target/release/blue-dragon
+          if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
+          python scripts/test_public_version.py --binary "$binary"
+          python scripts/test_machine_cli.py "$binary"
+  android:
+    name: Android ARM64 binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dc53e39abea34576754b9cb846bfd6ca7863eee4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build with Android NDK
+        shell: bash
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [[ -z "$ndk" ]]; then
+            echo "::error::Android NDK is not available on this runner."
+            exit 1
+          fi
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/aarch64-linux-android26-clang"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android26-clang"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          cargo build --locked --release --target aarch64-linux-android
+          mkdir -p android-package
+          cp target/aarch64-linux-android/release/blue-dragon android-package/
+          (cd android-package && sha256sum blue-dragon > SHA256SUMS.txt)
+  android-runtime:
+    name: Android emulator runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dc53e39abea34576754b9cb846bfd6ca7863eee4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Build for the emulator
+        run: |
+          bin="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$bin/x86_64-linux-android26-clang"
+          export CC_x86_64_linux_android="$bin/x86_64-linux-android26-clang"
+          export AR_x86_64_linux_android="$bin/llvm-ar"
+          cargo build --locked --release --target x86_64-linux-android
+          sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          script: |
+            adb push target/x86_64-linux-android/release/blue-dragon /data/local/tmp/blue-dragon
+            adb shell chmod 755 /data/local/tmp/blue-dragon
+            adb shell /data/local/tmp/blue-dragon --version | tr -d '\r' | grep -Fx "blue-dragon $(cat VERSION)"
+            adb shell /data/local/tmp/blue-dragon --help
