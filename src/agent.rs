@@ -48,6 +48,7 @@ pub enum AgentEvent {
     Model { details: String, mode: &'static str },
     Notice(String),
     ModelChoices(Vec<crate::models::ModelChoice>, String),
+    PartialReportSaved,
     Finished(std::result::Result<(), String>),
     ToolStart(String),
     ToolResult(String),
@@ -199,6 +200,7 @@ impl Agent {
         }
         match event {
             AgentEvent::Answer(text) => println!("\nDragon> {text}"),
+            AgentEvent::PartialReportSaved => {},
             AgentEvent::Finished(result) => {
                 if let Err(error) = result {
                     eprintln!("{error}");
@@ -836,14 +838,20 @@ impl Agent {
                 &error.to_string(),
                 &self.session.observations[observation_start..],
                 &self.pending_memories,
-                &self.check_status(),
-                self.session
-                    .plan
-                    .steps
-                    .iter()
-                    .filter(|s| s.status != "completed")
-                    .count(),
+                actions.last(),
+                actions.iter().any(|a| a["tool"] == "update_plan" && a["ok"] == true)
+                    .then_some(&self.session.plan),
             );
+            for observation in self.session.observations[observation_start..].iter().rev()
+                .filter(|o| o.ok && matches!(o.tool.as_str(), "web_fetch" | "write_file" | "edit_file" | "browser"))
+                .take(8)
+            {
+                if let Ok((_, _, result)) = crate::audit::request_for(&self.session, &observation.id) {
+                    if let Some(receipt) = progress_receipt(&observation.tool, &result) {
+                        summary.push_str(&format!("\n{} · {}", observation.id, receipt));
+                    }
+                }
+            }
             for observation in self.session.observations[observation_start..]
                 .iter()
                 .rev()
@@ -930,6 +938,9 @@ impl Agent {
             self.session.last_report["browser_actions_replayed"] = json!(0);
         }
         self.persist()?;
+        if result.is_err() {
+            self.output(AgentEvent::PartialReportSaved);
+        }
         result
     }
     fn store_review_window(&mut self, action: &Value) {
@@ -2313,14 +2324,34 @@ impl Agent {
     }
 }
 
+// Use native storage metadata only. A read or file_info result is not a write.
+fn progress_receipt(tool: &str, result: &Value) -> Option<String> {
+    if result["ok"] == false || crate::reasoning::claims::unverified_execution(result)
+        || crate::reasoning::claims::is_historical(result)
+    {
+        return None;
+    }
+    match (tool, result["storage"].as_str()) {
+        ("web_fetch", Some("session_only")) => Some(format!(
+            "HTTP {} · captured_bytes={} · session_only · saved_to_disk=false",
+            result["status"], result["captured_bytes"]
+        )),
+        ("write_file" | "edit_file" | "browser", Some("disk")) if result["saved_to_disk"] == true => Some(format!(
+            "disk · path={} · bytes={}", serde_json::to_string(result["path"].as_str()?).ok()?,
+            result["bytes"].as_u64()?
+        )),
+        _ => None,
+    }
+}
+
 /// A recovery report is not a successful task completion or a new finding.
 fn interrupted_summary(
     prompt: &str,
     error: &str,
     observations: &[crate::reasoning::Observation],
     findings: &[crate::reasoning::Finding],
-    checks: &Value,
-    open_steps: usize,
+    last_action: Option<&Value>,
+    current_plan: Option<&crate::plan::Plan>,
 ) -> String {
     let arabic = prompt
         .chars()
@@ -2340,21 +2371,13 @@ fn interrupted_summary(
         },
         crate::reasoning::context::clip(error, 1000)
     ));
-    lines.push(format!(
-        "{}: {} | {}: {}",
-        if arabic {
-            "العمليات المسجلة"
-        } else {
-            "Recorded observations"
-        },
-        observations.len(),
-        if arabic {
-            "خطوات غير مكتملة"
-        } else {
-            "Open plan steps"
-        },
-        open_steps
-    ));
+    if let Some(action) = last_action {
+        lines.push(format!("{} · {} · {} {}", if arabic { "آخر استدعاء" } else { "Last call" },
+            action["tool"].as_str().unwrap_or("?"), if arabic { "خطوة" } else { "step" }, action["step"]));
+    }
+    if observations.is_empty() {
+        lines.push(if arabic { "ما في نتيجة أداة موثقة بهالطلب." } else { "No tool observation recorded this turn." }.into());
+    }
     for observation in observations.iter().rev().take(8).rev() {
         // Native statuses and references only: raw page/tool text may contain secrets
         // or instructions, and a tool's success does not prove vulnerability impact.
@@ -2392,16 +2415,17 @@ fn interrupted_summary(
             crate::reasoning::context::clip(&finding.limitation, 300)
         ));
     }
-    lines.push(format!(
-        "{}: {}",
-        if arabic {
-            "حالة اختبارات القبول"
-        } else {
-            "Acceptance-check status"
-        },
-        checks
-    ));
-    lines.push(if arabic {"الأدلة الأصلية محفوظة في الجلسة. استخدم /report و/findings و/checks؛ لا تُعد العمليات فقط لاسترجاع نتائجها.".into()} else {"Original evidence remains in the session. Use /report, /findings and /checks; do not rerun actions just to recover their results.".into()});
+    let mut pending = current_plan.into_iter().flat_map(|p| &p.steps)
+        .filter(|s| s.status != "completed").peekable();
+    if pending.peek().is_some() {
+        lines.push(if arabic { "المتبقّي بحسب خطة هالطلب" } else { "Still open in this turn's plan" }.into());
+        for step in pending {
+            lines.push(format!("- {}", crate::reasoning::context::clip(&step.title, 200)));
+        }
+    } else {
+        lines.push(if arabic { "اكتمال الطلب غير مؤكّد. ما في خطوة متبقّية مسمّاة بخطة هالجولة." }
+            else { "Completion unconfirmed. No outstanding step was named in this turn's plan." }.into());
+    }
     lines.join("\n")
 }
 
@@ -2667,6 +2691,18 @@ mod tests {
             .scope
             .check("https://outside.invalid/", "read")
             .is_err());
+    }
+    #[test]
+    fn partial_report_distinguishes_capture_from_disk_and_names_remaining_work() {
+        let result = json!({"ok":true,"storage":"session_only","status":200,"captured_bytes":123});
+        let receipt = progress_receipt("web_fetch", &result).unwrap();
+        assert!(receipt.contains("123") && receipt.contains("saved_to_disk=false"));
+        assert!(progress_receipt("web_fetch", &json!({"cached_result":true,"storage":"session_only"})).is_none());
+        assert!(progress_receipt("file_info", &json!({"storage":"disk","path":"notes.txt","bytes":9})).is_none());
+        let mut plan = crate::plan::Plan::default();
+        plan.replace(vec![crate::plan::Step { title: "Save notes.txt".into(), status: "pending".into() }]).unwrap();
+        let text = interrupted_summary("Save the file", "provider timeout", &[], &[], None, Some(&plan));
+        assert!(text.contains("Save notes.txt") && text.contains("provider timeout"));
     }
     #[test]
     fn stalled_loop_returns_partial_report_and_retains_observed_evidence() {

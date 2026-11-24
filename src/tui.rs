@@ -423,6 +423,7 @@ pub fn run(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("Could not initialize TUI")?;
 
+    let mut partial_saved = false;
     loop {
         for _ in 0..256 {
             let Ok(message) = message_rx.try_recv() else {
@@ -467,7 +468,9 @@ pub fn run(
                     app.log("Tool:", &name);
                     app.status = "Tool running".into();
                 }
+                AgentEvent::PartialReportSaved => partial_saved = true,
                 AgentEvent::Finished(result) => {
+                    let saved = std::mem::take(&mut partial_saved);
                     if !app.draft.is_empty() {
                         let partial = std::mem::take(&mut app.draft);
                         app.log("Partial:", &partial);
@@ -475,6 +478,7 @@ pub fn run(
                     app.busy = false;
                     match result {
                         Ok(()) => app.status = "Ready".into(),
+                        Err(_) if saved => app.status = "Partial report saved".into(),
                         Err(error) => {
                             app.log("Error:", &error);
                             app.status = "Task failed; see transcript".into();
@@ -878,6 +882,8 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         "APPROVAL"
     } else if app.busy {
         "WORKING"
+    } else if app.status == "Partial report saved" {
+        "PARTIAL"
     } else if app.status.starts_with("Task failed") || app.status == "Agent worker stopped" {
         "ERROR"
     } else {
@@ -1215,6 +1221,9 @@ mod tests {
             wrap_conversation_line("مرحبا بالعالم", 8),
             vec!["مرحبا ", "بالعالم"]
         );
+        app.status = "Partial report saved".into();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        assert!(rendered_text(&terminal).contains("Blue Dragon R11 · Blue Free · PARTIAL"));
         app.status = "Task failed; see transcript".into();
         terminal.draw(|frame| draw(frame, &app)).unwrap();
         assert!(rendered_text(&terminal).contains("Blue Dragon R11 · Blue Free · ERROR"));
