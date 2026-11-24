@@ -1,33 +1,14 @@
-<p align="center">
-  <img src="assets/abyss-banner.svg" alt="Blue Dragon — Abyss banner with cyan BLUE, white DRAGON and a geometric emblem" width="100%" />
-</p>
+<p align="center"><img src="assets/abyss-banner.svg" alt="Blue Dragon" width="100%"></p>
 
-<h1 align="center">BLUE DRAGON</h1>
+# Blue Dragon
 
-<p align="center"><strong>An open-source, cross-platform AI coding agent built with Rust.</strong></p>
+Blue Dragon is a Rust coding agent for the terminal. Open it in your project to trace a function, review a change, or investigate what a page does in the browser. The terminal shows the proposed diff before you approve a file edit.
 
-<p align="center"><em>Inspect the project. Plan with context. Review every change.</em></p>
-
-<p align="center">
-  <a href="Cargo.toml"><img alt="Rust" src="https://img.shields.io/badge/Rust-2021-0c1c31?logo=rust&amp;logoColor=38d6f5"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-0c1c31?labelColor=09213a"></a>
-  <a href="https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml"><img alt="Build status" src="https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <img alt="Developer preview" src="https://img.shields.io/badge/Status-developer%20preview-2374bd">
-</p>
-
-<p align="center">
-  <a href="#quick-start">Get started</a> ·
-  <a href="#the-dragon">Explore the agent</a> ·
-  <a href="#terminal-preview">Animated preview</a> ·
-  <a href="docs/SHOWCASE.md">Visual gallery</a> ·
-  <a href="#capabilities">Capabilities</a> ·
-  <a href="#human-in-control">Safety</a> ·
-  <a href="#roadmap">Roadmap</a>
-</p>
+[![Release](https://img.shields.io/github/v/release/khdertaysh1/khdertaysh1-blue-dragon-agent)](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/latest) [![CI](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml) [![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## Quick Start
 
-Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **1.1.14.1** and verify the executable's SHA-256 and reported version.
+Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.1** and verify the executable's SHA-256 and reported version.
 
 **Linux x64, macOS on Apple Silicon, or Android ARM64 in Termux** (Bash and curl)
 
@@ -43,16 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon
 
 The [release downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.1) include all four binaries, checksums, and the browser extensions. CI exercises desktop builds and an Android emulator. Physical Termux testing and sustained live-model reliability are separate checks. See [release notes](docs/RELEASE_NOTES.md), [install options](docs/INSTALL.md), and the [CI run](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/45470692162).
 
-## The Dragon
-
-<div align="center">
-  <img src="assets/abyss-dragon.gif" alt="Abyss: the full-wing geometric dragon with energy rings; decorative animation" width="100%" />
-  <sub>Abyss identity: the full-wing dragon and energy rings. Decorative GIF, not live activity.</sub>
-</div>
-
-[View the still image (no motion)](assets/abyss-dragon.svg) · [Terminal adaptation and motion controls](docs/ABYSS_IDENTITY.md)
-
-Blue Dragon is designed around a simple engineering loop: **understand → act with approval → verify → explain**. Unlike an opaque "autopilot", writes and subprocess commands are presented for explicit user approval. The project is independently developed; a small adapted MIT protocol component is credited in [third-party notices](third_party/NOTICE.md).
+[First session on Termux](docs/FIRST_SESSION.md) · [Documentation](docs/README.md)
 
 ## Capabilities
 
@@ -70,7 +42,7 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **MCP** | Opt-in stdio servers, approved launch/discovery/tool calls; no auto-execution of repository config |
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
-| **Real browser** | Local CDP or own paired Firefox/Chromium extension: page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
+| **Real browser** | Connect via CDP or a paired Firefox/Chromium extension to inspect page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
 | **Parallel code review** | `/swarm PATH \| TASK` runs implementation and test reviewers concurrently and collects their evidence. |
 | **JavaScript review** | Search saved source files, follow imports and named calls across cached modules, and inspect assignments within a function. Findings cite source locations and identify unresolved paths. |
 | **Recorded HTTP requests** | `/httpflow EVIDENCE_ID [OFFSET]` pages through network observations already captured by the browser. |
@@ -79,229 +51,21 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **Project and automation interfaces** | Workspace-root `AGENTS.md` supplies project conventions. Use `run --json TASK` for a final result or `run --ndjson TASK` for an event stream. |
 | **Blue Free** | Keyless gateway automatic routing; automatic alias and concrete model choices stay pinned in the client |
 
-<details>
-<summary><b>Core built-in agent tools</b></summary>
+## Working in a project
 
-```text
-list_files     read_file      read_lines    search_files
-project_map    git_status     git_diff      edit_file
-write_file     run_command    update_plan   create_directory
-file_info      web_fetch      browser
-recall_context record_finding
-code_search    project_memory set_task_checks
-```
+The default Blue Free route uses a hosted model. For a local model or a different API provider, see [model setup](docs/MODELS.md). Files and tool output included in a request can reach the selected provider. Approved commands run with your account's permissions. See the [security model](SECURITY.md).
 
-See the [delegated review guide](docs/DELEGATED_AGENTS.md) and [release command notes](docs/RELEASE_NOTES.md).
+Use `/help` in a session to see commands. From the shell, `blue-dragon map` lists the files and languages in the current project without calling a model. For a working example with a JavaScript file and a reviewable edit, try [your first session](docs/FIRST_SESSION.md).
 
-Every write or command requires a per-action approval. Tool availability depends on the local environment.
+## Development
 
-</details>
+Build from a checkout using the stable Rust toolchain:
 
-## Terminal Preview
-
-<div align="center">
-  <a href="assets/neural-console-preview.gif">
-    <img src="assets/neural-console-preview.gif" alt="Animated illustrative walkthrough of the Blue Dragon terminal: project map, tool steps, and an explicit approve-or-deny dialog" width="100%" />
-  </a>
-  <br />
-  <sub><strong>Animated product concept</strong> — not a recorded live session or a claim of current runtime functionality. Click to open the animation.</sub>
-</div>
-
-Run the actual terminal with `blue-dragon tui`. It includes a conversation, live output, tool progress and approval modal. The artwork above remains an illustration; it is not a captured runtime session. See [workbench documentation](docs/WORKBENCH.md).
-
-<details>
-<summary><strong>Explore the static terminal mockup and the design notes</strong></summary>
-
-<br />
-<p align="center">
-  <img src="assets/tui-preview.svg" alt="Static illustrated mockup of the experimental terminal UI, with a proposed change approval" width="100%" />
-</p>
-
-The demo is deliberately illustrative. Commands and results are sample text; they are **not** captured execution evidence. The agent's real, tested capabilities are listed in the table above. See the [visual identity and motion notes](docs/VISUAL_IDENTITY.md) for the editable asset inventory.
-
-</details>
-
-## Agent control and evidence
-
-The agent provides task-specific guidance, context budgeting without deleting the original transcript, stalled-loop recovery and evidence-linked findings. `/context` shows model-request usage; `/findings` shows observations and hypothesis/supported/blocked findings. The model can retrieve exact older details with `recall_context`. A successful citation does not guarantee a finding is correct. See [runtime behavior and comparison audit](docs/AGENT_REASONING.md).
-
-Workspace research includes local structural code search, historical notes scoped to the canonical project path and explicit website target, and acceptance checks tied to exact native tool results. `/memory [query]` searches notes, `/memory forget ID` removes one, `/checks` shows missing or stale checks. `--no-project-memory` disables note retrieval/saving for the process. Notes may be included in requests to the selected model provider; they remain historical data and cannot authorize actions or prove current results. See [the implementation audit and limits](docs/PROJECT_INTELLIGENCE.md).
-
-## Browser and automatic free models
-
-After installation, run `blue-dragon 'https://example.com'`, or paste a URL into chat/TUI. The agent prepares the browser and collects DOM, forms, JavaScript indicators, network and console before model analysis. Relevant URL inputs receive at most two benign DOM execution checks, with observed proof separated from static hints. Termux first use installs official Chromium automatically and runs it in the background unless X11 is available; no ADB setup is required for this path. Initial inspection reads need no individual confirmations; further interactions still require approval. See [URL inspection and platform limits](docs/URL_INSPECTION.md). Physical Android validation remains pending.
-
-Use `/model blue-free` for gateway automatic free-model routing and `/rotation` for its status. Firefox extension pairing and advanced Chrome ADB attachment remain available: [browser instructions](docs/BROWSER.md), [free routing policy](docs/FREE_ROTATION.md).
-
-## Provider setup
-
-This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects **Blue Free** (Kilo automatic free route preserved by the client). Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
-
-Long-session context uses a soft input traffic target separately from the model/context bound. `/context` reports both and distinguishes a failed local projection from the last successful request. Concrete free-model recovery is opt-in with `--free-model-fallback`; the automatic route remains pinned, and shared or unknown quota errors never trigger model rotation. See the [context continuity review and acceptance limits](docs/context-continuity-review.md).
-
-Select and save a provider from the terminal:
-
-```text
-/models
-/model blue-free
-/rotation
-/model kilo cohere/north-mini-code:free
-/model jarvis
-/model ollama YOUR_INSTALLED_MODEL
-```
-
-Or use `blue-dragon model free` before launching. `/models refresh` updates Kilo's keyless free catalog. `/models openrouter` separately lists OpenRouter free models, which require your own `OPENROUTER_API_KEY`. Switching changes where subsequent conversation context is sent. See [model setup and live validation](docs/MODELS.md).
-
-Provider traffic diagnostics separate estimated budgets from reported usage. Completed reasoning and source evidence remain available without retransmitting full envelopes. See [capacity measurements, configuration and remaining limits](docs/provider-capacity-review.md). These measurements are not a guarantee of provider capacity.
-
-To use a hosted, OpenAI-compatible endpoint with your own key:
-
-```bash
-export BLUE_DRAGON_API_KEY="YOUR_API_KEY"
-export BLUE_DRAGON_MODEL="YOUR_TOOL_CALLING_MODEL"
-./target/release/blue-dragon --root . tui
-```
-
-Prefer to try inspection before connecting AI? The project map and diagnostics run locally:
-
-```bash
-./target/release/blue-dragon map
-./target/release/blue-dragon skills
-./target/release/blue-dragon doctor
-```
-
-<details>
-<summary><b>Windows PowerShell setup</b></summary>
-
-```powershell
-$env:BLUE_DRAGON_API_KEY = "YOUR_API_KEY"
-$env:BLUE_DRAGON_MODEL = "YOUR_TOOL_CALLING_MODEL"
-.\target\release\blue-dragon.exe doctor
-.\target\release\blue-dragon.exe chat
-```
-
-</details>
-
-<details>
-<summary><b>Anthropic Claude native API</b></summary>
-
-```bash
-export BLUE_DRAGON_BASE_URL="https://api.anthropic.com/v1"
-export BLUE_DRAGON_MODEL="YOUR_CLAUDE_MODEL_ID"
-export ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY"
-./target/release/blue-dragon chat
-```
-
-The protocol adapter is unit-tested, but live credentials have not been exercised in CI.
-
-</details>
-
-<details>
-<summary><b>Local, OpenAI-compatible model endpoint</b></summary>
-
-```bash
-BLUE_DRAGON_BASE_URL=http://127.0.0.1:11434/v1 \
-BLUE_DRAGON_MODEL=YOUR_TOOL_CALLING_MODEL \
-./target/release/blue-dragon chat
-```
-
-Choose a model with compatible function calling. A keyless free gateway is preconfigured; no model weights or paid credentials are bundled.
-
-</details>
-
-<details>
-<summary><b>Developer source build on Termux / Android</b></summary>
-
-```bash
-pkg install git rust clang pkg-config
-git clone https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent.git
-cd khdertaysh1-blue-dragon-agent
+```sh
 cargo build --locked --release
-./target/release/blue-dragon doctor
-```
-
-Termux builds are device and package dependent; Linux CI success does not establish Android compatibility.
-
-</details>
-
-## How It Works
-
-```mermaid
-flowchart LR
-    U["Developer task"] --> M["Project context"]
-    M --> A["Blue Dragon agent"]
-    A --> R{"Read-only tool?"}
-    R -->|Yes| T["Read / inspect"]
-    R -->|No| P{"User approves?"}
-    P -->|Yes| X["Edit or execute"]
-    P -->|No| D["Deny action"]
-    T --> V["Review evidence"]
-    X --> V
-    D --> V
-    V --> S["Save session & report"]
-```
-
-For module boundaries, provider integration and tool definitions, see [Architecture](docs/ARCHITECTURE.md).
-
-## Human in Control
-
-Blue Dragon is **not a sandbox**. Approved commands run on your machine; inspect each proposal before typing `y`. Files and tool transcripts can be sent to the configured model service. Secrets, excluded paths and size limits have safety checks, but cannot guarantee isolation from a hostile local workspace.
-
-```bash
-./target/release/blue-dragon --root . --read-only run "Review the project structure"
-./target/release/blue-dragon --root . --resume latest chat
-```
-
-[Read the security model](SECURITY.md) · [Review architecture](docs/ARCHITECTURE.md)
-
-## Roadmap
-
-<details>
-<summary><b>Delivered — Agent foundation</b></summary>
-
-- [x] Rust CLI and OpenAI-compatible tool calling
-- [x] Native Anthropic API conversion adapter
-- [x] Ten workspace tools, diff review and explicit approvals
-- [x] Project mapping, skills and session resume
-- [x] Cross-platform CI on Windows, Linux and macOS
-
-</details>
-
-<details>
-<summary><b>In progress — A more capable developer experience</b></summary>
-
-- [x] Integrated full-screen TUI, streaming, task plans and opt-in stdio MCP
-- [ ] Physical-device terminal testing and wider MCP compatibility
-- [x] Budgeted context projection, exact recall, stalled-loop handling and evidence references
-- [ ] Patch-oriented edits, semantic embeddings/resolved cross-file graph and isolated worktrees
-- [ ] Reliable release packaging and Termux-specific verification
-
-</details>
-
-<details>
-<summary><b>Planned — Beyond the terminal</b></summary>
-
-- [x] Browser CDP/extension transport and gateway automatic free-model routing
-- [ ] Physical Android browser verification and signed Firefox distribution
-- [ ] Desktop automation, remote MCP transports and isolated worktrees
-- [ ] Parallel agents, evidence-driven verification and security analysis modules
-- [ ] Optional native desktop interface and reproducible performance benchmarks
-
-</details>
-
-## Development & Contributing
-
-```bash
+cargo test --locked --all-targets
 cargo fmt --all -- --check
-cargo test --all-targets
-cargo clippy --all-targets -- -D warnings
-cargo build --locked --release
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
-Read the [design notes](docs/VISUAL_IDENTITY.md), [feature-parity tracker](docs/ALPHACODE_PARITY.md), or open an issue with a reproducible bug. Contributions should preserve explicit approval, clear evidence and truthful documentation.
-
-<div align="center">
-  <img src="assets/dragon-mark.svg" width="80" alt="Blue Dragon logo"/>
-  <br/>
-  <sub>BLUE DRAGON · Rust · MIT License · Independent open-source project</sub>
-</div>
+Start a source build with `./target/release/blue-dragon tui`. See the [architecture](docs/ARCHITECTURE.md), [documentation index](docs/README.md), [release history](docs/RELEASE_NOTES.md), and [third-party notices](third_party/NOTICE.md).
