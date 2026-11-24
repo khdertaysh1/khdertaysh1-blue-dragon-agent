@@ -2614,6 +2614,10 @@ impl Agent {
                             .is_some_and(|files| !files.is_empty())
                     {
                         json!("Use a relevant file path from the returned list. For a large local file use read_file_window and continue at its next_byte_offset. If no listed file fits the request, report that limit.")
+                    } else if matches!(name, "read_file" | "read_file_window")
+                        && result["content"].is_string()
+                    {
+                        json!("These bytes have already been read this turn. Compare the existing source and target excerpts now. If the user requested a correction and the comparison shows a mismatch, propose an exact edit_file replacement in the requested target only, subject to the usual approval. Otherwise answer from the observed lines or identify the specific missing range. After an approved edit, read the changed excerpt to verify it.")
                     } else {
                         json!("This call returned unchanged output again. Change inputs/hypothesis, inspect new evidence, or report the blocker. Repetition is not verification.")
                     };
@@ -3837,6 +3841,60 @@ mod tests {
         assert_eq!(agent.session.last_report["finished"], false);
         assert_eq!(server.join().unwrap().len(), 1);
     }
+    #[test]
+    fn duplicate_read_guides_conditional_edit_and_readback() {
+        let source = "if (amount > 100) { return amount * 0.9; }\nreturn amount;";
+        let wrong = "if (amount > 100) { return amount; }";
+        let report = "comparison.md";
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("src", "read_file", json!({"path":"prices-v2.js"})),
+            tool_call("doc", "read_file", json!({"path":report})),
+            tool_call("again", "read_file", json!({"path":report})),
+            tool_call(
+                "fix",
+                "edit_file",
+                json!({"path":report,"find":wrong,"replace":source}),
+            ),
+            tool_call("verify", "read_file", json!({"path":report})),
+            completion(json!({"role":"assistant","content":"صححت المثال وقرأت التقرير."})),
+        ]);
+        std::fs::write(root.path().join("prices-v2.js"), source).unwrap();
+        std::fs::write(root.path().join(report), wrong).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let approval = std::thread::spawn(move || {
+            rx.recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap()
+                .respond_to
+                .send(true)
+                .unwrap()
+        });
+        agent
+            .turn("افتح الملفين وقارن المثال بالمصدر وصحح comparison.md فقط إذا لقيت اختلاف.")
+            .unwrap();
+        approval.join().unwrap();
+        let packets = server.join().unwrap();
+        assert!(packets[3]
+            .to_string()
+            .contains("Compare the existing source and target excerpts now"));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(report)).unwrap(),
+            source
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("prices-v2.js")).unwrap(),
+            source
+        );
+        let verified = agent
+            .session
+            .messages
+            .iter()
+            .find(|m| m["tool_call_id"] == "verify")
+            .unwrap();
+        let result: Value = serde_json::from_str(verified["content"].as_str().unwrap()).unwrap();
+        assert_eq!(result["content"], source);
+    }
+
     #[test]
     fn stalled_loop_returns_partial_report_and_retains_observed_evidence() {
         let responses = (0..6)
