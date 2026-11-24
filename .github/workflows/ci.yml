@@ -1,7 +1,7 @@
 name: Blue Dragon — Rust CI
 on:
   push:
-    branches: [main]
+    branches: [main, release/coding-v1.1.14.0]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -32,6 +32,39 @@ jobs:
           binary=target/release/blue-dragon
           if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
           python scripts/test_machine_cli.py "$binary"
+      - name: Test desktop setup against this build on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = (Resolve-Path target/release/blue-dragon.exe).Path
+          $license = (Resolve-Path LICENSE).Path
+          $manifest = "$( (Get-FileHash $binary).Hash.ToLower() )  blue-dragon-windows-x64.exe`n$( (Get-FileHash $license).Hash.ToLower() )  LICENSES.txt"
+          function Invoke-WebRequest($Uri, [switch]$UseBasicParsing, $OutFile) {
+            switch (Split-Path -Leaf $Uri) {
+              'SHA256SUMS.txt' { return @{Content=$manifest} }
+              'LICENSES.txt' { Copy-Item $license $OutFile }
+              'blue-dragon-windows-x64.exe' { Copy-Item $binary $OutFile }
+              default { throw "Unexpected installer URL" }
+            }
+          }
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'installer trial'
+          & ./scripts/start.ps1 -VersionOnly
+          & ./scripts/start.ps1 -VersionOnly
+          if ($LASTEXITCODE -ne 0) { throw "Installed executable failed" }
+      - name: Test desktop setup against this build on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then asset=blue-dragon-macos-arm64; else asset=blue-dragon-linux-x64; fi
+          fixture="$RUNNER_TEMP/installer-fixture"
+          mkdir -p "$fixture" "$RUNNER_TEMP/install-home"
+          cp target/release/blue-dragon "$fixture/$asset"
+          cp LICENSE "$fixture/LICENSES.txt"
+          (cd "$fixture" && shasum -a 256 "$asset" LICENSES.txt > SHA256SUMS.txt)
+          export fixture
+          curl() { local args=("$@"); local n=${#args[@]}; local url=${args[n-3]}; cp "$fixture/${url##*/}" "${args[n-1]}"; }
+          export -f curl
+          env HOME="$RUNNER_TEMP/install-home" bash scripts/start.sh --version
       - name: Keep desktop candidates available for PR testing
         if: github.event_name == 'pull_request' && (runner.os == 'Windows' || runner.os == 'macOS')
         uses: actions/upload-artifact@v4
@@ -282,7 +315,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   qualification:
-    name: Integrated pinned local-lab qualification
+    name: Coding and defensive QA qualification
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -295,17 +328,10 @@ jobs:
           node-version: "24"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Checkout reviewed loopback lab
-        uses: actions/checkout@v4
-        with:
-          repository: khdertaysh1/Between-Bytes-Web-Labs
-          ref: c396c90f2e7ed080f71368ce9edb5cd630098b09
-          path: target/reviewed-web-lab
-          persist-credentials: false
       - run: cargo build --locked --release
       # Keep run evidence outside the cached Cargo target directory.
       - name: Qualify one candidate binary
-        run: python scripts/qualify_local.py --binary target/release/blue-dragon --lab target/reviewed-web-lab --output "$RUNNER_TEMP/qualification-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --timeout 120
+        run: python scripts/qualify_local.py --binary target/release/blue-dragon --output "$RUNNER_TEMP/qualification-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --timeout 120
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -315,7 +341,7 @@ jobs:
           retention-days: 14
   publish:
     name: Publish verified binaries
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/coding-v1.1.14.0')
     needs: [test, android, android-runtime, installer, browser, qualification]
     runs-on: ubuntu-latest
     permissions:

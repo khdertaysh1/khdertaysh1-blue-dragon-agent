@@ -95,6 +95,16 @@ impl Store {
         }
         Ok(entries)
     }
+    pub fn require_local_project_sources(&self) -> Result<()> {
+        for entry in self.entries()? {
+            let url = reqwest::Url::parse(&entry.url)?;
+            anyhow::ensure!(
+                crate::browser::local_project_url(&url),
+                "Cross-file tracing and reference discovery require a local development project"
+            );
+        }
+        Ok(())
+    }
     fn metadata(entry: &Entry, reused: bool) -> Value {
         json!({"ok":entry.status<400,"artifact_id":entry.id,"sha256":entry.id,"bytes":entry.bytes,"status":entry.status,"content_type":entry.content_type,"reused_local_copy":reused,"fresh_evidence":!reused,"note":"Unauthenticated source copy. Body retained locally; use source_artifact read/search with artifact_id. Reuse never means fresh remote verification. No scripts executed, redirects or cookies."})
     }
@@ -348,6 +358,10 @@ impl Store {
             )?;
             // Re-derive from the hash-verified root on every call; never accept an
             // arbitrary caller URL as a discovered dependency.
+            anyhow::ensure!(
+                crate::browser::local_project_url(&reqwest::Url::parse(url)?),
+                "Automatic dependency loading is limited to local project files"
+            );
             let mut result = self.fetch(tools, url)?;
             result["discovered_from_artifact"] = json!(id);
             result["reference_index"] = json!(index);
@@ -892,7 +906,7 @@ impl Store {
     }
 }
 pub fn definition() -> Value {
-    json!({"type":"function","function":{"name":"source_artifact","description":"Fetch large UTF-8 JavaScript/text once into a bounded local session cache, then read/search without refetching or sending the whole body. bridge_call requires artifact_id, query (callee), offset (exact call start), optional argument_index; links a unique named cached definition to a simple parameter and its scoped flow as a syntactic candidate only. flow requires artifact_id, query and offset (UTF-8 function-scope anchor); it follows bounded same-function identifier assignments and use sites, never semantic taint. discover lists bounded static HTML script or JS import references from artifact_id with current scope/cache status and no requests; fetch_reference re-derives one reference_index from that artifact and requires approval. trace_chain requires artifact_id and query and follows at most 6 cached alias/re-export candidates under a 2 MiB/1-second budget, without downloads. trace with query and optional artifact_id gives bounded AST assignment/call/return candidates and cached import links, never taint or sanitizer proof. fetch reuses the latest local copy; refresh explicitly downloads one new approved version while preserving old hashes. Both network actions require approval; max 8 MiB/source, 32 version records/64 MiB/session. Historical cache is not fresh remote evidence. compare with baseline_artifact_id and artifact_id returns an enclosing changed byte span between stored versions of the same URL, not a semantic diff. read/search use returned SHA256 artifact_id and UTF-8 byte offsets.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["fetch","refresh","compare","read","search","trace","trace_chain","discover","fetch_reference","flow","bridge_call"]},"url":{"type":"string"},"artifact_id":{"type":"string"},"argument_index":{"type":"integer","minimum":0,"maximum":7},"reference_index":{"type":"integer","minimum":0,"maximum":79},"baseline_artifact_id":{"type":"string"},"offset":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":1,"maximum":16000},"query":{"type":"string"}},"required":["action"],"additionalProperties":false}}})
+    json!({"type":"function","function":{"name":"source_artifact","description":"Fetch large UTF-8 JavaScript/text once into a bounded local session cache, then read/search without refetching or sending the whole body. Cross-file tracing and discovery are restricted to loopback project sources. bridge_call requires artifact_id, query (callee), offset (exact call start), optional argument_index; links a unique named cached definition to a simple parameter and its scoped flow as a syntactic candidate only. flow requires artifact_id, query and offset (UTF-8 function-scope anchor); it follows bounded same-function identifier assignments and use sites, never semantic taint. discover lists bounded static HTML script or JS import references from artifact_id with current scope/cache status and no requests; fetch_reference re-derives one reference_index from that artifact and requires approval. trace_chain requires artifact_id and query and follows at most 6 cached alias/re-export candidates under a 2 MiB/1-second budget, without downloads. trace with query and optional artifact_id gives bounded AST assignment/call/return candidates and cached import links, never taint or sanitizer proof. fetch reuses the latest local copy; refresh explicitly downloads one new approved version while preserving old hashes. Both network actions require approval; max 8 MiB/source, 32 version records/64 MiB/session. Historical cache is not fresh remote evidence. compare with baseline_artifact_id and artifact_id returns an enclosing changed byte span between stored versions of the same URL, not a semantic diff. read/search use returned SHA256 artifact_id and UTF-8 byte offsets.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["fetch","refresh","compare","read","search","trace","trace_chain","discover","fetch_reference","flow","bridge_call"]},"url":{"type":"string"},"artifact_id":{"type":"string"},"argument_index":{"type":"integer","minimum":0,"maximum":7},"reference_index":{"type":"integer","minimum":0,"maximum":79},"baseline_artifact_id":{"type":"string"},"offset":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":1,"maximum":16000},"query":{"type":"string"}},"required":["action"],"additionalProperties":false}}})
 }
 #[cfg(test)]
 mod tests {

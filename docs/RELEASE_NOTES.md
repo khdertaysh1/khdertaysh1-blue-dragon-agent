@@ -2,6 +2,23 @@
 
 ## 1.1.14.0
 
+Coding and defensive QA release. Open a public URL for its current page, request metadata and console. Automatic dependency discovery and cross-file tracing operate on local development sources. Historical lab results remain readable. The lab runner and its separate training suite are excluded from this release.
+
+Install and launch from a terminal, from the project folder you want to work on.
+
+**Linux x64, Apple Silicon macOS and Android ARM64 (Termux with curl)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.0/scripts/start.sh | bash
+```
+
+**Windows x64 (PowerShell)**
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.0/scripts/start.ps1').Content))
+```
+
+
 - Run two local code-review delegates with `/swarm PATH | TASK`. The implementation and test reviews run concurrently and their results are collected with each agent's evidence.
 - Use `/httpflow EVIDENCE_ID [OFFSET]` to page through previously recorded browser requests and outcomes. Use the existing `/websearch WORDS` with a configured JSON-enabled SearXNG endpoint.
 - Use `/desktop open PATH` to launch a workspace text file in Notepad, TextEdit, or an installed Mousepad, Gedit or Kate editor (including Termux:X11).
