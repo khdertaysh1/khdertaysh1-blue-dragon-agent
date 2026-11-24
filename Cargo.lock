@@ -183,6 +183,7 @@ dependencies = [
  "ignore",
  "libc",
  "ratatui",
+ "regex",
  "reqwest",
  "scraper",
  "serde",

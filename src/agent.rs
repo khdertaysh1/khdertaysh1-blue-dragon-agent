@@ -932,13 +932,14 @@ impl Agent {
             }
         }
         self.browser.end_inspection();
-        self.session.last_report = json!({"started_at":started,"finished_at":chrono::Utc::now(),"finished":result.is_ok(),"error":result.as_ref().err().map(|e|e.to_string()),"provider_failure":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::rotation::ProviderFailure>()).map(crate::provider_diagnostics::metadata),"provider_partial":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::provider_contract::Incomplete>()).map(crate::provider_contract::partial_record),"cancelled":self.cancelled.load(std::sync::atomic::Ordering::Relaxed),"actions":actions,"routing":self.rotation_status(),"context":self.context_status(),"task_status":self.completion_state,"fresh_source_checks":crate::intelligence::fresh::status(&self.session.fresh_source_requests,&self.session,&self.tools),"acceptance_checks":self.check_status(),"loop_guard":self.loop_guard.status(),"findings":self.session.findings,"open_plan_steps":self.session.plan.steps.iter().filter(|s|s.status!="completed").count(),"note":"Tool success records observed return status, not a guarantee that code is correct. Plan completion is model-reported."});
+        let finished = result.is_ok() && self.completion_state != "needs_verification";
+        self.session.last_report = json!({"started_at":started,"finished_at":chrono::Utc::now(),"turn_returned_normally":result.is_ok(),"finished":finished,"error":result.as_ref().err().map(|e|e.to_string()),"provider_failure":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::rotation::ProviderFailure>()).map(crate::provider_diagnostics::metadata),"provider_partial":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::provider_contract::Incomplete>()).map(crate::provider_contract::partial_record),"cancelled":self.cancelled.load(std::sync::atomic::Ordering::Relaxed),"actions":actions,"routing":self.rotation_status(),"context":self.context_status(),"task_status":self.completion_state,"fresh_source_checks":crate::intelligence::fresh::status(&self.session.fresh_source_requests,&self.session,&self.tools),"acceptance_checks":self.check_status(),"loop_guard":self.loop_guard.status(),"findings":self.session.findings,"open_plan_steps":self.session.plan.steps.iter().filter(|s|s.status!="completed").count(),"note":"Tool success records observed return status, not a guarantee that code is correct. Plan completion is model-reported."});
         if let Some(file) = resumed {
             self.session.last_report["resumed_file"] = file.metadata();
             self.session.last_report["browser_actions_replayed"] = json!(0);
         }
         self.persist()?;
-        if result.is_err() {
+        if !finished {
             self.output(AgentEvent::PartialReportSaved);
         }
         result
@@ -1119,6 +1120,7 @@ impl Agent {
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
         let mut initial_limit_retry = false;
+        let mut continued_pending_work = false;
         let step_limit = if structured {
             self.settings.max_steps.min(8)
         } else {
@@ -1403,6 +1405,43 @@ impl Agent {
                         if let Some(partial) =
                             error.downcast_ref::<crate::provider_contract::Incomplete>()
                         {
+                            // An incomplete provider reply never dispatched a tool batch.
+                            // Resume once when the turn still has identifiable work, using
+                            // the original request and persisted successful observations.
+                            if matches!(partial.kind, "response_limit" | "empty_response")
+                                && !continued_pending_work
+                                && !structured
+                                && !report_recovery
+                                && !user_denied_action
+                                && unresolved_arguments.is_empty()
+                                && !actions.is_empty()
+                                && actions.iter().all(|a| a["ok"] == true && a["execution_status"] != "unknown")
+                                && step + 1 < step_limit
+                            {
+                                let only_preparation = actions.iter().any(|a| a["tool"] == "list_files")
+                                    && actions.iter().all(|a| matches!(
+                                        a["tool"].as_str(), Some("list_files" | "discover_tools" | "update_plan")
+                                    ));
+                                let open_plan = actions.iter().any(|a| a["tool"] == "update_plan")
+                                    && self.session.plan.steps.iter().any(|s| s.status != "completed");
+                                let fresh = crate::intelligence::fresh::status(
+                                    &self.session.fresh_source_requests, &self.session, &self.tools,
+                                );
+                                let checks = fresh["checks"].as_array().expect("fresh status has check rows");
+                                let pending: Vec<_> = checks.iter().filter(|c| c["state"] == "missing")
+                                    .map(|c| &c["request"]).collect();
+                                if checks.iter().all(|c| matches!(c["state"].as_str(), Some("verified" | "missing")))
+                                    && (only_preparation || open_plan || !pending.is_empty())
+                                {
+                                    continued_pending_work = true;
+                                    self.session.messages.push(json!({"role":"user","content":format!(
+                                        "Continue the original request from completed observations. The interrupted reply dispatched no tool batch. Take the next outstanding step or answer now if complete. Do not replay completed actions. Pending local reads: {}.",
+                                        json!(pending)
+                                    )}));
+                                    self.persist()?;
+                                    continue 'steps;
+                                }
+                            }
                             if partial.kind == "response_limit"
                                 && actions.is_empty()
                                 && partial.partial_text.trim().is_empty()
@@ -1471,19 +1510,20 @@ impl Agent {
                                     (self.provider.model().to_owned(), failure.clone(), until)
                                 });
                         }
-                        if failure.status == 429 && self.synchronous_chat_input {
+                        if matches!(failure.status, 429 | 502 | 503) && self.synchronous_chat_input {
                             // The CLI owns stdin synchronously, including approvals.
                             // Do not retry behind unread stop/scope-changing input.
                             self.persist()?;
                             self.output(AgentEvent::Notice("Provider cooldown active. Returning to the chat prompt to read your next instruction before any further request; no automatic retry in synchronous chat. Original turn and results remain saved.".into()));
                             return Err(error);
                         }
-                        if failure.status == 429 && quota_recovery_used {
+                        if matches!(failure.status, 429 | 502 | 503) && quota_recovery_used {
                             // One root-turn retry, never multiplied by model rotation.
                             return Err(error);
                         }
-                        if failure.status == 429
-                            && failure.retry_after_source != "program_default"
+                        let retryable_rejection = (failure.status == 429 && failure.retry_after_source != "program_default")
+                            || (matches!(failure.status, 502 | 503) && !model_recovery);
+                        if retryable_rejection
                             && failure.retry_after <= 60
                         {
                             quota_recovery_used = true;
@@ -1494,11 +1534,11 @@ impl Agent {
                             } else {
                                 "one retry on the same provider/model"
                             };
-                            self.output(AgentEvent::Notice(format!("Provider rejected this request with HTTP 429. Waiting {seconds}s (Retry-After={}s, source={}); {recovery}, shared quota admission remains active. Cancel to stop; completed tools will not be replayed.",failure.retry_after,failure.retry_after_source)));
+                            self.output(AgentEvent::Notice(format!("Provider rejected this request with HTTP {}. Waiting {seconds}s (Retry-After={}s, source={}); {recovery}, shared quota admission remains active. Cancel to stop; completed tools will not be replayed.",failure.status,failure.retry_after,failure.retry_after_source)));
                             let deadline =
                                 std::time::Instant::now() + std::time::Duration::from_secs(seconds);
                             while std::time::Instant::now() < deadline {
-                                if token.load(std::sync::atomic::Ordering::Relaxed) {
+                                if token.load(std::sync::atomic::Ordering::Relaxed) || crate::terminal_input::cancelled() {
                                     anyhow::bail!("Cancelled during provider cooldown; no retry sent, session preserved");
                                 }
                                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -2874,6 +2914,8 @@ mod tests {
             .unwrap();
         approval.join().unwrap();
         assert_eq!(server.join().unwrap().len(), 5);
+        assert_eq!(agent.session.last_report["finished"], false);
+        assert_eq!(agent.session.last_report["turn_returned_normally"], true);
         assert_eq!(
             agent.session.last_report["task_status"],
             "needs_verification"
@@ -3314,6 +3356,43 @@ mod tests {
     }
 
     #[test]
+    fn interruption_after_listing_allows_the_first_substantive_action() {
+        let mut cut = tool_call("discard", "write_file", json!({"path":"wrong.txt","content":"partial"}));
+        cut["choices"][0]["finish_reason"] = json!("length");
+        let (mut agent, workspace, _state, server) = scripted_agent(vec![
+            tool_call("list", "list_files", json!({"path":"."})),
+            cut,
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"ORIGINAL_EVIDENCE_42"})),
+        ]);
+        agent.turn("Find the text file here and tell me what it contains").unwrap();
+        assert_eq!(server.join().unwrap().len(), 4);
+        assert!(!workspace.path().join("wrong.txt").exists());
+        assert_eq!(agent.session.last_report["actions"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn interrupted_two_file_read_finishes_the_missing_operand() {
+        for reason in ["length", "stop"] {
+            let mut interrupted = completion(json!({"role":"assistant","content":""}));
+            interrupted["choices"][0]["finish_reason"] = json!(reason);
+            let (mut agent, workspace, _state, server) = scripted_agent(vec![
+                tool_call("first", "read_file", json!({"path":"demo.txt"})),
+                interrupted,
+                tool_call("second", "read_file", json!({"path":"other.tsv"})),
+                completion(json!({"role":"assistant","content":"The files differ."})),
+            ]);
+            std::fs::write(workspace.path().join("other.tsv"), "different").unwrap();
+            agent.turn("Read demo.txt and other.tsv and compare their contents").unwrap();
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 4);
+            assert!(requests[2]["tools"].as_array().is_some_and(|tools| !tools.is_empty()));
+            assert_eq!(agent.session.last_report["fresh_source_checks"]["all_observed"], true);
+            assert_eq!(agent.session.last_report["actions"].as_array().unwrap().len(), 2);
+        }
+    }
+
+    #[test]
     fn a_tool_call_returned_during_report_recovery_is_never_executed() {
         let mut limited = completion(json!({"role":"assistant","content":"Incomplete"}));
         limited["choices"][0]["finish_reason"] = json!("length");
@@ -3507,6 +3586,24 @@ mod tests {
         assert_eq!(agent.rotation.history.len(), 0);
         assert_eq!(agent.settings.model, crate::models::KILO_MODEL);
     }
+    #[test]
+    fn service_unavailable_retries_the_model_without_replaying_a_read() {
+        let (mut agent, _work, _state, unused) = scripted_agent(vec![]);
+        unused.join().unwrap();
+        let error = json!({"error":{"retry_after_seconds":0}});
+        let (url, server) = crate::test_support::http_status(vec![
+            (200, "application/json", tool_call("r1", "read_file", json!({"path":"demo.txt"})).to_string()),
+            (503, "application/json", error.to_string()),
+            (200, "application/json", completion(json!({"role":"assistant","content":"ORIGINAL_EVIDENCE_42"})).to_string()),
+        ]);
+        agent.provider = Provider::new(&url, "fixture".into(), None).unwrap();
+        agent.turn("Read demo.txt").unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[1]["messages"], requests[2]["messages"]);
+        assert_eq!(agent.session.last_report["actions"].as_array().unwrap().len(), 1);
+    }
+
     #[test]
     fn quota_wait_is_cancelled_without_a_second_request() {
         let workspace = tempfile::tempdir().unwrap();

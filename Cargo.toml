@@ -11,6 +11,7 @@ name = "blue-dragon"
 path = "src/main.rs"
 
 [dependencies]
+regex = "1"
 shlex = "2"
 libc = "0.2"
 anyhow = "1"

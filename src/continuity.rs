@@ -70,7 +70,7 @@ pub fn status(session: &crate::session::Session, live: &Value) -> Value {
     json!({"ok":true,"fresh_evidence":false,"network_requests":0,"actions_replayed":0,"research_cases":cells,"research_cases_omitted":research["cases"].as_array().map_or(0,|r|r.len().saturating_sub(20)),"research_resume":"Revalidated local session cells; inspect test_coverage report and original evidence before new work. No automatic retries.",
         "unknown_outcomes":unknown,"unknown_rows_omitted":unknown_seen.saturating_sub(unknown.len()),"historical_jobs":jobs,"current_runtime_jobs":live["jobs"],
         "open_plan_steps":session.plan.steps.iter().filter(|step|step.status!="completed").count(),
-        "plan_status_is_model_reported":true,"prior_run_returned_normally":session.last_report["finished"].as_bool(),
+        "plan_status_is_model_reported":true,"prior_run_returned_normally":session.last_report["turn_returned_normally"].as_bool().or_else(|| session.last_report["finished"].as_bool()),
         "task_completion_proven":false,
         "bounds":{"message_window":300,"observation_window":300,"unknown_rows":20,"job_rows":20,"older_messages_omitted":start,"large_tool_messages_skipped":skipped_large},
         "next_step":"Read the referenced original requests/results and inspect current workspace/browser state before proposing retries. A missing live job is not evidence that its previous command succeeded or had no effects.",

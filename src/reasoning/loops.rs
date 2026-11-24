@@ -21,7 +21,7 @@ pub struct Guard {
     repetitions: usize,
     fetches: BTreeMap<String, Value>,
     cached_reuses: usize,
-    consecutive_cached: usize,
+    consecutive_reuses: usize,
     recall_reads: usize,
     // Observed bytes, shared across full and window reads. No live read is skipped.
     read_ranges: BTreeMap<(String, usize), String>,
@@ -74,6 +74,7 @@ impl Guard {
         if name == "recall_context" && (self.recall_reads >= 8 || self.seen.contains_key(&key)) {
             self.blocked += 1;
             self.consecutive_blocks += 1;
+            self.consecutive_reuses += 1;
             return Some(
                 json!({"ok":false,"repetition_blocked":true,"execution_status":"not_executed","message_index":args["message_index"],"requested_offset":args["offset"].as_u64().unwrap_or(0),"previous_next_offset":self.seen.get(&key).and_then(|s|s.next_offset),"category":if self.seen.contains_key(&key) {"duplicate_recall"} else {"recall_budget_exhausted"},"error":if self.seen.contains_key(&key) {"This page was requested earlier. Use the original result."} else {"Eight history pages already read in this turn. Report available evidence."}}),
             );
@@ -85,6 +86,7 @@ impl Guard {
         {
             self.blocked += 1;
             self.consecutive_blocks += 1;
+            self.consecutive_reuses += 1;
             let original = &self.seen[&key];
             let uncertain_or_denied = original.denied;
             return Some(json!({"ok":false,"execution_status":"not_executed",
@@ -105,7 +107,7 @@ impl Guard {
         if name == "web_fetch" {
             if let Some(reference) = self.fetches.get(&key) {
                 self.cached_reuses += 1;
-                self.consecutive_cached += 1;
+                self.consecutive_reuses += 1;
                 return Some(reference.clone());
             }
         }
@@ -161,7 +163,7 @@ impl Guard {
         } else {
             0
         };
-        self.consecutive_cached = 0;
+        self.consecutive_reuses = 0;
         if name == "recall_context" && result["ok"] == true {
             self.recall_reads += 1;
             if !self.seen.contains_key(&Self::key(name, args)) {
@@ -208,7 +210,7 @@ impl Guard {
         self.redundant_reads >= 3
             || self.consecutive_blocks >= 3
             || self.repetitions >= 8
-            || self.consecutive_cached >= 3
+            || self.consecutive_reuses >= 3
     }
     pub fn status(&self) -> Value {
         json!({"blocked_identical_calls":self.blocked,"unchanged_observations":self.repetitions,"cached_fetch_reuses":self.cached_reuses,"note":"No cached tool output is presented as a fresh observation."})
@@ -235,6 +237,19 @@ mod tests {
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.stalled());
+    }
+    #[test]
+    fn cache_and_blocked_recall_do_not_count_as_progress() {
+        let mut g = Guard::default();
+        let fetch = json!({"url":"https://example.test/"});
+        let recall = json!({"message_index":3});
+        g.record_fetch(&fetch, &json!({"ok":true,"status":200}), 3);
+        g.after("recall_context", &recall, &json!({"ok":true}));
+        assert!(g.before("web_fetch", &fetch).is_some());
+        assert!(g.before("recall_context", &recall).is_some());
+        assert!(!g.stalled());
+        assert!(g.before("web_fetch", &fetch).is_some());
+        assert!(g.stalled());
     }
     #[test]
     fn retry_reports_original_evidence_and_cause() {

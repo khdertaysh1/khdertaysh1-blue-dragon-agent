@@ -477,8 +477,8 @@ pub fn run(
                     }
                     app.busy = false;
                     match result {
+                        _ if saved => app.status = "Partial report saved".into(),
                         Ok(()) => app.status = "Ready".into(),
-                        Err(_) if saved => app.status = "Partial report saved".into(),
                         Err(error) => {
                             app.log("Error:", &error);
                             app.status = "Task failed; see transcript".into();

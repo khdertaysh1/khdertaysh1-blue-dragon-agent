@@ -36,42 +36,42 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         })
         .collect();
     let lower = normalized.to_lowercase();
-    let marker = ["bytes ", "byte range ", "بايت ", "البايت "]
-        .iter()
-        .filter_map(|m| lower.find(m).map(|i| i + m.len()))
-        .min();
-    let range_like = lower.as_bytes().windows(3).any(|w| {
-        (w[0].is_ascii_digit() && &w[1..] == b"..") || (&w[..2] == b".." && w[2].is_ascii_digit())
-    }) || ((lower.contains("byte")
-        || lower.contains("بايت")
-        || lower.contains("offset")
-        || lower.contains("إزاحة")
-        || lower.contains("ازاحة"))
-        && lower.chars().any(|c| c.is_ascii_digit()));
-    if !range_like {
+    // Bind counts to byte units. Digits in paths and hashes (e.g. SHA-256)
+    // do not turn a request for file sizes into an explicit byte window.
+    static PREFIX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?:\bfirst|أول|اول)\s+([0-9]+)\s+(?:bytes?\b|بايت)").unwrap()
+    });
+    static RANGE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?:bytes?|byte range|بايت|البايت)\s+([0-9]+)\.\.([0-9]+)").unwrap()
+    });
+    static RANGE_INTENT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?:bytes?|byte range|offset|بايت|إزاحة|ازاحة)\s*[:=]?\s*[0-9]|[0-9]+\s+(?:bytes?\b|بايت)|[0-9]\.\.|\.\.[0-9]").unwrap()
+    });
+    if !RANGE_INTENT.is_match(&lower) {
         return None;
     }
-    let Some(start) = marker else {
+    if !lower.contains("..") && RANGE_INTENT.find_iter(&lower).count() == 1 {
+        if let Some(capture) = PREFIX.captures(&lower) {
+            return Some(capture[1].parse::<u64>().ok().filter(|n| *n > 0)
+                .map(|n| (0, n)).ok_or(()));
+        }
+    }
+    let Some(capture) = RANGE.captures(&lower) else {
         return Some(Err(()));
     };
-    if lower.matches("..").count() != 1 {
+    if lower.matches("..").count() != 1 || PREFIX.is_match(&lower) {
         return Some(Err(()));
     }
-    let input = lower[start..].trim_start();
-    let n = input.chars().take_while(char::is_ascii_digit).count();
-    let first = input[..n].parse::<u64>();
-    let Some(rest) = input[n..].strip_prefix("..") else {
-        return Some(Err(()));
-    };
-    let n = rest.chars().take_while(char::is_ascii_digit).count();
-    let second = rest[..n].parse::<u64>();
+    let first = capture[1].parse::<u64>();
+    let second = capture[2].parse::<u64>();
+    let tail = &lower[capture.get(0).unwrap().end()..];
     if lower.contains("inclusive")
         || lower.contains("شامل")
-        || rest[n..].chars().any(|c| c.is_ascii_digit())
+        || RANGE_INTENT.is_match(tail)
     {
         return Some(Err(()));
     }
-    if rest[n..].chars().next().is_some_and(|c| {
+    if tail.chars().next().is_some_and(|c| {
         !c.is_whitespace() && !matches!(c, '.' | ',' | ';' | '،' | ')' | ']' | '`')
     }) {
         return Some(Err(()));
@@ -84,11 +84,22 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
 fn named_paths(prompt: &str) -> Vec<String> {
     let suffixes = [
         "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
-        "java", "yaml", "yml",
+        "java", "yaml", "yml", "tsv", "csv",
     ];
+    let mut previous_was_path = false;
     prompt
         .split_whitespace()
         .filter_map(|word| {
+            // In Arabic a conjunction can attach directly to the next Latin
+            // filename. Keep quoted names and standalone names literal.
+            let word = if previous_was_path {
+                word.strip_prefix('و')
+                    .filter(|rest| rest.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '`'))
+                    .unwrap_or(word)
+            } else {
+                word
+            };
+            previous_was_path = false;
             let word = word.trim_matches(|c: char| {
                 matches!(
                     c,
@@ -100,7 +111,8 @@ fn named_paths(prompt: &str) -> Vec<String> {
                 return None;
             }
             let extension = std::path::Path::new(word).extension()?.to_str()?;
-            suffixes.contains(&extension).then(|| word.to_owned())
+            previous_was_path = suffixes.contains(&extension);
+            previous_was_path.then(|| word.to_owned())
         })
         .collect()
 }
@@ -188,6 +200,8 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     {
         return vec![];
     }
+    paths.sort();
+    paths.dedup();
     let mut expected_window = range.as_ref().and_then(|r| r.as_ref().ok().copied());
     if range.as_ref().is_some_and(Result::is_err) || (explicit_window && paths.len() > 1) {
         return vec![Request {
@@ -199,8 +213,6 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
             explicit_window,
         }];
     }
-    paths.sort();
-    paths.dedup();
     if paths.is_empty()
         && (explicit_window
             || ["source", "window", "file", "المصدر", "الملف"]
@@ -466,6 +478,16 @@ mod tests {
             let requests = detect(prompt, &session);
             assert!(requests[0].path.is_none(), "{prompt}");
         }
+    }
+    #[test]
+    fn sizes_hashes_and_numeric_paths_are_not_offsets() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        let reads = detect("اقرأ agh-92.js وagh-93.tsv واحسب الحجم بالبايت وبصمة SHA-256", &session);
+        assert_eq!(reads.len(), 2);
+        assert_eq!(reads[1].path.as_deref(), Some("agh-93.tsv"));
+        assert!(reads.iter().all(|r| r.path.is_some() && !r.explicit_window));
+        assert_eq!(explicit_range("اقرأ أول ١٢٠ بايت من agh-92.js"), Some(Ok((0, 120))));
+        assert_eq!(explicit_range("Read bytes 83..93 from agh-92.js"), Some(Ok((83, 93))));
     }
     #[test]
     fn nameless_explicit_range_remains_unresolved_without_prior_capture() {
