@@ -1113,14 +1113,31 @@ impl Agent {
             self.settings.max_steps
         };
         let mut report_repair_used = false;
-        'steps: for step in 0..(step_limit + usize::from(structured)) {
-            if step >= step_limit && !report_repair_used {
-                break;
+        // The action budget counts model steps that can dispatch tools. After a
+        // successful last action, allow one final response with dispatch disabled.
+        'steps: for step in 0..=step_limit {
+            let final_budget_report = !structured && step == step_limit;
+            if step == step_limit {
+                if structured {
+                    if !report_repair_used {
+                        break;
+                    }
+                } else if report_recovery || user_denied_action || !unresolved_arguments.is_empty()
+                    || !actions.iter().any(|a| a["ok"] == true && a["cached_result"] != true)
+                {
+                    break;
+                }
             }
             if crate::terminal_input::cancelled()
                 || self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
             {
                 anyhow::bail!("Task cancelled; session saved");
+            }
+            if final_budget_report {
+                report_recovery = true;
+                self.session.messages.push(json!({"role":"user","content":
+                    "Action budget reached. Answer the original request using the observed results. Identify anything still missing. No further actions are available."}));
+                self.persist()?;
             }
             if structured && step + 1 == step_limit && !report_recovery {
                 report_recovery = true;
@@ -1313,6 +1330,7 @@ impl Agent {
                 }
                 stats["bounded_quota_recovery_used"] = json!(quota_recovery_used);
                 stats["report_recovery"] = json!(report_recovery);
+                stats["action_budget_report"] = json!(final_budget_report);
                 stats["initial_limit_retry"] = json!(initial_limit_retry);
                 self.context_stats = stats;
                 let projection_fingerprint = crate::intelligence::code::hash(
@@ -1545,6 +1563,7 @@ impl Agent {
                 if answer.trim().is_empty() {
                     if !report_recovery && empty_continuations == 0 && !actions.is_empty() {
                         empty_continuations += 1;
+                        report_recovery = true;
                         self.session.messages.push(json!({"role":"user","content":"No final answer was returned after tools. Summarize the actually observed results, cited evidence IDs and remaining limits; do not rerun completed actions just to answer."}));
                         self.persist()?;
                         continue;
@@ -1566,7 +1585,7 @@ impl Agent {
                 );
                 if fresh["required"] == true && fresh["all_observed"] != true {
                     self.session.messages.push(message.clone());
-                    if fresh_reviews == 0
+                    if !report_recovery && fresh_reviews == 0
                         && fresh["checks"].as_array().unwrap().iter().any(|r| {
                             r["state"] == "missing"
                                 || r["state"] == "stale"
@@ -1662,6 +1681,9 @@ impl Agent {
                         "Verified byte windows (end exclusive): {}",
                         json!(windows)
                     )));
+                }
+                if final_budget_report && self.completion_state == "answer_returned_no_acceptance_contract" {
+                    self.completion_state = "budget_report_no_acceptance_contract".into();
                 }
                 if !emitted || self.output.is_some() {
                     self.output(AgentEvent::Answer(answer));
@@ -2403,6 +2425,11 @@ fn browser_only_constraint_recognizes_the_phone_test() {
 }
 
 fn looks_like_text_tool_call(text: &str) -> bool {
+    if let Ok(value) = serde_json::from_str::<Value>(text.trim()) {
+        if value["tool"].is_string() && value["args"].is_object() {
+            return true;
+        }
+    }
     let text = text.to_ascii_lowercase();
     ["<tool_call", "<function=", "<function_call", "[tool_calls]"]
         .iter()
@@ -2496,6 +2523,25 @@ mod tests {
             state,
             server,
         )
+    }
+    #[test]
+    fn local_copy_comparison_finishes_after_both_reads() {
+        let (mut agent, workspace, _state, server) = scripted_agent(vec![
+            tool_call("original", "read_file", json!({"path":"demo.txt"})),
+            tool_call("copy", "read_file", json!({"path":"copy.txt"})),
+            completion(json!({"role":"assistant","content":"Line 1 differs."})),
+        ]);
+        std::fs::write(workspace.path().join("copy.txt"), "CHANGED").unwrap();
+        let index = agent.session.messages.len();
+        agent.session.user_turns.push(index);
+        agent.session.messages.push(json!({"role":"user","content":"اعمل نسخة من demo.txt باسم copy.txt"}));
+        agent.session.messages.push(json!({"role":"assistant","content":"تم"}));
+        agent.turn("اقرأ الملف الأصلي والنسخة من القرص وقارن بينهما").unwrap();
+        assert_eq!(server.join().unwrap().len(), 3);
+        let report = &agent.session.last_report;
+        assert_eq!(report["finished"], true);
+        assert_eq!(report["fresh_source_checks"]["all_observed"], true);
+        assert_eq!(report["fresh_source_checks"]["checks"].as_array().unwrap().len(), 2);
     }
     #[test]
     fn repeated_status_reports_unready_connection_without_claiming_page_read() {
@@ -3117,6 +3163,32 @@ mod tests {
             .is_some_and(|calls| calls.iter().any(|c| c["id"] == "bad"))));
     }
     #[test]
+    fn last_action_can_be_reported_without_another_tool_step() {
+        let (mut agent, _workspace, _state, server) = scripted_agent(vec![
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"ORIGINAL_EVIDENCE_42"})),
+        ]);
+        agent.settings.max_steps = 1;
+        agent.turn("Read demo.txt and give its contents").unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1]["tools"].as_array().is_none_or(Vec::is_empty));
+        assert_eq!(agent.session.last_report["context"]["action_budget_report"], true);
+        assert_eq!(agent.session.last_report["actions"].as_array().unwrap().len(), 1);
+        assert_eq!(agent.session.messages.last().unwrap()["content"], "ORIGINAL_EVIDENCE_42");
+    }
+    #[test]
+    fn budget_report_rejects_serialized_tool_action() {
+        let (mut agent, _workspace, _state, server) = scripted_agent(vec![
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":r#"{"tool":"read_file","args":{"path":"demo.txt"}}"#})),
+        ]);
+        agent.settings.max_steps = 1;
+        assert!(agent.turn("Inspect demo.txt").unwrap_err().to_string().contains("none were executed"));
+        assert_eq!(server.join().unwrap().len(), 2);
+        assert_eq!(agent.session.last_report["actions"].as_array().unwrap().len(), 1);
+    }
+    #[test]
     fn response_limit_recovers_with_saved_observation_and_no_tools() {
         let mut limited = completion(json!({"role":"assistant","content":"DRAFT_NOT_EVIDENCE"}));
         limited["choices"][0]["finish_reason"] = json!("length");
@@ -3218,6 +3290,7 @@ mod tests {
         agent.turn("Read demo.txt").unwrap();
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 3);
+        assert!(requests[2]["tools"].as_array().is_none_or(Vec::is_empty));
         assert_eq!(
             agent.session.last_report["actions"]
                 .as_array()

@@ -81,6 +81,36 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         _ => Err(()),
     })
 }
+fn named_paths(prompt: &str) -> Vec<String> {
+    let suffixes = [
+        "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
+        "java", "yaml", "yml",
+    ];
+    prompt
+        .split_whitespace()
+        .filter_map(|word| {
+            let word = word.trim_matches(|c: char| {
+                matches!(
+                    c,
+                    '`' | '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ';' | ':' | '،'
+                )
+            });
+            let word = word.trim_end_matches('.');
+            if word.contains("://") || word.len() > 1024 {
+                return None;
+            }
+            let extension = std::path::Path::new(word).extension()?.to_str()?;
+            suffixes.contains(&extension).then(|| word.to_owned())
+        })
+        .collect()
+}
+
+fn refers_to_copy_pair(text: &str) -> bool {
+    (text.contains("قارن") || text.contains("compare"))
+        && (text.contains("الأصلي") || text.contains("الاصلي") || text.contains("original"))
+        && (text.contains("النسخة") || text.contains("copy"))
+}
+
 pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if prompt.len() > 25_000 {
         return vec![];
@@ -115,27 +145,37 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if !read {
         return vec![];
     }
-    let suffixes = [
-        "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
-        "java", "yaml", "yml",
-    ];
-    let mut paths = prompt
-        .split_whitespace()
-        .filter_map(|word| {
-            let word = word.trim_matches(|c: char| {
-                matches!(
-                    c,
-                    '`' | '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ';' | ':' | '،'
-                )
-            });
-            let word = word.trim_end_matches('.');
-            if word.contains("://") || word.len() > 1024 {
-                return None;
+    let mut paths = named_paths(prompt);
+    // A follow-up comparison refers to a pair. A single remembered window
+    // cannot establish both operands. Use the immediately preceding user
+    // turn only when it explicitly named the original and its text copy.
+    if paths.is_empty() && refers_to_copy_pair(&text) {
+        if let Some(previous) = session.user_turns.last()
+            .and_then(|i| session.messages.get(*i))
+            .filter(|m| m["role"] == "user")
+            .and_then(|m| m["content"].as_str())
+        {
+            let prior = previous.to_lowercase();
+            let mut pair = named_paths(previous);
+            pair.sort();
+            pair.dedup();
+            if (prior.contains("copy") || prior.contains("نسخة"))
+                && pair.len() == 2 && pair.iter().all(|p| p.ends_with(".txt"))
+            {
+                paths = pair;
             }
-            let extension = std::path::Path::new(word).extension()?.to_str()?;
-            suffixes.contains(&extension).then(|| word.to_owned())
-        })
-        .collect::<Vec<_>>();
+        }
+        if paths.is_empty() {
+            return vec![Request {
+                path: None,
+                after_message: session.messages.len(),
+                requested_at: chrono::Utc::now().to_rfc3339(),
+                bounded_only,
+                expected_window: range.and_then(Result::ok),
+                explicit_window,
+            }];
+        }
+    }
     let historical_network = [
         "network_events",
         "saved network",
@@ -316,6 +356,23 @@ mod tests {
         assert!(detect("Recheck the current source window.", &session)[0]
             .path
             .is_none());
+    }
+    #[test]
+    fn compare_original_and_copy_requires_two_fresh_reads() {
+        let mut session = crate::session::new(std::path::Path::new("."), "fixture");
+        session.messages.push(json!({"role":"user","content":"اعمل نسخة من notes.txt باسم notes-copy.txt"}));
+        session.user_turns.push(0);
+        let prompt = "اقرأ الملف الأصلي والنسخة من القرص وقارن بينهما";
+        let requests = detect(prompt, &session);
+        let paths: Vec<_> = requests.iter().filter_map(|r| r.path.as_deref()).collect();
+        assert_eq!(paths, ["notes-copy.txt", "notes.txt"]);
+        assert!(requests.iter().all(|r| r.after_message == 1));
+
+        session.messages.push(json!({"role":"user","content":"اعمل نسخة من other.txt"}));
+        session.user_turns.push(1);
+        let unresolved = detect(prompt, &session);
+        assert_eq!(unresolved.len(), 1);
+        assert!(unresolved[0].path.is_none());
     }
     #[test]
     fn native_pairs_hashes_ranges_and_success_are_required() {
