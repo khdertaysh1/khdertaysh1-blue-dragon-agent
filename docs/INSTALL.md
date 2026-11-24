@@ -34,7 +34,7 @@ On Windows, the [PowerShell installer](../scripts/install.ps1) downloads the x64
 
 ## Use an earlier version
 
-When `install.sh` replaces an existing Unix installation with different bytes, it saves the old executable as `blue-dragon.previous` alongside the new one. In Termux, use `"$PREFIX/bin/blue-dragon.previous" --version` to check that copy. The Windows installer saves the replaced executable as `previous.exe` in its installation directory. The Unix quick-start script `start.sh` does not create a rollback copy. You can also select a specific version from [published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases).
+When `install.sh` replaces an existing Unix installation with different bytes, it saves the old executable as `blue-dragon.previous` alongside the new one. In Termux, use `"$PREFIX/bin/blue-dragon.previous" --version` to check that copy. For Windows or an installation made with the Unix quick-start script `start.sh`, use the desired release download to roll back. You can also select a specific version from [published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases).
 
 ## Developer / old source checkout
 
