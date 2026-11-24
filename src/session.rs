@@ -14,6 +14,8 @@ pub struct Session {
     pub updated_at: DateTime<Utc>,
     pub messages: Vec<Value>,
     #[serde(default)]
+    pub compact_context: bool,
+    #[serde(default)]
     pub plan: crate::plan::Plan,
     #[serde(default)]
     pub last_report: Value,
@@ -64,6 +66,7 @@ pub fn new(root: &Path, model: &str) -> Session {
         model: model.to_string(),
         updated_at: Utc::now(),
         messages: Vec::new(),
+        compact_context: false,
         plan: crate::plan::Plan::default(),
         last_report: Value::Null,
         review_checkpoint: None,

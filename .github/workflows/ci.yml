@@ -26,6 +26,12 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked --release
+      - name: Verify structured CLI and compact session resume
+        shell: bash
+        run: |
+          binary=target/release/blue-dragon
+          if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
+          python scripts/test_machine_cli.py "$binary"
       - name: Keep desktop candidates available for PR testing
         if: github.event_name == 'pull_request' && (runner.os == 'Windows' || runner.os == 'macOS')
         uses: actions/upload-artifact@v4

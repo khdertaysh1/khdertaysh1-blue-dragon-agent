@@ -691,7 +691,12 @@ pub fn build_with_budget(
     let mut smallest = usize::MAX;
     let mut memory_tokens = 0;
 
-    for level in 0..=6 {
+    let first_level = if memory["manual_compact"] == true {
+        1
+    } else {
+        0
+    };
+    for level in first_level..=6 {
         let (mut view, archived) = if level == 0 {
             (history.to_vec(), 0)
         } else {

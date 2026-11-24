@@ -213,7 +213,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
             );
             return;
         }
@@ -667,6 +667,16 @@ pub fn run(
             }
             continue;
         }
+        if !app.busy
+            && key.code == KeyCode::Char('t')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            if work_tx.send(Work::Slash("/models".into())).is_ok() {
+                app.busy = true;
+                app.status = "Loading model choices".into();
+            }
+            continue;
+        }
         let can_type = !key.modifiers.contains(KeyModifiers::CONTROL)
             && app.input.chars().count() < MAX_INPUT_CHARS;
         match key.code {
@@ -735,6 +745,7 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/memory ") => serde_json::to_string_pretty(
             &agent.memory_command(line.trim_start_matches("/memory "))?,
         )?,
+        "/compact" => agent.compact_context()?,
         "/context" => serde_json::to_string_pretty(&agent.context_status())?,
         "/findings" => agent.findings_text()?,
         "/rotation" => serde_json::to_string_pretty(&agent.rotation_status())?,

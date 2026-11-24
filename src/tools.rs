@@ -489,21 +489,34 @@ impl ToolBox {
             }
         }
         crate::terminal_input::prepare_approval()?;
-        println!("\n┌─ APPROVAL REQUIRED ──────────────────────────────────────");
-        println!("│ {action}");
+        let mut output = crate::terminal_input::prompt_output();
+        writeln!(
+            output,
+            "\n┌─ APPROVAL REQUIRED ──────────────────────────────────────"
+        )?;
+        writeln!(output, "│ {action}")?;
         for line in detail.lines().take(140) {
-            println!("│ {line}");
+            writeln!(output, "│ {line}")?;
         }
         if detail.lines().count() > 140 {
-            println!("│ ... diff truncated; use /diff to review staged edits");
+            writeln!(
+                output,
+                "│ ... diff truncated; use /diff to review staged edits"
+            )?;
         }
-        println!("└─────────────────────────────────────────────────────────");
+        writeln!(
+            output,
+            "└─────────────────────────────────────────────────────────"
+        )?;
         if crate::browser::group_approval(action) {
-            print!("Allow snapshot and network reads for this page and task? [y/N] ");
+            write!(
+                output,
+                "Allow snapshot and network reads for this page and task? [y/N] "
+            )?;
         } else {
-            print!("Approve this ONE action? [y/N] ");
+            write!(output, "Approve this ONE action? [y/N] ")?;
         }
-        std::io::stdout().flush()?;
+        output.flush()?;
         let answer = crate::terminal_input::approval()?;
         self.user_declined
             .store(!answer, std::sync::atomic::Ordering::Relaxed);

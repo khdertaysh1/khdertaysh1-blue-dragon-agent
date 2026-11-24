@@ -2,6 +2,12 @@
 
 ## 1.1.14.0
 
+- Use `run --json TASK` for a single result or `run --ndjson TASK` for live events and the final result. Approval prompts go to stderr, with the same stdin approval rules.
+- Use `/compact` in chat or TUI to show a local recap and keep a compact projection for later requests, including after resuming the session.
+- Open the TUI model picker with Ctrl+T while idle.
+- Load project conventions from a workspace-root UTF-8 `AGENTS.md` of up to 16 KiB on session open or resume.
+- Read-only tasks default to 48 steps. Set `--max-steps` or `BLUE_DRAGON_MAX_STEPS` (1–100) to override the normal turn limit.
+
 - Preserve file references and conversation context across follow-ups.
 - Improve Arabic and English byte-range requests for local files.
 - Retain browser network observations during approved response saves.
