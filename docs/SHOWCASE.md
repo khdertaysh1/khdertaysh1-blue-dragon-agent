@@ -22,7 +22,7 @@ This looping animation is **not a screen recording**. It uses sample commands, s
 
 ## 04 · Honest capability status
 
-The [README](../README.md#capabilities) lists implemented functions, while the [roadmap](../README.md#roadmap) tracks future integration work. Interactive web features are not embedded in GitHub markdown; native expandable details, Mermaid diagrams and linked visuals provide GitHub-supported exploration.
+The [README](../README.md#capabilities) lists implemented functions, while the [documentation index](README.md) links to setup and implementation guides. Interactive web features are not embedded in GitHub markdown; native expandable details, Mermaid diagrams and linked visuals provide GitHub-supported exploration.
 
 ## Reproduction and accessibility
 
