@@ -4,6 +4,7 @@ No downloads, real browsers, live providers, remote repository writes or install
 The reviewed pinned lab must already exist locally. Logs may contain fixture data.
 """
 import argparse,hashlib,json,os,platform,shutil,signal,subprocess,sys,time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from lab_matrix import LAB_COMMIT
 
@@ -20,6 +21,31 @@ def stop(process):
         if os.name=='posix':os.killpg(process.pid,signal.SIGKILL)
         else:process.kill()
         process.wait(timeout=5)
+
+
+def write_junit(output, report, groups):
+    """Publish the planned groups, including unfinished work after interruption."""
+    rows = {row['name']: row for row in report['groups']}
+    suite = ET.Element('testsuite', name='Blue Dragon local qualification', tests=str(len(groups)))
+    failures = skipped = errors = 0
+    for name, _, _ in groups:
+        row = rows.get(name, {})
+        case = ET.SubElement(suite, 'testcase', name=name, time=str(row.get('seconds', 0)))
+        status = row.get('status')
+        if status == 'failed':
+            failures += 1
+            ET.SubElement(case, 'failure', message=f"Exit code {row['exit_code']}; see {row['log']}")
+        elif status == 'timed_out':
+            errors += 1
+            ET.SubElement(case, 'error', message=f"Timed out after {row['timeout_seconds']} seconds")
+        elif status != 'passed':
+            skipped += 1
+            reason = row.get('reason') or ('Started; outcome pending' if status == 'running' else 'Not started')
+            ET.SubElement(case, 'skipped', message=reason)
+    suite.attrib.update(failures=str(failures), errors=str(errors), skipped=str(skipped))
+    temp = output / 'junit.xml.tmp'
+    ET.ElementTree(suite).write(temp, encoding='utf-8', xml_declaration=True)
+    temp.replace(output / 'junit.xml')
 
 
 def main():
@@ -62,6 +88,7 @@ def main():
         'limits':['Synthetic/offline fixtures and reviewed loopback lab only; no OS network isolation claim.','No real browser, physical Termux, Windows/macOS execution or live provider qualification.','No Alpha runtime comparison; deterministic runtime tests do not measure model quality.','POSIX process groups are terminated on timeout; Windows only terminates the immediate process.','Group pass means its assertions and exit code passed; no count or coverage equivalence across groups.']}
     def save():
         temp=output/'summary.tmp';temp.write_text(json.dumps(report,indent=2)+'\n');temp.replace(output/'summary.json')
+        write_junit(output, report, groups)
     save()
     for name,command,supported in groups:
         script=Path(command[1]);row={'name':name,'harness_sha256':sha(script),'status':'running','log':name+'.log'}

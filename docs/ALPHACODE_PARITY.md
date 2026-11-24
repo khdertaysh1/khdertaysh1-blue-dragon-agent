@@ -2,7 +2,7 @@
 
 Blue Dragon is independently written. This is an implementation audit, not a claim of feature parity.
 
-| Capability | Status in v0.7 alpha |
+| Capability | Status on this branch |
 |---|---|
 | Rust CLI and cross-platform CI | Implemented |
 | OpenAI-compatible tool calling | Implemented |
@@ -14,14 +14,15 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Git diff and Git status | Implemented |
 | Explicit approval for writes and commands | Implemented |
 | Local user skills | Markdown files; user must activate them |
-| Persistent sessions and resume | Implemented, with evidence/finding persistence and default migration |
+| Persistent sessions and resume | Atomic checkpoints, process-exit lock release and interrupted tool-history recovery. Child checkpoints record interrupted work. See [session recovery](RESUME_AND_REPRODUCTION.md). |
 | Context and task control | Budgeted non-destructive request projection, exact recall, adaptive task guidance, stalled-loop handling and bounded empty/context recovery; no semantic memory graph |
 | Full-screen TUI / streaming UI | Implemented; OpenAI-compatible and Anthropic SSE, local fixture-tested |
 | Chromium/Firefox browser automation | URL-only automatic preparation/initial inspection, official Termux Chromium setup, own CDP client and authenticated extension bridge; managed tab DOM/click/fill/JS/network/console/source/screenshots. Linux real-browser tests; Android physical validation and Firefox signing pending |
-| Desktop control | Not implemented |
-| MCP client | stdio tools implemented, explicitly connected/approved; other transports/features absent |
-| Multi-agent swarm and isolated worktrees | Not implemented |
+| Desktop control | The operator can open a workspace text file in a supported editor with `/desktop open` and use the clipboard on supported systems. General mouse, keyboard and window automation remains open. |
+| MCP client | Explicitly connected stdio tools plus paginated resource listing and bounded text reads. Remote transports remain open. See [MCP resource context](MCP_RESOURCE_CONTEXT.md). |
+| Multi-agent swarm and isolated worktrees | [Concurrent child agents](DELEGATED_AGENTS.md) have scoped reads and can submit [patch proposals](SUPERVISED_EDIT_PROPOSALS.md) for parent review. Isolated writable Git worktrees remain open. |
 | Model selection / free gateway | Searchable picker of keyless Kilo free models, Blue Free bounded automatic rotation, pinned concrete choices, one-hour catalog cache, saved selections. JarvisClaw retained; OpenRouter requires own key |
+| Native installer candidates | CI packaging for Debian/Ubuntu amd64 and macOS arm64 (unsigned pkg). Candidate artifacts are separate from the published one-command installers. |
 | Native desktop GUI | Not implemented |
 
 Next milestones: wider MCP and device verification, resolved cross-file indexing, isolated patch worktrees, signed extension distribution, richer structured test reports, crash recovery, native installers.

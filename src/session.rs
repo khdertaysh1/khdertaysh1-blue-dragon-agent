@@ -354,7 +354,14 @@ pub fn save(sessions_dir: &Path, session: &mut Session) -> Result<()> {
     if result.is_err() {
         session.updated_at = previous_time;
     }
-    result
+    result?;
+    // Persist the rename as well as the file contents across a power loss.
+    // Following a successful rename the new timestamp already matches disk.
+    #[cfg(unix)]
+    fs::File::open(sessions_dir)?
+        .sync_all()
+        .context("Session checkpoint replaced but directory sync failed")?;
+    Ok(())
 }
 
 pub fn load(sessions_dir: &Path, id: &str, root: &Path) -> Result<Session> {

@@ -27,3 +27,5 @@ Evidence: `validation/integrated-local-qualification.json` records every group; 
 ## Remaining verification boundaries
 
 No graphical browser was started: the known environment socket restriction was not bypassed. No physical Termux device, Windows/macOS runtime or live text/vision provider was tested. Installer/package behavior uses local command fixtures. Browser contracts do not prove real frame/navigation/rendering behavior. Local test passage does not establish vulnerability absence, exploitability, production safety, complete semantic dataflow or Alpha equivalence.
+
+Each checkpoint also writes `junit.xml` alongside `summary.json`. It contains one test case per planned group. Failed exits, timeouts and skipped or unfinished groups have distinct outcomes. The JSON report retains log hashes and binary provenance.
