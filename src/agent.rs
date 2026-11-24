@@ -1605,6 +1605,7 @@ impl Agent {
                         |text| {
                             stream_received = true;
                             if buffer_for_review
+                                || text_tool_correction.is_some()
                                 || hold_structured_delta(&mut structured_prefix, text)
                             {
                                 return;
@@ -1635,7 +1636,10 @@ impl Agent {
                             explain_first && (native_calls || looks_like_text_tool_call(&reply));
                         if !report_recovery
                             && (invalid_routing_reply
-                                || (!native_calls && is_text_tool_envelope(&reply)))
+                                || (!native_calls
+                                    && (is_text_tool_envelope(&reply)
+                                        || (text_tool_correction.is_some()
+                                            && ends_with_unfenced_tool_request(&reply)))))
                         {
                             if text_tool_retry_used {
                                 if prompt
@@ -3224,6 +3228,19 @@ fn is_text_tool_envelope(text: &str) -> bool {
         })
 }
 
+// During format recovery a provider may prepend a progress sentence to
+// the same unexecuted JSON. Preserve fenced examples and quoted history.
+fn ends_with_unfenced_tool_request(text: &str) -> bool {
+    let Some((prefix, last)) = text.trim_end().rsplit_once('\n') else {
+        return false;
+    };
+    !prefix
+        .lines()
+        .any(|line| line.trim_start().starts_with("```"))
+        && last.trim_start().starts_with('{')
+        && is_text_tool_envelope(last)
+}
+
 fn looks_like_text_tool_call(text: &str) -> bool {
     let text = text.to_ascii_lowercase();
     ["<tool_call", "<function=", "<function_call", "[tool_calls]"]
@@ -3391,6 +3408,25 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn prose_prefixed_read_requests_during_retry_do_not_count_as_progress() {
+        let read = r#"{"tool":"read_file","args":{"path":"wallet.py"}}"#;
+        let reply = |text: String| completion(json!({"role":"assistant","content":text}));
+        let (mut agent, _work, _state, server) = scripted_agent(vec![
+            reply(read.to_owned()),
+            reply(format!("سأقرأ الملفات أولاً.\n{read}\n{read}")),
+        ]);
+        assert!(agent.run_once("Read wallet.py").is_err());
+        assert_eq!(server.join().unwrap().len(), 2);
+        assert!(agent.session.last_report["actions"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(!ends_with_unfenced_tool_request(&format!(
+            "Example:\n```json\n{read}\n```"
+        )));
     }
 
     fn completion(message: Value) -> Value {
