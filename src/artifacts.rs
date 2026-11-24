@@ -326,7 +326,10 @@ impl Store {
                     "duplicate_reference"
                 } else {
                     seen.insert(url.to_string(), index);
-                    if !tools.scope.enabled || tools.scope.check(url.as_str(), "read").is_err() {
+                    if !crate::browser::local_project_url(url)
+                        || !tools.scope.enabled
+                        || tools.scope.check(url.as_str(), "read").is_err()
+                    {
                         outside += 1;
                         "outside_current_read_scope"
                     } else {
@@ -1149,13 +1152,13 @@ mod tests {
     #[test]
     fn dynamic_discovery_preserves_unresolved_inputs_scope_and_budget() {
         let source = r#"import './static.js'; import('./lazy.js'); import('./lazy.js'); import(name); import(`./${name}.js`); import('./esc\u0061ped.js'); obj.import('./not-a-module.js'); const text="import('./fake.js')"; import('https://outside.test/x.js');"#;
-        let (_dir, store, entries) = chain_store(&[("https://example.test/app.js", source)]);
+        let (_dir, store, entries) = chain_store(&[("http://127.0.0.1:8000/app.js", source)]);
         let root = tempfile::tempdir().unwrap();
         let mut tools =
             crate::tools::ToolBox::new(root.path().into(), crate::tools::ApprovalMode::ReadOnly);
         tools
             .scope
-            .command("allow https://example.test/ read")
+            .command("allow http://127.0.0.1:8000/ read")
             .unwrap();
         let output = store.discover(&tools, &entries[0].id, None).unwrap();
         assert_eq!(output["references"].as_array().unwrap().len(), 7);
@@ -1179,7 +1182,7 @@ mod tests {
         let source = (0..81)
             .map(|n| format!("import('./{n}.js');"))
             .collect::<String>();
-        let (_dir, store, entries) = chain_store(&[("https://example.test/app.js", &source)]);
+        let (_dir, store, entries) = chain_store(&[("http://127.0.0.1:8000/app.js", &source)]);
         let output = store.discover(&tools, &entries[0].id, None).unwrap();
         assert_eq!(output["references"].as_array().unwrap().len(), 80);
         assert_eq!(output["limited"], true);
@@ -1189,8 +1192,8 @@ mod tests {
     fn discovery_tracks_unique_missing_indexed_outside_and_duplicate_sources() {
         let html="<script src='/a.js'></script><script src='/b.js?token=PRIVATE'></script><script src='/b.js?token=PRIVATE'></script><script src='https://outside.test/x.js'></script>";
         let (_dir, store, mut e) = chain_store(&[
-            ("https://example.test/page", html),
-            ("https://example.test/a.js", "const cached=true;"),
+            ("http://127.0.0.1:8000/page", html),
+            ("http://127.0.0.1:8000/a.js", "const cached=true;"),
         ]);
         e[0].content_type = "text/html; charset=utf-8".into();
         fs::write(
@@ -1203,7 +1206,7 @@ mod tests {
             crate::tools::ToolBox::new(root.path().into(), crate::tools::ApprovalMode::ReadOnly);
         tools
             .scope
-            .command("allow https://example.test/ read")
+            .command("allow http://127.0.0.1:8000/ read")
             .unwrap();
         let result = store.discover(&tools, &e[0].id, None).unwrap();
         assert_eq!(
@@ -1220,6 +1223,15 @@ mod tests {
         let cached = store.discover(&tools, &e[0].id, Some(0)).unwrap();
         assert_eq!(cached["fresh_evidence"], false);
         assert_eq!(cached["reused_local_copy"], true);
+    }
+    #[test]
+    fn remote_cache_cannot_be_used_for_project_tracing() {
+        let (_dir, store, _) = chain_store(&[("https://example.test/app.js", "const a = 1;")]);
+        assert!(store.require_local_project_sources().is_err());
+        for value in ["http://127.0.0.1:8080/app.js", "http://[::1]/app.js"] {
+            let (_dir, local, _) = chain_store(&[(value, "const a = 1;")]);
+            local.require_local_project_sources().unwrap();
+        }
     }
     #[test]
     fn cached_chain_follows_reexport_aliases_and_stops_cycles() {
