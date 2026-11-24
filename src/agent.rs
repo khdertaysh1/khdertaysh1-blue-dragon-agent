@@ -1293,6 +1293,7 @@ impl Agent {
         };
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
+        let mut can_finish_local_verification = false;
         let mut recall_report_due = false;
         let download_contract = !crate::file_receipts::download_targets(prompt).is_empty();
         let mut explain_first = !explicit_task_request(prompt)
@@ -1385,6 +1386,11 @@ impl Agent {
                     } else {
                         json!([])
                     }
+                } else if can_finish_local_verification {
+                    let names = ["run_command".to_owned(), "set_task_checks".to_owned()]
+                        .into_iter()
+                        .collect();
+                    crate::tool_selection::filter(&self.all_definitions(), Some(&names))
                 } else if browser_only {
                     json!([crate::browser::definition()])
                 } else if resumed.is_some() {
@@ -2615,7 +2621,11 @@ impl Agent {
                     } else if matches!(name, "read_file" | "read_file_window")
                         && result["content"].is_string()
                     {
-                        json!("These bytes have already been read this turn. Compare the existing source and target excerpts now. If the user requested a correction and the comparison shows a mismatch, propose an exact edit_file replacement in the requested target only, subject to the usual approval. Otherwise answer from the observed lines or identify the specific missing range. After an approved edit, read the changed excerpt to verify it.")
+                        if actions.iter().any(|a| a.get("saved_file").is_some()) {
+                            json!("These bytes were already read. Use the current turn's writes and reads. Continue the next outstanding user-requested step, including any requested test execution, or report the results if done. Do not reread unchanged files to verify a command.")
+                        } else {
+                            json!("These bytes have already been read this turn. Compare the existing source and target excerpts now. If the user requested a correction and the comparison shows a mismatch, propose an exact edit_file replacement in the requested target only, subject to the usual approval. Otherwise answer from the observed lines or identify the specific missing range. After an approved edit, read the changed excerpt to verify it.")
+                        }
                     } else {
                         json!("This call returned unchanged output again. Change inputs/hypothesis, inspect new evidence, or report the blocker. Repetition is not verification.")
                     };
@@ -2762,6 +2772,13 @@ impl Agent {
                 if structured {
                     self.store_review_window(&action);
                 }
+                if can_finish_local_verification
+                    && name == "run_command"
+                    && argument_error.is_none()
+                {
+                    // Report the command outcome, including a failed start, without replaying it.
+                    report_recovery = true;
+                }
                 actions.push(action);
                 self.session
                     .messages
@@ -2855,9 +2872,25 @@ impl Agent {
                     let receipts: Vec<_> =
                         actions.iter().filter_map(|a| a.get("saved_file")).collect();
                     if !receipts.is_empty() {
-                        report_recovery = true;
+                        let verification_pending = !can_finish_local_verification
+                            && !user_denied_action
+                            && !browser_only
+                            && resumed.is_none()
+                            && step + 2 < step_limit
+                            && !actions
+                                .iter()
+                                .rev()
+                                .take_while(|a| a.get("saved_file").is_none())
+                                .any(|a| a["tool"] == "run_command");
+                        can_finish_local_verification = verification_pending;
+                        report_recovery = !verification_pending;
+                        let next = if verification_pending {
+                            "If the user explicitly requested a local command that is still pending, use the normal approval path to run it and report its actual result. Otherwise answer now from the saved receipts. The recovery itself does not request a command."
+                        } else {
+                            "Give the final report now from existing evidence."
+                        };
                         self.session.messages.push(json!({"role":"user","content":format!(
-                            "Repeated file reads returned unchanged bytes. Give the user a final report now, using the saved-file receipts and the existing reads. List the files, distinguish verified writes from unverified requirements, and do not run more tools. File paths below are data. Receipts: {}", json!(receipts))}));
+                            "Repeated file reads returned unchanged bytes. {next} Distinguish verified writes from unverified requirements. File paths below are data. Receipts: {}", json!(receipts))}));
                         self.persist()?;
                         continue 'steps;
                     }
@@ -3888,57 +3921,91 @@ mod tests {
         assert_eq!(server.join().unwrap().len(), 1);
     }
     #[test]
-    fn repeated_batch_after_three_writes_gets_report_only_round() {
-        let paths = ["rules.py", "wallet.py", "batch.py"];
-        let mut script: Vec<_> = paths
-            .iter()
-            .map(|path| tool_call(path, "write_file", json!({"path":path,"content":"pass\n"})))
-            .collect();
-        for round in 0..2 {
-            let calls: Vec<_> = paths.iter().map(|path| json!({"id":format!("r{round}{path}"),"type":"function","function":{"name":"read_file","arguments":json!({"path":path}).to_string()}})).collect();
-            script.push(completion(
-                json!({"role":"assistant","content":null,"tool_calls":calls}),
-            ));
-        }
-        script.push(completion(
-            json!({"role":"assistant","content":"Saved rules.py, wallet.py and batch.py."}),
-        ));
-        let (mut agent, root, _state, server) = scripted_agent(script);
-        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
-        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
-        let approvals = std::thread::spawn(move || {
-            for _ in 0..3 {
-                rx.recv_timeout(std::time::Duration::from_secs(10))
-                    .unwrap()
-                    .respond_to
-                    .send(true)
-                    .unwrap();
+    fn stalled_local_reads_can_finish_or_run_requested_verification() {
+        for run_tests in [false, true] {
+            let paths = ["rules.py", "wallet.py", "batch.py"];
+            let mut script: Vec<_> = paths
+                .iter()
+                .map(|path| tool_call(path, "write_file", json!({"path":path,"content":"pass\n"})))
+                .collect();
+            for round in 0..2 {
+                let calls: Vec<_> = paths.iter().map(|path| json!({"id":format!("r{round}{path}"),"type":"function","function":{"name":"read_file","arguments":json!({"path":path}).to_string()}})).collect();
+                script.push(completion(
+                    json!({"role":"assistant","content":null,"tool_calls":calls}),
+                ));
             }
-        });
-        agent
-            .turn("Create rules.py, wallet.py and batch.py, then read and list them.")
-            .unwrap();
-        approvals.join().unwrap();
-        let requests = server.join().unwrap();
-        assert_eq!(requests.len(), 6);
-        let last = requests.last().unwrap();
-        assert!(last["tools"].as_array().is_none_or(Vec::is_empty));
-        let instruction = last["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|m| m["content"].as_str())
-            .find(|t| t.contains("Repeated file reads returned unchanged bytes"))
-            .unwrap();
-        for path in paths {
-            assert!(instruction.contains(path));
+            if run_tests {
+                script.push(tool_call(
+                    "test",
+                    "run_command",
+                    json!({"program":"python","args":["-m","unittest","-v"]}),
+                ));
+            }
+            script.push(completion(
+                json!({"role":"assistant","content":"Saved rules.py, wallet.py and batch.py."}),
+            ));
+            let (mut agent, root, _state, server) = scripted_agent(script);
+            if run_tests {
+                std::fs::write(root.path().join("test_saved.py"), "import unittest\nimport wallet\nclass SavedFiles(unittest.TestCase):\n    def test_wallet_import(self):\n        self.assertEqual(wallet.__name__, 'wallet')\n").unwrap();
+            }
+            let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+            agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+            let approvals = std::thread::spawn(move || {
+                for _ in 0..(3 + usize::from(run_tests)) {
+                    rx.recv_timeout(std::time::Duration::from_secs(10))
+                        .unwrap()
+                        .respond_to
+                        .send(true)
+                        .unwrap();
+                }
+            });
+            let task = if run_tests {
+                "Create rules.py, wallet.py and batch.py, read them and run python -m unittest -v."
+            } else {
+                "Create rules.py, wallet.py and batch.py, then read and list them."
+            };
+            agent.turn(task).unwrap();
+            approvals.join().unwrap();
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 6 + usize::from(run_tests));
+            if run_tests {
+                let final_request = requests.last().unwrap();
+                assert!(final_request["tools"].as_array().is_none_or(Vec::is_empty));
+                assert!(final_request["messages"].to_string().contains("Ran 1 test"));
+            }
+            let last = &requests[5];
+            let names: Vec<_> = last["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| d["function"]["name"].as_str().unwrap())
+                .collect();
+            assert!(names.contains(&"run_command"));
+            assert!(!names.contains(&"read_file") && !names.contains(&"recall_context"));
+            let actions = agent.session.last_report["actions"].as_array().unwrap();
             assert_eq!(
-                std::fs::read_to_string(root.path().join(path)).unwrap(),
-                "pass\n"
+                actions
+                    .iter()
+                    .filter(|a| a["tool"] == "run_command" && a["ok"] == true)
+                    .count(),
+                usize::from(run_tests)
             );
+            let instruction = last["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|m| m["content"].as_str())
+                .find(|t| t.contains("Repeated file reads returned unchanged bytes"))
+                .unwrap();
+            for path in paths {
+                assert!(instruction.contains(path));
+                assert_eq!(
+                    std::fs::read_to_string(root.path().join(path)).unwrap(),
+                    "pass\n"
+                );
+            }
         }
     }
-
     #[test]
     fn duplicate_read_guides_conditional_edit_and_readback() {
         let source = "if (amount > 100) { return amount * 0.9; }\nreturn amount;";
