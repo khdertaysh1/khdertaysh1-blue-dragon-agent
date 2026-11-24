@@ -2345,7 +2345,15 @@ impl Agent {
                                             .as_u64()
                                             .context("Message index required")?
                                             as usize;
-                                        let evidence=self.session.observations.iter().find(|o|o.message_index==index && o.tool=="browser").context("No browser evidence at this index in the current session")?;
+                                        let Some(evidence) =
+                                            self.session.observations.iter().find(|o| {
+                                                o.message_index == index && o.tool == "browser"
+                                            })
+                                        else {
+                                            return Ok(
+                                                json!({"ok":false,"category":"missing_browser_evidence","message_index":index,"error":"No browser evidence at this index in the current session. Repeating this lookup cannot recover a URL."}),
+                                            );
+                                        };
                                         self.network_events(
                                             &evidence.id,
                                             args["request_id"].as_str(),
@@ -2692,6 +2700,10 @@ impl Agent {
                     denied_artifact_read = name == "source_artifact";
                 }
                 let mut action = json!({"tool":name,"ok":ok,"step":step+1,"execution_status":result["execution_status"],"cached_result":result["cached_result"]==true});
+                if name == "recall_context" && guard_args["network_events"] == true {
+                    action["category"] = result["category"].clone();
+                    action["message_index"] = guard_args["message_index"].clone();
+                }
                 if let Some(a) = browser_action {
                     action["ok"] = json!(
                         ok && !crate::reasoning::claims::unverified_execution(&result)
@@ -2747,6 +2759,15 @@ impl Agent {
             }
             if denial_violation {
                 anyhow::bail!("Stopped after user denial; no alternative action executed");
+            }
+            if let Some(index) = repeated_missing_browser_recall(actions) {
+                if prompt
+                    .chars()
+                    .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c))
+                {
+                    anyhow::bail!("ما لقيت دليل متصفح عند الرسالة {index}. تكرار البحث بنفس المكان ما أعطى نتيجة. بهالمحاولة ما استرجعت روابط من سجل الشبكة وما حفظت أو قرأت ملفات من القرص.");
+                }
+                anyhow::bail!("No browser evidence at message {index}. The repeated lookup yielded no network URLs. No files were saved or read from disk during this attempt.");
             }
             if repeated_unavailable_saves(actions) {
                 anyhow::bail!("CDP could not supply the response body on two save attempts");
@@ -2836,6 +2857,32 @@ fn progress_receipt(
     }
     lines.join("\n")
 }
+// A duplicate of a successful history read is normal. Only stop a history-only
+// turn on a repeated lookup known to have failed for that exact message.
+fn repeated_missing_browser_recall(actions: &[Value]) -> Option<u64> {
+    if !actions.iter().all(|a| {
+        matches!(
+            a["tool"].as_str(),
+            Some("recall_context" | "task_continuity")
+        )
+    }) {
+        return None;
+    }
+    let (last, earlier) = actions.split_last()?;
+    let index = last["message_index"].as_u64()?;
+    if last["category"] == "duplicate_recall"
+        && earlier
+            .iter()
+            .any(|a| a["category"] == "missing_browser_evidence" && a["message_index"] == index)
+        && !earlier
+            .iter()
+            .any(|a| a["tool"] == "recall_context" && a["ok"] == true)
+    {
+        return Some(index);
+    }
+    None
+}
+
 fn repeated_unavailable_saves(actions: &[Value]) -> bool {
     let mut failures = 0;
     for action in actions
@@ -3081,6 +3128,24 @@ fn system_prompt() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_missing_network_history_reports_without_another_model_turn() {
+        let args = json!({"message_index":99,"network_events":true});
+        let (mut agent, _work, _state, server) = scripted_agent(vec![
+            tool_call("first", "recall_context", args.clone()),
+            tool_call("repeat", "recall_context", args),
+        ]);
+        assert!(agent.run_once("استرجع الرابطين من السجل").is_err());
+        assert_eq!(server.join().unwrap().len(), 2);
+        let answer = agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(
+            answer.contains("الرسالة 99") && answer.contains("ما حفظت"),
+            "{answer}"
+        );
+    }
+
     #[test]
     fn unavailable_saves_report_evidence_across_intervening_reads() {
         let failed = |id: &str, path: &str| {
