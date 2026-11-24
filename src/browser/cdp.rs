@@ -12,6 +12,18 @@ use tungstenite::{Message, WebSocket};
 
 fn record_network(events: &mut VecDeque<Value>, evictions: &mut usize, value: &Value) {
     let p = &value["params"];
+    if value["method"] == "Network.loadingFinished" {
+        // A body queried before completion may become readable at this point.
+        if let Some(row) = events
+            .iter_mut()
+            .rev()
+            .find(|row| row["event"] == "response" && row["request_id"] == p["requestId"])
+        {
+            if let Some(obj) = row.as_object_mut() {
+                obj.remove("body_unavailable");
+            }
+        }
+    }
     if value["method"] == "Network.requestWillBeSent" && p["redirectResponse"].is_object() {
         let redirect = &p["redirectResponse"];
         let url = redirect["url"].as_str();
@@ -287,6 +299,17 @@ impl Cdp {
                                     .as_str()
                                     .filter(|s| !s.is_empty())
                                     .unwrap_or("No protocol message supplied");
+                                if error["code"] == -32000
+                                    && (raw.contains("No resource with given identifier")
+                                        || raw.contains("evicted from inspector cache"))
+                                {
+                                    if let Some(row) = self.network.iter_mut().rev().find(|row| {
+                                        row["event"] == "response"
+                                            && row["request_id"] == params["requestId"]
+                                    }) {
+                                        row["body_unavailable"] = json!(true);
+                                    }
+                                }
                                 // Display bounded protocol text, never terminal control sequences.
                                 let reason: String =
                                     raw.chars().take(240).flat_map(char::escape_debug).collect();
@@ -333,6 +356,7 @@ impl Cdp {
             .iter()
             .filter(|row| {
                 row["event"] == "response"
+                    && row["body_unavailable"] != true
                     && row["url_truncated"] == false
                     && row["url"] == url
                     && row["status"]
@@ -516,6 +540,10 @@ fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Result<&'
         .iter()
         .rev()
         .find(|event| event["event"] == "response" && event["request_id"] == id).context("No retained response with this ID on the current connection; historical captures are separate")?;
+    anyhow::ensure!(
+        response["body_unavailable"] != true,
+        "CDP no longer retains this response body. Do not retry this request ID or navigate to the script. Use a newly observed response if available, or report that the bytes are unavailable."
+    );
     if response["url_truncated"] == true {
         anyhow::bail!("Recorded response URL is truncated; scope cannot be verified");
     }

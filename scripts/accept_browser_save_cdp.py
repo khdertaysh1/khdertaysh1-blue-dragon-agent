@@ -62,7 +62,10 @@ def test_save(binary):
                 if data["params"]["requestId"] == "evicted":
                     await socket.send_json({"id": data["id"], "error": {"code": -32000, "message": "Request content was evicted from inspector cache"}})
                     continue
-                result = {"body": base64.b64encode(BODY).decode(), "base64Encoded": True}
+                if data["params"]["requestId"] == "vendor":
+                    result = {"body": "/* retained vendor */", "base64Encoded": False}
+                else:
+                    result = {"body": base64.b64encode(BODY).decode(), "base64Encoded": True}
             await socket.send_json({"id": data["id"], "result": result})
         return socket
 
@@ -169,9 +172,11 @@ def test_save(binary):
 
             commands = [
                 f"/browser attach {websocket_port[0]}",
+                '/browser do ' + json.dumps({"action": "source", "url": PAGE + "vendor.js"}), "y",
                 save("script", "cancelled.js"), "n",
                 save("vendor", "wrong.js", PAGE + "test.js"),
                 save("evicted", "missing.js"), "y",
+                save("evicted", "missing-again.js"),
                 save("script", "saved.js", PAGE + "test.js"), "y",
                 save("script", "saved.js"),
                 save("script", "../outside.js"),
@@ -193,6 +198,8 @@ def test_save(binary):
 
             phase.update(mode="save", requests=0)
             output = chat(commands)
+            assert "CDP no longer retains this response body" in output
+            assert retrieved.count("evicted") == 1
             assert not model_packets
             assert sorted(p.name for p in work.iterdir() if not p.name.startswith(".")) == ["saved.js"], output
             assert (work / "saved.js").read_bytes() == BODY
@@ -204,7 +211,8 @@ def test_save(binary):
             assert f'"sha256": "{digest}"' in output
             assert "does not match the expected script URL" in output, output
             assert "CDP -32000): Request content was evicted from inspector cache" in output, output
-            assert retrieved == ["evicted", "script"], retrieved
+            assert "retained vendor" in output
+            assert retrieved == ["vendor", "evicted", "script"], retrieved
             methods_after_save = list(browser_methods)
 
             phase.update(mode="blocked", requests=0)
@@ -242,7 +250,7 @@ def test_save(binary):
             assert "Summary (model): Test fixture review" in reviewed, reviewed
             assert "Byte-window coverage:" in reviewed and phase["requests"] == 1, reviewed
             assert (work / "reviewed.js").read_bytes() == BODY
-            assert retrieved == ["evicted", "script", "script"], retrieved
+            assert retrieved == ["vendor", "evicted", "script", "script"], retrieved
 
             (work / "large.js").write_bytes(LARGE)
             phase.update(mode="large", requests=0)
