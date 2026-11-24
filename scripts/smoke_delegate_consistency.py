@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+from fixture_intent import reply_to_work_intent
 import subprocess
 import tempfile
 import threading
@@ -24,6 +25,8 @@ def main(binary):
         def do_POST(self):
             try:
                 packet=json.loads(self.rfile.read(int(self.headers['Content-Length'])));messages=packet['messages']
+                if reply_to_work_intent(self, packet):
+                    return
                 child='independent read-only research delegate' in str(messages[0]['content'])
                 if child:
                     who='A' if 'TASK_A' in str(messages[1]['content']) else 'B'
