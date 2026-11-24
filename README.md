@@ -25,10 +25,23 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> [!IMPORTANT]
-> **Development preview.** The published baseline is [0.9.0-alpha.6](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v0.9.0-alpha.6). This source tree prepares **1.1.9.0**; its review and final CI are still pending. The installer downloads published releases, not unpublished source changes. See [release notes](docs/RELEASE_NOTES.md) and [version mapping](docs/PUBLIC_VERSION.md).
->
-> Physical Android/Termux testing and sustained live-model reliability remain unverified. Provider quotas can still cause HTTP 429. See [trial evidence and limits](docs/CANDIDATE_TRIAL_PLAN.md), [browser setup](docs/BROWSER.md) and [workbench limits](docs/WORKBENCH.md).
+## Quick Start
+
+Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **1.1.14.1** and verify the executable's SHA-256 and reported version.
+
+**Linux x64, macOS on Apple Silicon, or Android ARM64 in Termux** (Bash and curl)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/start.sh | bash
+```
+
+**Windows x64** (PowerShell)
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/start.ps1').Content))
+```
+
+The [release downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.1) include all four binaries, checksums, and the browser extensions. CI exercises desktop builds and an Android emulator. Physical Termux testing and sustained live-model reliability are separate checks. See [release notes](docs/RELEASE_NOTES.md), [install options](docs/INSTALL.md), and the [CI run](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/45470692162).
 
 ## The Dragon
 
@@ -58,6 +71,12 @@ Blue Dragon is designed around a simple engineering loop: **understand → act w
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
 | **Real browser** | Local CDP or own paired Firefox/Chromium extension: page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
+| **Parallel code review** | `/swarm PATH \| TASK` runs implementation and test reviewers concurrently and collects their evidence. |
+| **JavaScript review** | Search saved source files, follow imports and named calls across cached modules, and inspect assignments within a function. Findings cite source locations and identify unresolved paths. |
+| **Recorded HTTP requests** | `/httpflow EVIDENCE_ID [OFFSET]` pages through network observations already captured by the browser. |
+| **Web search and desktop editor** | `/websearch WORDS` uses a configured JSON-enabled SearXNG instance. `/desktop open PATH` opens a workspace text file in an installed editor. |
+| **Long reviews** | `/compact` creates a local session recap. `/resume-review` continues an interrupted file review. |
+| **Project and automation interfaces** | Workspace-root `AGENTS.md` supplies project conventions. Use `run --json TASK` for a final result or `run --ndjson TASK` for an event stream. |
 | **Blue Free** | Keyless gateway automatic routing; automatic alias and concrete model choices stay pinned in the client |
 
 <details>
@@ -71,6 +90,8 @@ file_info      web_fetch      browser
 recall_context record_finding
 code_search    project_memory set_task_checks
 ```
+
+See the [delegated review guide](docs/DELEGATED_AGENTS.md) and [release command notes](docs/RELEASE_NOTES.md).
 
 Every write or command requires a per-action approval. Tool availability depends on the local environment.
 
@@ -112,25 +133,7 @@ After installation, run `blue-dragon 'https://example.com'`, or paste a URL into
 
 Use `/model blue-free` for gateway automatic free-model routing and `/rotation` for its status. Firefox extension pairing and advanced Chrome ADB attachment remain available: [browser instructions](docs/BROWSER.md), [free routing policy](docs/FREE_ROTATION.md).
 
-## Quick Start
-
-**Termux / Android ARM64: install a ready-made binary. No Rust, Git clone or compilation required.**
-
-```bash
-pkg install curl jq -y &&
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/main/scripts/install.sh | bash
-```
-
-Then run from the project you want to inspect:
-
-```bash
-blue-dragon --version
-blue-dragon --provider free tui
-```
-
-Run the **same installer command to update**. It selects a published release for your device, verifies SHA256 and the executable's version, then replaces the binary atomically. Failed downloads/checks leave the installed binary intact; the previous binary is saved for rollback. Sessions, settings and source checkouts are untouched. Installation needs `curl`, `jq` and a SHA256 utility, not a model API key. Only complete published releases are selected, including previously published prereleases.
-
-See [installation, supported systems, rollback and developer source builds](docs/INSTALL.md). [Published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases) contain persistent downloads and checksums; Actions artifacts are temporary developer outputs.
+## Provider setup
 
 This uses **Kilo Gateway's public free models**, the same gateway used by AlphaCode's free lane. A fresh install without saved configuration or provider keys selects **Blue Free** (Kilo automatic free route preserved by the client). Type `/models` for a searchable terminal picker of individual zero-priced, tool-capable models. Use arrows, type to filter, and Enter to select/save. No account, API key, wallet or paid fallback is bundled. Kilo/upstreams may log prompts and tool results and use them for improvement; use public or synthetic data. Service quotas and model availability are externally controlled.
 
