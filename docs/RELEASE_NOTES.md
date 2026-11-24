@@ -2,6 +2,10 @@
 
 ## 1.1.14.0
 
+- Verify exact script URL arguments for supported literal curl downloads against ordered HTML references. Preserve bounded file receipts across context projection.
+- Verify the saved three-column SHA-256 TSV against named local JavaScript files after reading the report back.
+- Advertise full-file reads for named source files, offer the missing read schema on the next eligible request, and keep detailed evidence in the session report.
+
 - Use `run --json TASK` for a single result or `run --ndjson TASK` for live events and the final result. Approval prompts go to stderr, with the same stdin approval rules.
 - Use `/compact` in chat or TUI to show a local recap and keep a compact projection for later requests, including after resuming the session.
 - Open the TUI model picker with Ctrl+T while idle.

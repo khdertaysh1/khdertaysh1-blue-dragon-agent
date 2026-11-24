@@ -719,9 +719,24 @@ impl ToolBox {
             .chars()
             .take(64000)
             .collect::<String>();
-        Ok(
-            json!({"ok":status<400,"status":status,"redirect":redirect,"security_header_indicators":security_header_indicators,"content_type":content_type,"text":text,"truncated":truncated||text.as_bytes()!=bytes,"storage":"session_only","saved_to_disk":false,"captured_bytes":bytes.len(),"text_bytes":text.len(),"note":"Untrusted fetched content held in the session only. No workspace file was written. Redirects not followed; scripts not executed."}),
-        )
+        let mut result = json!({"ok":status<400,"status":status,"redirect":redirect,"security_header_indicators":security_header_indicators,"content_type":content_type,"text":text,"truncated":truncated||text.as_bytes()!=bytes,"storage":"session_only","saved_to_disk":false,"captured_bytes":bytes.len(),"text_bytes":text.len(),"note":"Untrusted fetched content held in the session only. No workspace file was written. Redirects not followed; scripts not executed."});
+        if !truncated
+            && (200..300).contains(&status)
+            && content_type
+                .split(';')
+                .next()
+                .is_some_and(|s| s.trim().eq_ignore_ascii_case("text/html"))
+        {
+            if let Ok(body) = std::str::from_utf8(&bytes) {
+                let urls = crate::file_receipts::page_links(&reqwest::Url::parse(raw)?, body);
+                result["script_url_hashes"] = json!(urls
+                    .iter()
+                    .map(|u| crate::intelligence::code::hash(u.as_bytes()))
+                    .collect::<Vec<_>>());
+                result["first_script_urls"] = json!(urls.iter().take(2).collect::<Vec<_>>());
+            }
+        }
+        Ok(result)
     }
     pub fn run_command(&self, program: &str, args: &[String]) -> Result<Value> {
         self.run_command_with_timeout(program, args, 30)

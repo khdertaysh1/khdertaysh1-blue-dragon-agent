@@ -36,6 +36,9 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         })
         .collect();
     let lower = normalized.to_lowercase();
+    let lower = lower
+        .replace("sha-256", "digest")
+        .replace("sha256", "digest");
     // "first N bytes" names a prefix without spelling out two offsets.
     let words: Vec<_> = lower
         .split_whitespace()
@@ -145,10 +148,10 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         _ => Err(()),
     })
 }
-fn source_path(word: &str) -> Option<&str> {
+pub(crate) fn source_path(word: &str) -> Option<&str> {
     let suffixes = [
         "js", "ts", "tsx", "jsx", "rs", "py", "json", "txt", "md", "html", "css", "c", "cpp", "go",
-        "java", "yaml", "yml",
+        "java", "yaml", "yml", "tsv", "csv",
     ];
     let word = word.trim_matches(|c: char| {
         matches!(
@@ -157,6 +160,10 @@ fn source_path(word: &str) -> Option<&str> {
         )
     });
     let word = word.trim_end_matches('.');
+    let word = word
+        .strip_prefix('و')
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_alphanumeric()))
+        .unwrap_or(word);
     if word.contains("://") || word.len() > 1024 {
         return None;
     }

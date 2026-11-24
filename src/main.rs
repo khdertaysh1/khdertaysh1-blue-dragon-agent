@@ -9,6 +9,7 @@ mod continuity;
 mod delegates;
 mod edit_proposals;
 mod exact_file;
+mod file_receipts;
 mod file_review;
 mod intelligence;
 mod jobs;

@@ -714,6 +714,12 @@ pub fn build_with_budget(
                 // pressure avoid repeating native excerpts already indexed there.
                 if let Some(notes) = memory.as_object_mut() {
                     if let Some(history) = notes.remove("historical_native_evidence") {
+                        if let Some(rows) = history["file_receipts"]
+                            .as_array()
+                            .filter(|r| !r.is_empty())
+                        {
+                            notes.insert("historical_file_receipts".into(), json!(rows));
+                        }
                         if let Some(refs) = history["local_read_refs"].as_array() {
                             if !refs.is_empty() {
                                 notes.insert("historical_local_read_refs".into(), json!(refs));

@@ -871,8 +871,6 @@ impl Agent {
                 prompt,
                 &error.to_string(),
                 &self.session.observations[observation_start..],
-                &self.pending_memories,
-                &self.check_status(),
                 self.session
                     .plan
                     .steps
@@ -961,50 +959,34 @@ impl Agent {
                 }
                 summary = lines.join("\n");
             }
-            for observation in self.session.observations[observation_start..]
+            let arabic = prompt
+                .chars()
+                .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+            let recent_files = self.session.observations[observation_start..]
                 .iter()
                 .rev()
                 .filter(|o| {
-                    matches!(
+                    o.ok && matches!(
                         o.tool.as_str(),
-                        "read_file_window" | "search_file" | "list_files"
+                        "file_info" | "write_file" | "edit_file" | "browser"
                     )
                 })
-                .take(3)
-            {
-                if let Ok((_, args, result)) =
-                    crate::audit::request_for(&self.session, &observation.id)
-                {
-                    let details = json!({"path":args["path"],"query":args["query"],"offset":result["byte_offset"],"next_offset":result["next_byte_offset"],"returned_matches":result["matches"].as_array().map(Vec::len),"complete_from_offset":result["complete_from_offset"]});
-                    summary.push_str(&format!(
-                        "\n{} · {} · {}",
-                        observation.id,
-                        observation.tool,
-                        crate::reasoning::context::clip(&details.to_string(), 480)
-                    ));
-                }
-            }
-            for action in actions
-                .iter()
-                .filter(|a| a["browser_action"].is_string())
-                .rev()
+                .filter_map(|o| {
+                    crate::audit::request_for(&self.session, &o.id)
+                        .ok()
+                        .map(|(_, _, r)| r)
+                })
+                .filter(|r| r["saved_to_disk"] == true)
+                .filter_map(|r| Some((r["path"].as_str()?.to_owned(), r["bytes"].as_u64()?)))
                 .take(2)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-            {
-                summary.push_str(&format!(
-                    "\nBrowser step {} · {} · ok={} · {} · {} · evidence={}",
-                    action["step"],
-                    action["browser_action"],
-                    action["ok"],
-                    action["execution_status"],
-                    action["category"],
-                    action
-                        .get("evidence_id")
-                        .filter(|v| !v.is_null())
-                        .unwrap_or(&action["original_evidence_id"])
-                ));
+                .collect::<std::collections::BTreeMap<_, _>>();
+            for (path, size) in recent_files {
+                let label = if arabic {
+                    "ظهر على القرص"
+                } else {
+                    "Observed on disk"
+                };
+                summary.push_str(&format!("\n{label}: {path} ({size} bytes)"));
             }
             if let Some(file) = resumed.filter(|_| structured) {
                 summary.push('\n');
@@ -1239,7 +1221,10 @@ impl Agent {
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
         let mut recall_report_due = false;
-        let mut explain_first = resumed.is_none()
+        let download_contract = !crate::file_receipts::download_targets(prompt).is_empty();
+        let mut explain_first = !download_contract
+            && self.session.fresh_source_requests.is_empty()
+            && resumed.is_none()
             && prior_dialogue.is_some()
             && actions.is_empty()
             && (self.session.last_report["actions"]
@@ -1294,7 +1279,8 @@ impl Agent {
             }
             let mut emitted = false;
             let mut stream_received = false;
-            let buffer_for_review = explain_first
+            let buffer_for_review = download_contract
+                || explain_first
                 || resumed.is_some()
                 || report_recovery
                 || !actions.is_empty()
@@ -1840,7 +1826,24 @@ impl Agent {
                         continue;
                     }
                     self.completion_state = "needs_verification".into();
-                    anyhow::bail!("Requested fresh source verification remains missing, stale, failed or unknown; partial analysis only. No automatic tool replay.");
+                    let missing = fresh["checks"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|r| r["state"] != "verified")
+                        .map(|r| {
+                            format!(
+                                "{} ({})",
+                                r["request"]["path"].as_str().unwrap_or("?"),
+                                r["reason"]
+                                    .as_str()
+                                    .or_else(|| r["state"].as_str())
+                                    .unwrap_or("unknown")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    anyhow::bail!("Requested fresh source verification remains missing, stale, failed or unknown: {missing}");
                 }
                 if resumed.is_some() && !actions.iter().any(|a| a["verified_window"].is_object()) {
                     anyhow::bail!("No verified byte window was read in this continuation; the report was not accepted");
@@ -1881,6 +1884,23 @@ impl Agent {
                     }
                 } else {
                     self.completion_state = "answer_returned_no_acceptance_contract".into();
+                }
+                if resumed.is_none() {
+                    if let Some(receipt) =
+                        crate::file_receipts::download(prompt, &self.session, None, &self.tools)?
+                    {
+                        answer = format!("{receipt}\n{answer}");
+                        message["content"] = json!(answer);
+                    }
+                    if let Some(receipt) = crate::file_receipts::manifest(
+                        prompt,
+                        &self.tools,
+                        &self.session,
+                        turn_start,
+                    )? {
+                        answer = format!("{receipt}\n{answer}");
+                        message["content"] = json!(answer);
+                    }
                 }
                 if let Some(contract) = &exact_file {
                     anyhow::ensure!(!user_denied_action, "Stopped after user denial");
@@ -2061,7 +2081,22 @@ impl Agent {
                         Err(error) => Err(anyhow::anyhow!("Invalid tool JSON: {error}")),
                         Ok(args) => {
                             correction_origin = crate::tool_arguments::CorrectionOrigin::Native;
-                            if let Some(file) = resumed {
+                            let link_error = if name == "run_command" && download_contract {
+                                crate::file_receipts::download(
+                                    prompt,
+                                    &self.session,
+                                    Some(&args),
+                                    &self.tools,
+                                )
+                                .err()
+                            } else {
+                                None
+                            };
+                            if let Some(error) = link_error {
+                                Ok(
+                                    json!({"ok":false,"category":"download_url_unverified","execution_status":"not_executed","error":error.to_string()}),
+                                )
+                            } else if let Some(file) = resumed {
                                 file.invoke(name, &args, &self.cancelled)
                             } else if name == "run_local_lab" {
                                 crate::lab_runner::run(
@@ -2327,6 +2362,21 @@ impl Agent {
                             "{name} was not advertised. Call discover_tools with {}, then use its advertised schema if needed.",
                             json!({"names":[name]})
                         ));
+                        if matches!(
+                            name,
+                            "read_file"
+                                | "read_lines"
+                                | "read_file_window"
+                                | "list_files"
+                                | "search_file"
+                                | "file_info"
+                        ) {
+                            if let Some(selected) = &mut self.selected_tools {
+                                if selected.insert(name.to_owned()) {
+                                    result["retry_hint"] = json!("Read schema enabled for the next model request. No action ran. Submit one schema-valid call if still needed.");
+                                }
+                            }
+                        }
                     } else {
                         let count = invalid_arguments.entry(name.to_owned()).or_default();
                         *count += 1;
@@ -2573,6 +2623,15 @@ impl Agent {
                     .messages
                     .push(json!({"role":"tool","tool_call_id":id,"content":result.to_string()}));
                 self.persist()?;
+                if result["category"] == "download_url_unverified" {
+                    self.completion_state = "needs_verification".into();
+                    anyhow::bail!(
+                        "{}",
+                        result["error"]
+                            .as_str()
+                            .unwrap_or("Incomplete URL evidence")
+                    );
+                }
                 if argument_error.is_some()
                     && (invalid_arguments.get(name).copied().unwrap_or(0) >= 2
                         || argument_errors_total >= 8)
@@ -2672,90 +2731,46 @@ fn interrupted_summary(
     prompt: &str,
     error: &str,
     observations: &[crate::reasoning::Observation],
-    findings: &[crate::reasoning::Finding],
-    checks: &Value,
+
     open_steps: usize,
 ) -> String {
     let arabic = prompt
         .chars()
         .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
-    let mut lines = vec![if arabic {
-        "تقرير جزئي: توقفت المهمة قبل اكتمالها. لا يعني هذا نجاح الفحص أو خلو الهدف من المشاكل."
-            .to_owned()
+    let label = if arabic {
+        "المهمة غير مكتملة"
     } else {
-        "Partial report: the task stopped before completion. This is not a successful verification or a clean bill of health.".to_owned()
-    }];
-    lines.push(format!(
-        "{}: {}",
-        if arabic {
-            "سبب التوقف"
-        } else {
-            "Stop reason"
-        },
+        "Partial report"
+    };
+    let mut lines = vec![format!(
+        "{label}: {}",
         crate::reasoning::context::clip(error, 1000)
-    ));
-    lines.push(format!(
-        "{}: {} | {}: {}",
-        if arabic {
-            "العمليات المسجلة"
+    )];
+    if let Some(last) = observations.last() {
+        if last.native_facts.browser_status_ready == Some(false) {
+            lines.push(
+                if arabic {
+                    "المتصفح غير متصل؛ لم تُفحص الصفحة."
+                } else {
+                    "browser status: not ready; no page/DOM inspection"
+                }
+                .into(),
+            );
+        }
+        lines.push(if arabic {
+            format!("آخر أداة: {}. خطوات مفتوحة: {open_steps}.", last.tool)
         } else {
-            "Recorded observations"
-        },
-        observations.len(),
-        if arabic {
-            "خطوات غير مكتملة"
-        } else {
-            "Open plan steps"
-        },
-        open_steps
-    ));
-    for observation in observations.iter().rev().take(8).rev() {
-        // Native statuses and references only: raw page/tool text may contain secrets
-        // or instructions, and a tool's success does not prove vulnerability impact.
-        lines.push(format!(
-            "- {} · {} · {} · recall_context message_index={}",
-            observation.id,
-            observation.tool,
-            if observation.native_facts.browser_status_ready == Some(false) {
-                "browser status: not ready; no page/DOM inspection; approved connection required"
-            } else if observation.native_facts.browser_status_ready == Some(true) {
-                "browser status: ready; no page/DOM inspection or login verification"
-            } else if observation.ok {
-                "tool returned successfully (not verification of a claim)"
-            } else {
-                "failed / blocked / unknown"
-            },
-            observation.message_index
-        ));
+            format!("Last tool: {}. Open steps: {open_steps}.", last.tool)
+        });
     }
-    lines.push(format!(
-        "{}: {}",
+    lines.push(
         if arabic {
-            "نتائج مسجلة في هذه المهمة"
+            "التفاصيل والأدلة في /report."
         } else {
-            "Findings recorded in this task"
-        },
-        findings.len()
-    ));
-    for finding in findings.iter().take(8) {
-        lines.push(format!(
-            "- [{}] {} | {} | {}",
-            finding.status,
-            crate::reasoning::context::clip(&finding.summary, 500),
-            finding.evidence_ids.join(", "),
-            crate::reasoning::context::clip(&finding.limitation, 300)
-        ));
-    }
-    lines.push(format!(
-        "{}: {}",
-        if arabic {
-            "حالة اختبارات القبول"
-        } else {
-            "Acceptance-check status"
-        },
-        checks
-    ));
-    lines.push(if arabic {"الأدلة الأصلية محفوظة في الجلسة. استخدم /report و/findings و/checks؛ لا تُعد العمليات فقط لاسترجاع نتائجها.".into()} else {"Original evidence remains in the session. Use /report, /findings and /checks; do not rerun actions just to recover their results.".into()});
+            "Details and evidence: /report."
+        }
+        .into(),
+    );
     lines.join("\n")
 }
 
@@ -3137,6 +3152,125 @@ mod tests {
             .is_err());
     }
     #[test]
+    fn hidden_read_schema_is_shown_on_next_request() {
+        let (mut agent, _root, _state, server) = scripted_agent(vec![
+            tool_call("r1", "read_file", json!({"path":"demo.txt"})),
+            tool_call("r2", "read_file", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"Read completed."})),
+        ]);
+        agent.selected_tools = Some(crate::tool_selection::core());
+        agent.turn("Open our note").unwrap();
+        let packets = server.join().unwrap();
+        let has = |p: &Value| {
+            p["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|d| d["function"]["name"] == "read_file")
+        };
+        assert!(!has(&packets[0]) && has(&packets[1]));
+        assert_eq!(
+            agent
+                .session
+                .observations
+                .iter()
+                .filter(|o| o.ok && o.tool == "read_file")
+                .count(),
+            1
+        );
+    }
+    #[test]
+    fn manifest_created_and_verified_in_one_turn() {
+        let digest = crate::intelligence::code::hash(b"let a=1;");
+        let tsv = format!("sample-a.js\t8\t{digest}\nsample-b.js\t8\t{digest}");
+        let prompt="اقرأ sample-a.js وsample-b.js. احسب الحجم بالبايت وبصمة SHA-256. احفظ النتائج في result-93.tsv ثم اقرأ التقرير من القرص وقارنه.";
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("a", "read_file", json!({"path":"sample-a.js"})),
+            tool_call("b", "read_file", json!({"path":"sample-b.js"})),
+            tool_call(
+                "w",
+                "write_file",
+                json!({"path":"result-93.tsv","content":tsv}),
+            ),
+            tool_call("r", "read_file", json!({"path":"result-93.tsv"})),
+            completion(json!({"role":"assistant","content":"تم التحقق"})),
+        ]);
+        for p in ["sample-a.js", "sample-b.js"] {
+            std::fs::write(root.path().join(p), b"let a=1;").unwrap();
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let approval = std::thread::spawn(move || {
+            rx.recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap()
+                .respond_to
+                .send(true)
+                .unwrap()
+        });
+        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        agent.turn(prompt).unwrap();
+        approval.join().unwrap();
+        assert_eq!(server.join().unwrap().len(), 5);
+        assert!(agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .contains("2 / 2 MATCH"));
+        std::fs::write(root.path().join("sample-a.js"), b"let a=2;").unwrap();
+        assert!(
+            crate::file_receipts::manifest(prompt, &agent.tools, &agent.session, 0)
+                .unwrap_err()
+                .to_string()
+                .contains("SHA-256 mismatch")
+        );
+    }
+
+    #[test]
+    fn partial_download_link_cannot_pass_as_complete() {
+        let prompt="From https://example.invalid/ download the first scripts as a.js and b.js; stop for an incomplete URL.";
+        let (mut agent, _root, _state, server) = scripted_agent(vec![completion(
+            json!({"role":"assistant","content":"Both downloads completed."}),
+        )]);
+        agent.session.user_turns.push(agent.session.messages.len());
+        agent
+            .session
+            .messages
+            .push(json!({"role":"user","content":prompt}));
+        let args = json!({"url":"https://example.invalid/"});
+        let id = agent.record_direct_call("web_fetch", &args).unwrap();
+        agent.record_direct_result("web_fetch",&args,&id,json!({"ok":true,"status":200,"truncated":false,"text":"<script src='/one.js?v=12'></script><script src='/two.js?v=abcdef'></script>"})).unwrap();
+        let followup = "كمّل تنزيل الملفين. احفظ a.js وb.js ووقف إذا الرابط ناقص.";
+        agent.session.user_turns.push(agent.session.messages.len());
+        agent
+            .session
+            .messages
+            .push(json!({"role":"user","content":followup}));
+        for (name, url) in [
+            ("a.js", "https://example.invalid/one.js?v=12"),
+            ("b.js", "https://example.invalid/two.js?v=abc"),
+        ] {
+            let args = json!({"program":"curl","args":["-fsS",url,"-o",name]});
+            let check =
+                crate::file_receipts::download(followup, &agent.session, Some(&args), &agent.tools);
+            assert_eq!(check.is_ok(), name == "a.js", "{check:?}");
+            let id = agent.record_direct_call("run_command", &args).unwrap();
+            agent
+                .record_direct_result(
+                    "run_command",
+                    &args,
+                    &id,
+                    json!({"ok":true,"exit_code":0,"execution_status":"completed"}),
+                )
+                .unwrap();
+        }
+        std::fs::write(_root.path().join("a.js"), "abc").unwrap();
+        let err = agent.turn(followup).unwrap_err();
+        assert!(
+            err.to_string().contains("b.js: download URL differs"),
+            "{err}"
+        );
+        assert_eq!(agent.session.last_report["finished"], false);
+        assert_eq!(server.join().unwrap().len(), 1);
+    }
+    #[test]
     fn stalled_loop_returns_partial_report_and_retains_observed_evidence() {
         let responses = (0..6)
             .map(|i| tool_call(&format!("r{i}"), "read_file", json!({"path":"demo.txt"})))
@@ -3150,7 +3284,8 @@ mod tests {
             .as_str()
             .unwrap();
         assert!(answer.contains("Partial report"));
-        assert!(answer.contains("recall_context message_index="));
+        assert!(answer.contains("/report"));
+        assert!(!answer.contains("all_declared_checks_observed"));
         assert_eq!(
             agent.session.observations.len(),
             3,
