@@ -13,4 +13,4 @@
 
 ## Tests and project history
 
-For a particular version, start with the [release notes](RELEASE_NOTES.md) and the matching [CI run](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions). The [validation directory](../validation/) contains saved results from specific builds. The [review notes](reviews/) and [trial archives](../trial/) document earlier development work. Current installers and binaries are on the [releases page](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases).
+For a particular version, start with the [release notes](RELEASE_NOTES.md) and the matching [CI run](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions). For earlier build results, development reviews and Termux trial bundles, see the [project archive](archive.md). Current binaries and installers are on the [releases page](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases).

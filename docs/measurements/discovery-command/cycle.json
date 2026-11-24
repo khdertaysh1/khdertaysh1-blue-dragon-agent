@@ -1,1 +1,0 @@
-{"status": "passed", "binary_sha256": "aeaf3b6d6a05d7b161d03f049a43066d38e951d0f41072c5ddf5c4300ea90bc5", "cycle": ["browser", "file_outline", "browser", "file_outline"], "unchanged_repeat_blocked": true, "step_limited_requests": 3, "file_unchanged": true, "limits": "Scripted loopback provider, native discovery and Rust outline; no real browser or live provider capacity claim."}

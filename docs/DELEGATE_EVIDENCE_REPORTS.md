@@ -22,6 +22,6 @@ No new child permissions, write access, browser sharing, approval bypass or auto
 
 ## Local validation record
 
-Tested source `63dce90` on `improve/delegate-evidence-report`: 282 Rust tests, strict Clippy, offline locked release build and all 30 integrated qualification groups passed. The existing runtime regression passed 24/24 samples. Every qualification log hash and the pinned binary hash were rechecked. [Structured validation](../validation/delegate-report-readiness.json). Logs: `/tmp/blue-delegate-report-qualification`.
+Tested source `63dce90` on `improve/delegate-evidence-report`: 282 Rust tests, strict Clippy, offline locked release build and all 30 integrated qualification groups passed. The existing runtime regression passed 24/24 samples. Every qualification log hash and the pinned binary hash were rechecked. [Structured validation](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/blob/2b7dbc840c203c0b8093611eb281d8b09b037815/validation/delegate-report-readiness.json). Logs: `/tmp/blue-delegate-report-qualification`.
 
 Binary `blue-dragon-0.9.0-delegate-report-linux-x64`: 18,347,408 bytes, SHA256 `c90e52a99926e7dec7789cee7cf851e53096357e34ead676f3e6e201b48a26f3`; retained under `/workspace/scratch/58a10643c600/candidate-builds`. The preceding edit workflow comparison passed independent review within its stated scripted scope; this product report extension still needs independent review. No remote publication occurred.
