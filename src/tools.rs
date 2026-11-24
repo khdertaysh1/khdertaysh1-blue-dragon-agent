@@ -807,9 +807,19 @@ impl ToolBox {
         let mut child = match command.spawn() {
             Ok(c) => c,
             Err(e) => {
-                return Ok(
-                    json!({"ok":false,"command_outcome":"spawn_failure","category":"spawn_failure","execution_status":"not_executed","error":e.to_string(),"exit_code":null,"stdout":"","stderr":""}),
-                )
+                let mut result = json!({"ok":false,"command_outcome":"spawn_failure","category":"spawn_failure","execution_status":"not_executed","os_error_code":e.raw_os_error(),
+                    "spawn_reason":match e.kind() {
+                        std::io::ErrorKind::NotFound => "not_found",
+                        std::io::ErrorKind::PermissionDenied => "permission_denied",
+                        _ => "other",
+                    },"error":e.to_string(),"exit_code":null,"stdout":"","stderr":""});
+                if program == "which"
+                    && args == ["node"]
+                    && e.kind() == std::io::ErrorKind::NotFound
+                {
+                    result["runtime_hint"] = json!("The which lookup did not start. Node availability is unknown. If the user requested a Node script, request approval to run node with the script path directly; do not repeat which or rewrite the script.");
+                }
+                return Ok(result);
             }
         };
         let execution = (|| -> Result<Value> {
