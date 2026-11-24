@@ -181,9 +181,24 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     {
         return vec![];
     }
+    let historical_network = [
+        "network_events",
+        "saved network",
+        "network capture",
+        "سجل الشبكة المحفوظ",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker));
     // A filename like bundle-01.js supplies a target, not a byte offset.
     let range_text = prompt
         .split_whitespace()
+        .filter(|word| {
+            // A stored network event offset selects a history page.
+            let cursor = word
+                .trim_end_matches(['.', ',', '،'])
+                .strip_prefix("offset=");
+            !(historical_network && cursor.is_some_and(|value| value.parse::<u64>().is_ok()))
+        })
         .map(|word| {
             if source_path(word).is_some() {
                 "<file>"
@@ -214,14 +229,6 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
         .filter_map(source_path)
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    let historical_network = [
-        "network_events",
-        "saved network",
-        "network capture",
-        "سجل الشبكة المحفوظ",
-    ]
-    .iter()
-    .any(|marker| text.contains(marker));
     let evidence_reference = text
         .split(|c: char| !c.is_ascii_alphanumeric())
         .any(|word| {
