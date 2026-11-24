@@ -3,6 +3,7 @@
 | I want to… | Start here |
 |---|---|
 | Install a release or try a small project | [Install and start](../README.md#quick-start) · [First session on Termux](FIRST_SESSION.md) |
+| Reopen the installed app or select an older release | [Install, update and rollback](INSTALL.md) |
 | Choose a hosted or local model | [Models and provider configuration](MODELS.md) · [Free routing and rate limits](FREE_ROTATION.md) |
 | Review code with two agents | [Delegated reviews, budgets and evidence](DELEGATED_AGENTS.md) |
 | Connect a browser or inspect JavaScript | [Browser setup](BROWSER.md) · [URL inspection](URL_INSPECTION.md) · [Cached imports](CACHED_SOURCE_CHAIN.md) · [Call-site tracing](CACHED_CALL_BRIDGE.md) |

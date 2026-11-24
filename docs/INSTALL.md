@@ -1,52 +1,40 @@
 # Install and update Blue Dragon
 
-## Termux: regular users
+## Install and start
+
+Use the [one-line command for your platform](../README.md#quick-start) from the project folder you want to work in. It downloads the executable for release `v1.1.14.1`, checks its SHA-256 and reported version, and opens the terminal interface. On a fresh Termux installation, run `pkg install curl` first if curl is missing.
+
+## Start again
+
+Open your project folder and use the command for your system. These commands use the installed executable directly.
+
+| System | Start a session |
+|---|---|
+| Android ARM64 in Termux (API 26+) | `blue-dragon --provider free tui` |
+| Linux x64 or Apple Silicon macOS | `"$HOME/.local/bin/blue-dragon" --provider free tui` |
+| Windows x64 in PowerShell | `& "$env:LOCALAPPDATA\BlueDragon\bin\blue-dragon.exe" --provider free tui` |
+
+To check which version is installed, replace `--provider free tui` with `--version`. The Android download is a Termux command-line executable. The Linux build targets Ubuntu-compatible systems and may require a newer glibc than older distributions provide.
+
+## Install or update without opening a session
+
+On Termux, Linux and macOS, the [Unix installer](../scripts/install.sh) supports a specific release tag, a custom directory and a rollback copy. It requires Bash, curl, jq and a SHA-256 utility. To install this release:
 
 ```bash
-pkg install curl jq -y &&
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/install.sh | bash -s -- --version v1.1.14.1
 ```
 
-This downloads a published Android ARM64 executable into Termux's private `$PREFIX/bin`. No Rust, Cargo, Git clone, root, checkout or lockfile is involved. Do not install it in shared Downloads/SD-card storage, which may not allow execution. Source-build problems do not affect this path.
+Omitting `--version` selects the first compatible published release in GitHub's release list, which can include prereleases. The pinned quick-start command always selects the version in its URL.
 
-```bash
-blue-dragon --version
-cd /path/to/your/project
-blue-dragon --provider free tui
+On Windows, the [PowerShell installer](../scripts/install.ps1) downloads the x64 executable and prints its version. Run this in PowerShell:
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/install.ps1').Content))
 ```
 
-The project directory is the workspace. Existing model/provider configuration is preserved; old conflicting `BLUE_DRAGON_BASE_URL` or `BLUE_DRAGON_MODEL` exports should be unset if you want to change provider. Kilo free models require no API keys; data handling is described in [MODELS.md](MODELS.md).
+## Use an earlier version
 
-## Update / pinned release / rollback
-
-Run the same installer to update. It selects the newest compatible **published** release, including prereleases; draft/incomplete releases are excluded. All current builds are alpha, not a stable channel. Exact version installation is available:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/main/scripts/install.sh |
-  bash -s -- --version v0.7.0-alpha.1
-```
-
-The installer detects OS/CPU, downloads a raw executable plus license notices, checks SHA256, and runs `--version` before replacing an existing binary. The final move stays on the same filesystem. A failed network request, missing release, checksum/version mismatch, unsupported CPU or non-executable storage leaves the installed binary intact. This is integrity verification using GitHub HTTPS/checksums, not an independent code-signing system.
-
-The old executable remains as `blue-dragon.previous` next to the new one. Reinstalling identical bytes preserves that rollback copy. To try it without removing the current version:
-
-```bash
-"$PREFIX/bin/blue-dragon.previous" --version
-"$PREFIX/bin/blue-dragon.previous" tui
-```
-
-The installer does not modify workspaces, Git branches, shell profiles, sessions or provider keys. License notices are saved beside the executable. It prints the exact installation path and, when needed outside Termux, a PATH command for the current shell. `--bin-dir DIR` selects another executable private directory. It refuses a destination symlink instead of replacing it.
-
-## Supported binary targets
-
-| Environment | Target | Notes |
-|---|---|---|
-| Termux / Android | ARM64, API26+ | Cross-built with NDK; physical phone verification still needed |
-| Linux | x86_64 | Current Ubuntu build; older glibc distributions may not work |
-| macOS | Apple Silicon ARM64 | Unix installer needs curl/jq and SHA256 utility |
-| Windows | x64 | Download the `.exe` and notices/checksums from Releases; this Bash installer is not a Windows installer |
-
-Unsupported CPU/OS combinations stop explicitly; a Linux executable is never substituted for Android. There is no APK. Release downloads persist on GitHub; CI artifacts are temporary and are not the regular install path.
+When `install.sh` replaces an existing Unix installation with different bytes, it saves the old executable as `blue-dragon.previous` alongside the new one. In Termux, use `"$PREFIX/bin/blue-dragon.previous" --version` to check that copy. The Windows installer saves the replaced executable as `previous.exe` in its installation directory. The Unix quick-start script `start.sh` does not create a rollback copy. You can also select a specific version from [published releases](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases).
 
 ## Developer / old source checkout
 
@@ -71,7 +59,7 @@ It verifies the configured repository, refuses tracked local edits, fetches main
 
 ## Release safeguards
 
-GitHub Actions publishes only after Windows/Linux/macOS tests/builds, Android ARM64 cross-build, installer/legacy-upgrade regressions, and Linux real-browser tests pass. A release starts as a draft; all binaries, unsigned developer browser-extension archives, SHA256 checksums, source commit metadata and combined license notices are uploaded before publication. Published assets are not replaced by later main builds with the same version; bump Cargo version to publish an update. A failed draft upload can resume only for the same source commit.
+GitHub Actions publishes only after Windows/Linux/macOS tests/builds, Android ARM64 cross-build, installer/legacy-upgrade regressions, and Linux real-browser tests pass. A release starts as a draft; all binaries, unsigned developer browser-extension archives, SHA256 checksums, source commit metadata and combined license notices are uploaded before publication. Published assets are not replaced by later main builds with the same version; choose a new public version for each update following the [version mapping](PUBLIC_VERSION.md). A failed draft upload can resume only for the same source commit.
 
 Browser control needs an installed browser and explicit connection. The extension archives are not signed/store-approved. See [BROWSER.md](BROWSER.md) before installing a bridge, especially on Android.
 
