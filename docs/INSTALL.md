@@ -4,6 +4,10 @@
 
 Use the [one-line command for your platform](../README.md#quick-start) from the project folder you want to work in. It downloads the executable for release `v1.1.14.2`, checks its SHA-256 and reported version, and opens the terminal interface. On a fresh Termux installation, run `pkg install curl` first if curl is missing.
 
+## Native installer candidates
+
+For Debian/Ubuntu amd64 and Apple Silicon macOS, open a completed CI run and look under **Artifacts** for `native-installer-Linux-X64` or `native-installer-macOS-ARM64`. Extract the downloaded ZIP to get the Debian package or unsigned macOS installer. The quick-start commands above use the release binaries. [CI runs](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml)
+
 ## Start again
 
 Open your project folder and use the command for your system. These commands use the installed executable directly.
