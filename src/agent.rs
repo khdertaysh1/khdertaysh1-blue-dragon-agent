@@ -1650,19 +1650,19 @@ impl Agent {
                             text_tool_correction = Some(if explain_first {
                                 " Format correction: answer the user's question from the available conversation, or return exactly REQUEST_NEW_WORK if another action is needed. No tools are available in this phase."
                             } else {
-                                " Format correction: answer in ordinary prose using available evidence, or use a native tool call from the advertised tools if necessary. Use only listed browser actions (for example open, snapshot, network). Do not invent actions or request IDs. Resolve site references from this conversation, asking for the URL if ambiguous. No action was performed by the previous text reply."
+                                " Format correction: your previous reply did not execute an action. If the task still needs work, use the native tool_calls field for the next action, with a function and arguments from the advertised schema. For a local file edit, start by reading the relevant workspace file if you have not read it yet. Keep ordinary reply text free of tool requests. Answer in prose when the available evidence is sufficient."
                             });
                             self.output(AgentEvent::Notice(
                                 "Requesting one corrected reply; no action executed.".into(),
                             ));
                             continue;
                         }
+                        text_tool_retry_used = false;
                         text_tool_correction = None;
                         if explain_first {
                             let text = extract_text(&message);
                             if text.trim() == "REQUEST_NEW_WORK" {
                                 explain_first = false;
-                                text_tool_retry_used = false;
                                 previous_projection = None;
                                 continue;
                             }
@@ -3364,6 +3364,33 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn successful_native_file_read_resets_format_retry() {
+        let envelope = completion(
+            json!({"role":"assistant","content":r#"{"tool":"read_file","args":{"path":"demo.txt"}}"#}),
+        );
+        let (mut agent, _work, _state, server) = scripted_agent(vec![
+            envelope.clone(),
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            envelope,
+            completion(
+                json!({"role":"assistant","content":"The file contains ORIGINAL_EVIDENCE_42."}),
+            ),
+        ]);
+        agent
+            .run_once("Read demo.txt and tell me its contents")
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(
+            agent.session.last_report["actions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     fn completion(message: Value) -> Value {
