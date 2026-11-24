@@ -1,6 +1,17 @@
 //! Blue Dragon browser control: an authenticated extension bridge and local CDP.
 mod bridge;
 mod cdp;
+
+#[derive(Debug)]
+pub(crate) struct ResponseBodyUnavailable(String);
+
+impl std::fmt::Display for ResponseBodyUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ResponseBodyUnavailable {}
 pub mod inspection;
 mod setup;
 use crate::tools::ToolBox;

@@ -1036,6 +1036,10 @@ impl Agent {
             let arabic = prompt
                 .chars()
                 .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+            for line in browser_outcomes(&actions, arabic) {
+                summary.push('\n');
+                summary.push_str(&line);
+            }
             let recent_files = self.session.observations[observation_start..]
                 .iter()
                 .rev()
@@ -2424,7 +2428,9 @@ impl Agent {
                     Ok(value) => value,
                     Err(error) => {
                         let result = tools::error_result(&error);
-                        if result["category"] == "tool_error" {
+                        if error.is::<crate::browser::ResponseBodyUnavailable>() {
+                            json!({"ok":false,"category":"cdp_body_unavailable","error":error.to_string()})
+                        } else if result["category"] == "tool_error" {
                             json!({"ok":false,"error":format!("{error:#}")})
                         } else {
                             result
@@ -2691,6 +2697,10 @@ impl Agent {
                         ok && !crate::reasoning::claims::unverified_execution(&result)
                             && !crate::reasoning::claims::is_historical(&result)
                     );
+                    if a == "save_response" {
+                        action["save_target"] = guard_args["path"].clone();
+                        action["saved_to_disk"] = result["saved_to_disk"].clone();
+                    }
                     action["browser_action"] = json!(a);
                     action["category"] = result["category"].clone();
                     action["evidence_id"] = result["evidence_id"].clone();
@@ -2737,6 +2747,9 @@ impl Agent {
             }
             if denial_violation {
                 anyhow::bail!("Stopped after user denial; no alternative action executed");
+            }
+            if repeated_unavailable_saves(actions) {
+                anyhow::bail!("CDP could not supply the response body on two save attempts");
             }
             if recall_report_due && !report_recovery {
                 report_recovery = true;
@@ -2823,6 +2836,87 @@ fn progress_receipt(
     }
     lines.join("\n")
 }
+fn repeated_unavailable_saves(actions: &[Value]) -> bool {
+    let mut failures = 0;
+    for action in actions
+        .iter()
+        .rev()
+        .filter(|a| a["browser_action"] == "save_response")
+    {
+        if action["saved_to_disk"] == true && action["ok"] == true {
+            break;
+        }
+        if action["category"] == "cdp_body_unavailable" {
+            failures += 1;
+            if failures == 2 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn browser_outcomes(actions: &[Value], arabic: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    for success in [true, false] {
+        let mut entries = Vec::new();
+        for action in actions.iter().rev() {
+            let (Some(name), Some(id)) = (
+                action["browser_action"].as_str(),
+                action["evidence_id"].as_str(),
+            ) else {
+                continue;
+            };
+            if action["ok"] != success
+                || action["cached_result"] == true
+                || action["original_evidence_id"].is_string()
+            {
+                continue;
+            }
+            let path = action["save_target"]
+                .as_str()
+                .map(|p| {
+                    let text: String = p.chars().take(120).flat_map(char::escape_debug).collect();
+                    format!(" {text}")
+                })
+                .unwrap_or_default();
+            let name = match (arabic, name) {
+                (true, "open" | "navigate") => "فتح الصفحة",
+                (true, "network") => "قراءة سجل الشبكة",
+                (true, "snapshot") => "قراءة الصفحة",
+                (true, "save_response") => "حفظ الملف",
+                (true, "source") => "قراءة المصدر",
+                _ => name,
+            };
+            entries.push(format!("{name}{path} ({id})"));
+            if entries.len() == 3 {
+                break;
+            }
+        }
+        if !entries.is_empty() {
+            entries.reverse();
+            let label = match (arabic, success) {
+                (true, true) => "آخر عمليات المتصفح الناجحة",
+                (true, false) => "عمليات المتصفح التي لم يتأكد نجاحها",
+                (false, true) => "Recent successful browser operations",
+                (false, false) => "Browser operations without confirmed success",
+            };
+            lines.push(format!("{label}: {}", entries.join(", ")));
+        }
+    }
+    if actions
+        .iter()
+        .any(|a| a["category"] == "cdp_body_unavailable")
+    {
+        lines.push(if arabic {
+            "تعذّر على المتصفح استرجاع محتوى الاستجابة المطلوبة. محاولة الحفظ التي أعطت هذا الخطأ لم تكتب ملفاً."
+        } else {
+            "The browser could not retrieve the response body. A save attempt with this error did not write a file."
+        }.into());
+    }
+    lines
+}
+
 fn interrupted_summary(
     prompt: &str,
     error: &str,
@@ -2987,6 +3081,34 @@ fn system_prompt() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unavailable_saves_report_evidence_across_intervening_reads() {
+        let failed = |id: &str, path: &str| {
+            json!({"browser_action":"save_response","ok":false,
+            "category":"cdp_body_unavailable","save_target":path,"evidence_id":id})
+        };
+        let mut actions = vec![
+            failed("E1", "site-1.js"),
+            json!({"browser_action":"network","ok":true,"evidence_id":"E2"}),
+            json!({"tool":"recall_context","ok":true}),
+        ];
+        assert!(!repeated_unavailable_saves(&actions));
+        actions.push(failed("E3", "site-2.js"));
+        assert!(repeated_unavailable_saves(&actions));
+        let summary = browser_outcomes(&actions, true).join("\n");
+        for expected in [
+            "قراءة سجل الشبكة (E2)",
+            "site-1.js (E1)",
+            "site-2.js (E3)",
+            "لم تكتب ملفاً",
+        ] {
+            assert!(summary.contains(expected), "{summary}");
+        }
+        actions.push(json!({"browser_action":"save_response","ok":true,"saved_to_disk":true}));
+        actions.push(failed("E5", "another.js"));
+        assert!(!repeated_unavailable_saves(&actions));
+    }
+
     #[test]
     fn text_tool_envelope_does_not_complete_a_turn() {
         let message =

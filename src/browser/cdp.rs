@@ -299,6 +299,9 @@ impl Cdp {
                                     .as_str()
                                     .filter(|s| !s.is_empty())
                                     .unwrap_or("No protocol message supplied");
+                                let reason: String =
+                                    raw.chars().take(240).flat_map(char::escape_debug).collect();
+                                let message = format!("Network.getResponseBody (CDP {code}): {reason}. CDP could not provide the body. No file saved.");
                                 if error["code"] == -32000
                                     && (raw.contains("No resource with given identifier")
                                         || raw.contains("evicted from inspector cache"))
@@ -309,11 +312,9 @@ impl Cdp {
                                     }) {
                                         row["body_unavailable"] = json!(true);
                                     }
+                                    return Err(super::ResponseBodyUnavailable(message).into());
                                 }
-                                // Display bounded protocol text, never terminal control sequences.
-                                let reason: String =
-                                    raw.chars().take(240).flat_map(char::escape_debug).collect();
-                                anyhow::bail!("Network.getResponseBody (CDP {code}): {reason}. CDP could not provide the body. No file saved.");
+                                anyhow::bail!(message);
                             }
                             anyhow::bail!("Browser protocol error; action outcome may be unknown. Inspect a snapshot before retrying.");
                         }
@@ -540,10 +541,9 @@ fn observed_response_url<'a>(events: &'a VecDeque<Value>, id: &str) -> Result<&'
         .iter()
         .rev()
         .find(|event| event["event"] == "response" && event["request_id"] == id).context("No retained response with this ID on the current connection; historical captures are separate")?;
-    anyhow::ensure!(
-        response["body_unavailable"] != true,
-        "CDP no longer retains this response body. Do not retry this request ID or navigate to the script. Use a newly observed response if available, or report that the bytes are unavailable."
-    );
+    if response["body_unavailable"] == true {
+        return Err(super::ResponseBodyUnavailable("CDP no longer retains this response body. Do not retry this request ID or navigate to the script. Use a newly observed response if available, or report that the bytes are unavailable.".into()).into());
+    }
     if response["url_truncated"] == true {
         anyhow::bail!("Recorded response URL is truncated; scope cannot be verified");
     }
