@@ -4,6 +4,7 @@ Scripted provider only: not live-model quality or real browser/Termux evidence.
 """
 import argparse,hashlib,http.server,json,os,re,subprocess,tempfile,threading
 from pathlib import Path
+from fixture_intent import reply_to_work_intent
 
 def verified_recall(result,args,original):
  assert result.get('ok') is True and result.get('reran_tool') is False and result.get('untrusted_historical_data') is True
@@ -95,6 +96,7 @@ def trial(binary,language,baseline,distinct=False,structured=False,marked=False)
       assert hashlib.sha256(original.encode()).hexdigest()==v['original_sha256'];encoded+=1
     m={'role':'assistant','content':'Historical acknowledgement only. No finding or successful browser inspection is claimed.'};finish='stop'
     if turn%5==4 and turn not in dispatched:
+     if reply_to_work_intent(self,packet):return
      name,args={4:('read_file_window',{'path':'app.js','byte_offset':1098,'byte_count':32}),9:('search_file',{'path':'app.js','query':'needle','byte_offset':0,'scan_bytes':4096,'max_matches':5}),14:('browser',{'action':'status'}),19:('run_command',{'program':'echo','args':['must-not-run'],'timeout_seconds':5}),24:('search_file',{'path':'app.js','query':'ABSENT','byte_offset':0,'scan_bytes':4096,'max_matches':5}),29:('read_file_window',{'path':'app.js','byte_offset':1098,'byte_count':32})}[turn]
      call_id=f't{turn}'
      advertised={t['function']['name'] for t in packet.get('tools',[])}

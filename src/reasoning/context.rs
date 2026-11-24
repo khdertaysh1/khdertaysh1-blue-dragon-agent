@@ -709,6 +709,14 @@ pub fn build_with_budget(
             object.remove("automatic_browser_indexes");
         }
         if level > 0 {
+            if level >= 5 {
+                // The projection retains source-message references. Avoid paying
+                // for a second rendering of the same recent dialogue.
+                if let Some(turns) = memory["prior_dialogue"]["turns"].as_array() {
+                    let indices: Vec<_> = turns.iter().map(|turn| &turn["user_index"]).collect();
+                    memory["prior_dialogue"] = json!({"original_message_indexes":indices});
+                }
+            }
             if level >= 3 {
                 // The transcript still preserves these derived records. Under
                 // pressure avoid repeating native excerpts already indexed there.

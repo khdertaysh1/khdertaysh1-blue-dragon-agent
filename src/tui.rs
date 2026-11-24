@@ -187,6 +187,15 @@ impl Screen {
         if self.busy {
             let text = self.input.trim();
             if !text.is_empty() {
+                if text == "/scope clear" {
+                    self.cancelled
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.jobs.cancel_all();
+                    self.approve(false);
+                    self.status =
+                        "Cancellation requested. Press Enter after stop to clear scope.".into();
+                    return;
+                }
                 if text.starts_with('/')
                     || self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
                 {
