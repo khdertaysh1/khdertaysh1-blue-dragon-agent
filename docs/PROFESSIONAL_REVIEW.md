@@ -37,7 +37,7 @@ This is not a network sandbox; the tested executable must be trusted.
 
 Recorded Linux x86_64 run: Rust 1.100.0, release builds, three fresh runs per
 case. Full binary/harness hashes and samples are in
-[`validation/runtime-comparison.json`](validation/runtime-comparison.json).
+[`validation/runtime-comparison.json`](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/blob/2b7dbc840c203c0b8093611eb281d8b09b037815/docs/validation/runtime-comparison.json).
 
 | Case | Baseline passed/executed | Candidate passed/executed |
 | --- | --- | --- |

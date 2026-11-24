@@ -92,7 +92,7 @@ failed/denied/stale/cancelled/unknown, cached, empty, and forged results.
 | Native browser status calls | 0 | 30 |
 | Original user prompts retained | 30 | 30 |
 
-See [controlled.json](measurements/context-continuity/controlled.json) for binary
+See [controlled.json](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/blob/2b7dbc840c203c0b8093611eb281d8b09b037815/docs/measurements/context-continuity/controlled.json) for binary
 hashes, timings, schema lists, packet sizes and final budget components. Extra
 requests after repair reflect more completed work, not a tokens-saved claim.
 This fixture explicitly uses RPM=120 to avoid turning a rapid deterministic
@@ -162,9 +162,9 @@ not quota values or a sustained-capacity guarantee. No model switch or paid
 request occurred. The earlier exploratory trial was stopped and is excluded:
 it used a changing executable and had already missed fresh rechecks.
 
-[Live summary](measurements/context-continuity/live-summary.json),
-[traffic](measurements/context-continuity/live-traffic.json), and
-[independent verification](measurements/context-continuity/live-verification.json)
+[Live summary](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/blob/2b7dbc840c203c0b8093611eb281d8b09b037815/docs/measurements/context-continuity/live-summary.json),
+[traffic](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/blob/2b7dbc840c203c0b8093611eb281d8b09b037815/docs/measurements/context-continuity/live-traffic.json), and
+[independent verification](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/blob/2b7dbc840c203c0b8093611eb281d8b09b037815/docs/measurements/context-continuity/live-verification.json)
 retain the distinction between a normal CLI return and successful investigation.
 There is no same-time live alpha.4 or AlphaCode baseline, no hour-long run, and
 no proven numeric TPM capacity. The requested 20–30 **live useful** exchanges

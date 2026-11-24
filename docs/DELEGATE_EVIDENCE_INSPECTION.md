@@ -22,6 +22,6 @@ The reviewed report branch remains unchanged. No publication or new permissions 
 
 ## Recorded local qualification
 
-Tested source `087bf01` on `improve/delegate-evidence-inspect`: 285 Rust tests, strict Clippy, offline locked release build and all 30 integrated qualification groups passed. The existing deterministic runtime regression passed 24/24 samples. All group-log hashes and the pinned binary hash were verified. [Structured results](../validation/delegate-inspection-readiness.json). Logs: `/tmp/blue-delegate-inspect-qualification`.
+Tested source `087bf01` on `improve/delegate-evidence-inspect`: 285 Rust tests, strict Clippy, offline locked release build and all 30 integrated qualification groups passed. The existing deterministic runtime regression passed 24/24 samples. All group-log hashes and the pinned binary hash were verified. [Structured results](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/blob/2b7dbc840c203c0b8093611eb281d8b09b037815/validation/delegate-inspection-readiness.json). Logs: `/tmp/blue-delegate-inspect-qualification`.
 
 Pinned binary `blue-dragon-0.9.0-delegate-inspect-linux-x64`: 18,356,528 bytes, SHA256 `e4445922e5fe4940a3ff0a4b7c01c2fd9c7e8b64e42d58e7c4529b984d53313b`; retained in `/workspace/scratch/58a10643c600/candidate-builds`. The preceding report integration passed independent review; this inspection extension remains pending independent review. No remote publication occurred.
