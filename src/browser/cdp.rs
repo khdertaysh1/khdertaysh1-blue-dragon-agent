@@ -15,9 +15,13 @@ fn record_network(events: &mut VecDeque<Value>, evictions: &mut usize, value: &V
     if value["method"] == "Network.requestWillBeSent" && p["redirectResponse"].is_object() {
         let redirect = &p["redirectResponse"];
         let url = redirect["url"].as_str();
-        push_event(events, evictions, json!({"event":"redirect","request_id":p["requestId"],
+        push_event(
+            events,
+            evictions,
+            json!({"event":"redirect","request_id":p["requestId"],
             "url":url.map(|u|u.chars().take(2000).collect::<String>()),
-            "url_truncated":url.is_none_or(|u|u.chars().count()>2000),"status":redirect["status"]}));
+            "url_truncated":url.is_none_or(|u|u.chars().count()>2000),"status":redirect["status"]}),
+        );
     }
     let event = match value["method"].as_str() {
         Some("Network.requestWillBeSent") => Some(
@@ -236,8 +240,10 @@ impl Cdp {
             let details = &p["exceptionDetails"];
             let frame = &details["stackTrace"]["callFrames"][0];
             let location = |key: &str| details.get(key).or_else(|| frame.get(key));
-            let msg = details["exception"]["description"].as_str()
-                .or(details["text"].as_str()).unwrap_or("Uncaught exception");
+            let msg = details["exception"]["description"]
+                .as_str()
+                .or(details["text"].as_str())
+                .unwrap_or("Uncaught exception");
             self.console.push_back(json!({"level":"error","kind":"uncaught_exception",
                 "text":msg.lines().next().unwrap_or("").chars().take(1000).collect::<String>(),
                 "url":location("url").and_then(Value::as_str).map(|u|u.chars().take(2000).collect::<String>()),
@@ -273,13 +279,17 @@ impl Cdp {
                     if value["id"] == id {
                         if let Some(error) = value.get("error") {
                             if method == "Network.getResponseBody" {
-                                let code = error["code"].as_i64().map(|n| n.to_string())
+                                let code = error["code"]
+                                    .as_i64()
+                                    .map(|n| n.to_string())
                                     .unwrap_or_else(|| "unknown".to_owned());
-                                let raw = error["message"].as_str().filter(|s| !s.is_empty())
+                                let raw = error["message"]
+                                    .as_str()
+                                    .filter(|s| !s.is_empty())
                                     .unwrap_or("No protocol message supplied");
                                 // Display bounded protocol text, never terminal control sequences.
-                                let reason: String = raw.chars().take(240)
-                                    .flat_map(char::escape_debug).collect();
+                                let reason: String =
+                                    raw.chars().take(240).flat_map(char::escape_debug).collect();
                                 anyhow::bail!("Network.getResponseBody (CDP {code}): {reason}. CDP could not provide the body. No file saved.");
                             }
                             anyhow::bail!("Browser protocol error; action outcome may be unknown. Inspect a snapshot before retrying.");
@@ -318,16 +328,26 @@ impl Cdp {
         observed_response_url(&self.network, request_id)
     }
     pub fn script_request_id(&self, url: &str) -> Result<&str> {
-        let mut matches = self.network.iter().filter(|row| {
-            row["event"] == "response"
-                && row["url_truncated"] == false
-                && row["url"] == url
-                && row["status"].as_f64().is_some_and(|n| (200.0..300.0).contains(&n))
-                && row["mime_type"].as_str().is_some_and(is_javascript_mime)
-        }).filter_map(|row| row["request_id"].as_str());
-        let id = matches.next().context("No retained successful script response for this exact URL")?;
-        anyhow::ensure!(matches.all(|other| other == id),
-            "Multiple request IDs for this URL; select the intended observed request ID");
+        let mut matches = self
+            .network
+            .iter()
+            .filter(|row| {
+                row["event"] == "response"
+                    && row["url_truncated"] == false
+                    && row["url"] == url
+                    && row["status"]
+                        .as_f64()
+                        .is_some_and(|n| (200.0..300.0).contains(&n))
+                    && row["mime_type"].as_str().is_some_and(is_javascript_mime)
+            })
+            .filter_map(|row| row["request_id"].as_str());
+        let id = matches
+            .next()
+            .context("No retained successful script response for this exact URL")?;
+        anyhow::ensure!(
+            matches.all(|other| other == id),
+            "Multiple request IDs for this URL; select the intended observed request ID"
+        );
         Ok(id)
     }
 
@@ -453,7 +473,10 @@ impl Cdp {
                 }
                 let mut result=self.evaluate(format!("(async()=>{{for(let i=0;i<100&&document.readyState==='loading';i++)await new Promise(r=>setTimeout(r,50));return ({})({},{});}})()",super::PAGE_CODE,serde_json::to_string(action)?,page_args))?;
                 if action == "click" && result["clicked"] == true {
-                    let count = self.network.len().saturating_sub(cursor.saturating_sub(self.network_evictions));
+                    let count = self
+                        .network
+                        .len()
+                        .saturating_sub(cursor.saturating_sub(self.network_evictions));
                     let events: Vec<_> = self.network.iter().skip(self.network.len() - count).take(16)
                         .map(|row| json!({"event":row["event"],"request_id":row["request_id"],"status":row["status"]})).collect();
                     result["network_interval"] = json!({"events":events,"retained_event_count":count,

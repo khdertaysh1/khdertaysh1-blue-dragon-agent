@@ -6,15 +6,28 @@ use serde_json::Value;
 pub(crate) const REPORT_INSTRUCTION: &str = r#"Return only one JSON object, without Markdown fences: {"summary":"short interpretation","observations":[{"evidence_id":"E000001","quote":"literal excerpt from that window","note":"what this excerpt shows"}],"limits":"what remains unverified"}. Supply 1–3 observations. State which part of each conclusion the quote supports. When control flow, caller context or runtime behavior is missing, mark the dependent conclusion unverified in the summary as well as the limits. For a conditional, identify which branch returns, throws, or falls through. If the branch boundary is outside the window, qualify the conclusion. A quoted statement alone does not establish downstream behavior. Every quote must be an exact nonempty substring of the cited read_file_window content (not a search result). Keep the summary and limits under 320 characters each, notes under 220 and quotes under 140. Do not claim full-file or runtime verification unless supported."#;
 
 pub(crate) fn requests_tail(prompt: &str) -> bool {
-    let Some((_, task)) = prompt.split_once("\nUser task: ").or_else(|| {
-        prompt.split_once("state the limits of interpretation. User task: ")
-    }) else {
+    let Some((_, task)) = prompt
+        .split_once("\nUser task: ")
+        .or_else(|| prompt.split_once("state the limits of interpretation. User task: "))
+    else {
         return false;
     };
-    let task = task.strip_suffix(REPORT_INSTRUCTION).unwrap_or(task).to_lowercase();
-    ["last function", "final function", "last declaration", "final declaration",
-     "آخر دالة", "اخر دالة", "آخر سطر", "اخر سطر"]
-        .iter().any(|phrase| task.contains(*phrase))
+    let task = task
+        .strip_suffix(REPORT_INSTRUCTION)
+        .unwrap_or(task)
+        .to_lowercase();
+    [
+        "last function",
+        "final function",
+        "last declaration",
+        "final declaration",
+        "آخر دالة",
+        "اخر دالة",
+        "آخر سطر",
+        "اخر سطر",
+    ]
+    .iter()
+    .any(|phrase| task.contains(*phrase))
 }
 
 #[derive(Deserialize)]
@@ -196,14 +209,24 @@ mod progress_tests {
     #[test]
     fn tail_goal_is_read_from_the_task_not_snapshot_metadata() {
         assert!(requests_tail("Review.\nUser task: اشرح آخر دالة"));
-        assert!(requests_tail("Review.\nUser task: Read the last declaration."));
-        assert!(!requests_tail("last function.js\nUser task: explain imports"));
+        assert!(requests_tail(
+            "Review.\nUser task: Read the last declaration."
+        ));
+        assert!(!requests_tail(
+            "last function.js\nUser task: explain imports"
+        ));
     }
 
     #[test]
     fn resume_skips_overlaps_and_stops_at_the_first_gap() {
         let span = |a, b| json!({"verified_window":{"start":a,"end":b}});
-        let spans = [span(12, 20), span(0, 4), span(2, 8), span(0, 4), span(4, 99)];
+        let spans = [
+            span(12, 20),
+            span(0, 4),
+            span(2, 8),
+            span(0, 4),
+            span(4, 99),
+        ];
         assert_eq!(window_progress(20, &spans), (16, Some(8)));
         assert_eq!(window_progress(8, &spans), (8, None));
         assert_eq!(window_progress(0, &[]), (0, None));

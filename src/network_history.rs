@@ -83,21 +83,31 @@ pub fn request_rows(record: &Value, offset: usize, limit: usize) -> Result<Value
         }
         let id = entry["request_id"].as_str().filter(|id| !id.is_empty());
         let url = entry["url"].as_str();
-        let complete_url = url.is_some_and(|u| !u.is_empty() && (entry["url_truncated"] == false
-            || (entry["url_truncated"].is_null() && u.chars().count() < 2000)));
-        let paired = id.and_then(|id| latest.get(id).copied()).filter(|index: &usize| {
-            let row = &rows[*index];
-            event != "request" && (row["outcome"] == "response_unobserved"
-                || (event == "error" && row["outcome"] == "response_observed"))
-                && ((complete_url && row["url_complete"] == true && row["url"] == entry["url"])
-                || (event == "error" && url.is_none()))
+        let complete_url = url.is_some_and(|u| {
+            !u.is_empty()
+                && (entry["url_truncated"] == false
+                    || (entry["url_truncated"].is_null() && u.chars().count() < 2000))
         });
+        let paired = id
+            .and_then(|id| latest.get(id).copied())
+            .filter(|index: &usize| {
+                let row = &rows[*index];
+                event != "request"
+                    && (row["outcome"] == "response_unobserved"
+                        || (event == "error" && row["outcome"] == "response_observed"))
+                    && ((complete_url && row["url_complete"] == true && row["url"] == entry["url"])
+                        || (event == "error" && url.is_none()))
+            });
         let index = paired.unwrap_or_else(|| {
             let index = rows.len();
-            rows.push(json!({"request_id":id,"url":url,"url_complete":complete_url,
+            rows.push(
+                json!({"request_id":id,"url":url,"url_complete":complete_url,
                 "method":entry["method"],"request_observed":event=="request",
-                "outcome":"response_unobserved"}));
-            if let Some(id) = id { latest.insert(id, index); }
+                "outcome":"response_unobserved"}),
+            );
+            if let Some(id) = id {
+                latest.insert(id, index);
+            }
             index
         });
         if event != "request" {
@@ -108,17 +118,25 @@ pub fn request_rows(record: &Value, offset: usize, limit: usize) -> Result<Value
                 _ => "response_observed",
             });
             for key in ["status", "mime_type", "error"] {
-                if !entry[key].is_null() { row[key] = entry[key].clone(); }
+                if !entry[key].is_null() {
+                    row[key] = entry[key].clone();
+                }
             }
         }
     }
     let total = rows.len();
-    let selected = rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>();
+    let selected = rows
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect::<Vec<_>>();
     let end = offset.saturating_add(selected.len());
-    Ok(json!({"requests":selected,"retained_request_rows":total,"offset":offset,
+    Ok(
+        json!({"requests":selected,"retained_request_rows":total,"offset":offset,
         "next_offset":(end<total).then_some(end),"historical":true,
         "capture_entries_omitted":record["entries_omitted"],
-        "ring_entries_omitted":record["ring_entries_omitted"],"ring_omission_scope":record["ring_omission_scope"]}))
+        "ring_entries_omitted":record["ring_entries_omitted"],"ring_omission_scope":record["ring_omission_scope"]}),
+    )
 }
 
 pub fn inventory(record: &Value, offset: usize) -> Result<Value> {
@@ -175,30 +193,48 @@ pub(crate) fn file_selection(record: &Value, page: &str, id: &str) -> Option<Val
     let entries = record["entries"].as_array()?;
     let mut candidates = Vec::new();
     for row in entries {
-        let (Some(url), Some(request), Some(status)) =
-            (row["url"].as_str(), row["request_id"].as_str(), row["status"].as_u64())
-        else { continue };
-        if row["event"] != "response" || !(200..300).contains(&status)
-            || row["url_truncated"] == true || url.len() >= 2000
-            || request.is_empty() || request.len() > 128
+        let (Some(url), Some(request), Some(status)) = (
+            row["url"].as_str(),
+            row["request_id"].as_str(),
+            row["status"].as_u64(),
+        ) else {
+            continue;
+        };
+        if row["event"] != "response"
+            || !(200..300).contains(&status)
+            || row["url_truncated"] == true
+            || url.len() >= 2000
+            || request.is_empty()
+            || request.len() > 128
         {
             continue;
         }
-        let Ok(parsed) = reqwest::Url::parse(url) else { continue };
+        let Ok(parsed) = reqwest::Url::parse(url) else {
+            continue;
+        };
         if parsed.origin() != origin || !matches!(parsed.scheme(), "http" | "https") {
             continue;
         }
-        if row["mime_type"].as_str().is_some_and(|s| s.contains("javascript"))
-            || row["type"].as_str().is_some_and(|s| s.eq_ignore_ascii_case("script"))
-            || parsed.path().ends_with(".js") || parsed.path().ends_with(".mjs")
+        if row["mime_type"]
+            .as_str()
+            .is_some_and(|s| s.contains("javascript"))
+            || row["type"]
+                .as_str()
+                .is_some_and(|s| s.eq_ignore_ascii_case("script"))
+            || parsed.path().ends_with(".js")
+            || parsed.path().ends_with(".mjs")
         {
             candidates.push(json!({"request_id":request,"url":url,"status":status}));
-            if candidates.len() == 2 { break; }
+            if candidates.len() == 2 {
+                break;
+            }
         }
     }
-    Some(json!({"network_evidence":id,"observed_script_responses":candidates,
+    Some(
+        json!({"network_evidence":id,"observed_script_responses":candidates,
         "body_saved_by_network":false,
-        "next_step":"If an entry matches the requested file, use browser save_response with its request_id and exact URL. Otherwise report the selection gap or consult the existing capture."}))
+        "next_step":"If an entry matches the requested file, use browser save_response with its request_id and exact URL. Otherwise report the selection gap or consult the existing capture."}),
+    )
 }
 
 #[cfg(test)]
@@ -209,8 +245,12 @@ mod tests {
         let entries = [("a.woff2", 200), ("bad.js", 404), ("https://cdn.test/x.js", 200), ("app.js", 200)]
             .map(|(path, status)| json!({"event":"response","request_id":path,"status":status,
                 "url":reqwest::Url::parse("https://example.test/").unwrap().join(path).unwrap().as_str()}));
-        let view = file_selection(&json!({"entries":entries}), "https://example.test/", "E7").unwrap();
-        assert_eq!(view["observed_script_responses"].as_array().unwrap().len(), 1);
+        let view =
+            file_selection(&json!({"entries":entries}), "https://example.test/", "E7").unwrap();
+        assert_eq!(
+            view["observed_script_responses"].as_array().unwrap().len(),
+            1
+        );
         assert_eq!(view["observed_script_responses"][0]["request_id"], "app.js");
         assert_eq!(view["body_saved_by_network"], false);
     }

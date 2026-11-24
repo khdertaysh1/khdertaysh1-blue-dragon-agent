@@ -31,13 +31,18 @@ pub fn select(session: &crate::session::Session, prompt: &str) -> Value {
             continue;
         }
         if matches!(tool.as_str(), "read_file" | "read_file_window") && r["content"].is_string() {
-            if let Some(path) = args["path"].as_str().filter(|p| !p.is_empty() && p.len() <= 256) {
+            if let Some(path) = args["path"]
+                .as_str()
+                .filter(|p| !p.is_empty() && p.len() <= 256)
+            {
                 let priority = prompt.contains(&o.id) || prompt.contains(path);
                 let reference = json!({"path":path,"evidence_id":o.id,"message_index":o.message_index,
                     "tool":tool,"byte_offset":r["byte_offset"],"end_byte_offset":r["end_byte_offset"],
                     "fresh_evidence":false});
                 let candidate = (priority, o.message_index);
-                let entry = local_refs.entry(path.to_owned()).or_insert((candidate, reference.clone()));
+                let entry = local_refs
+                    .entry(path.to_owned())
+                    .or_insert((candidate, reference.clone()));
                 if candidate > entry.0 {
                     *entry = (candidate, reference);
                 }

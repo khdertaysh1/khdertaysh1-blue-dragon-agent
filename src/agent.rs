@@ -835,7 +835,10 @@ impl Agent {
             if self.completion_state != "needs_verification" {
                 self.completion_state = "interrupted".into();
             }
-            if let Some(partial) = error.downcast_ref::<crate::provider_contract::Incomplete>().filter(|partial| !partial.partial_text.is_empty()) {
+            if let Some(partial) = error
+                .downcast_ref::<crate::provider_contract::Incomplete>()
+                .filter(|partial| !partial.partial_text.is_empty())
+            {
                 self.session.messages.push(json!({"role":"assistant","content":format!("INCOMPLETE HISTORICAL PROVIDER TEXT; not fresh evidence, no tool batch executed. Stop category: {}\n{}",partial.kind,partial.partial_text)}));
             }
             // Always return useful, deterministic evidence even if the provider, context
@@ -854,34 +857,84 @@ impl Agent {
                     .filter(|s| s.status != "completed")
                     .count(),
             );
-            if !actions.is_empty() && (error.to_string().contains("repeated unchanged/blocked")
-                || error.downcast_ref::<crate::provider_contract::Incomplete>().is_some_and(|e| e.kind == "empty_response")) {
-                let start = self.session.user_turns.last().copied().unwrap_or(self.session.messages.len());
+            if !actions.is_empty()
+                && (error.to_string().contains("repeated unchanged/blocked")
+                    || error
+                        .downcast_ref::<crate::provider_contract::Incomplete>()
+                        .is_some_and(|e| e.kind == "empty_response"))
+            {
+                let start = self
+                    .session
+                    .user_turns
+                    .last()
+                    .copied()
+                    .unwrap_or(self.session.messages.len());
                 let step = actions.last().and_then(|a| a["step"].as_u64()).unwrap_or(0) as usize;
-                summary = format!("{}\n{}", progress_receipt(prompt, &self.session, start, step, self.settings.max_steps), summary);
+                summary = format!(
+                    "{}\n{}",
+                    progress_receipt(prompt, &self.session, start, step, self.settings.max_steps),
+                    summary
+                );
             }
             if self.loop_guard.is_file_task()
-                && error.downcast_ref::<crate::provider_contract::Incomplete>()
+                && error
+                    .downcast_ref::<crate::provider_contract::Incomplete>()
                     .is_some_and(|partial| partial.kind == "empty_response")
             {
                 let observations = &self.session.observations[observation_start..];
                 let last = observations.iter().rev().find(|o| o.ok);
-                let receipt = observations.iter().rev()
-                    .filter(|o| o.ok && matches!(o.tool.as_str(), "browser" | "write_file" | "edit_file" | "multi_edit_file"))
+                let receipt = observations
+                    .iter()
+                    .rev()
+                    .filter(|o| {
+                        o.ok && matches!(
+                            o.tool.as_str(),
+                            "browser" | "write_file" | "edit_file" | "multi_edit_file"
+                        )
+                    })
                     .find_map(|o| crate::saved_file::save_receipt(&self.session, &o.id));
-                let arabic = prompt.chars().any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
-                let mut lines = vec![if arabic { "رجع ردّ النموذج فارغاً." } else { "The provider returned an empty response." }.to_string()];
+                let arabic = prompt
+                    .chars()
+                    .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+                let mut lines = vec![if arabic {
+                    "رجع ردّ النموذج فارغاً."
+                } else {
+                    "The provider returned an empty response."
+                }
+                .to_string()];
                 if let Some(o) = last {
-                    let action = actions.iter().rev().find(|a| a["evidence_id"].as_str() == Some(o.id.as_str()))
-                        .and_then(|a| a["browser_action"].as_str()).unwrap_or("");
-                    let label = if arabic { "آخر عملية ناجحة" } else { "Last successful tool" };
+                    let action = actions
+                        .iter()
+                        .rev()
+                        .find(|a| a["evidence_id"].as_str() == Some(o.id.as_str()))
+                        .and_then(|a| a["browser_action"].as_str())
+                        .unwrap_or("");
+                    let label = if arabic {
+                        "آخر عملية ناجحة"
+                    } else {
+                        "Last successful tool"
+                    };
                     lines.push(format!("{label}: {} {action} ({})", o.tool, o.id));
                 }
                 if let Some(r) = receipt {
-                    let label = if arabic { "آخر حفظ موثّق بهالمهمة" } else { "Last recorded save this turn" };
-                    lines.push(format!("{label}: {} ({} bytes, {})", r["path"], r["bytes"], r["saved_evidence_id"]));
+                    let label = if arabic {
+                        "آخر حفظ موثّق بهالمهمة"
+                    } else {
+                        "Last recorded save this turn"
+                    };
+                    lines.push(format!(
+                        "{label}: {} ({} bytes, {})",
+                        r["path"], r["bytes"], r["saved_evidence_id"]
+                    ));
                 } else {
-                    lines.push(if arabic { "ما في إيصال حفظ موثّق بهالمهمة." } else { "No verified save receipt in this turn." }.into());
+                    lines.push(
+                        if arabic {
+                            "ما في إيصال حفظ موثّق بهالمهمة."
+                        } else {
+                            "No verified save receipt in this turn."
+                        }
+                        .into(),
+                    );
                 }
                 summary = lines.join("\n");
             }
@@ -1018,7 +1071,10 @@ impl Agent {
             });
         }
         let prior_start = self.session.user_turns.last().copied();
-        let prior_dialogue = resumed.is_none().then(|| crate::reasoning::checkpoint::prior_dialogue(&self.session)).flatten();
+        let prior_dialogue = resumed
+            .is_none()
+            .then(|| crate::reasoning::checkpoint::prior_dialogue(&self.session))
+            .flatten();
         let turn_start = self.session.messages.len();
         self.session.user_turns.push(self.session.messages.len());
         self.session
@@ -1044,10 +1100,14 @@ impl Agent {
             selected.extend(crate::tool_selection::for_prompt(prompt));
         }
         let tail_review = structured && crate::file_review::requests_tail(prompt);
-        if let Some(file) = resumed.filter(|file| structured && (actions.is_empty()
-            || (tail_review && !actions.iter().any(|action| {
-                action["verified_window"]["end"] == file.metadata()["bytes"]
-            })))) {
+        if let Some(file) = resumed.filter(|file| {
+            structured
+                && (actions.is_empty()
+                    || (tail_review
+                        && !actions.iter().any(|action| {
+                            action["verified_window"]["end"] == file.metadata()["bytes"]
+                        })))
+        }) {
             let tool = "read_file_window";
             let (args, result) = file.seed(tail_review, &self.cancelled)?;
             let call = self.record_direct_call(tool, &args)?;
@@ -1156,10 +1216,14 @@ impl Agent {
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
         let mut recall_report_due = false;
-        let mut explain_first = resumed.is_none() && prior_dialogue.is_some()
-            && actions.is_empty() && (self.session.last_report["actions"].as_array().is_some_and(|a| !a.is_empty())
-            || self.session.last_report["task_status"] == "answered_from_history"
-            || self.session.last_report["finished"] == false);
+        let mut explain_first = resumed.is_none()
+            && prior_dialogue.is_some()
+            && actions.is_empty()
+            && (self.session.last_report["actions"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+                || self.session.last_report["task_status"] == "answered_from_history"
+                || self.session.last_report["finished"] == false);
         let mut budget_report = false;
         let mut initial_limit_retry = false;
         let step_limit = if structured {
@@ -1184,8 +1248,18 @@ impl Agent {
                     "This is the final report round. Explain what was accomplished, what the recorded results show, and what remains unknown. No further tools."}));
                 self.persist()?;
             }
-            if !structured && step_limit >= 4 && step == step_limit - step_limit / 4 && !actions.is_empty() {
-                self.output(AgentEvent::Notice(progress_receipt(prompt, &self.session, turn_start, step, step_limit)));
+            if !structured
+                && step_limit >= 4
+                && step == step_limit - step_limit / 4
+                && !actions.is_empty()
+            {
+                self.output(AgentEvent::Notice(progress_receipt(
+                    prompt,
+                    &self.session,
+                    turn_start,
+                    step,
+                    step_limit,
+                )));
             }
             if structured && step + 1 == step_limit && !report_recovery {
                 report_recovery = true;
@@ -1197,7 +1271,8 @@ impl Agent {
             }
             let mut emitted = false;
             let mut stream_received = false;
-            let buffer_for_review = explain_first || resumed.is_some()
+            let buffer_for_review = explain_first
+                || resumed.is_some()
                 || report_recovery
                 || !actions.is_empty()
                 || !unresolved_arguments.is_empty()
@@ -1277,9 +1352,18 @@ impl Agent {
                 let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
                 if explain_first {
                     if let Some(start) = prior_start {
-                        let previous_steps = self.session.last_report["actions"].as_array()
-                            .and_then(|a| a.last()).and_then(|a| a["step"].as_u64()).unwrap_or(0);
-                        memory["previous_progress"] = json!(progress_receipt(prompt, &self.session, start, previous_steps as usize, step_limit));
+                        let previous_steps = self.session.last_report["actions"]
+                            .as_array()
+                            .and_then(|a| a.last())
+                            .and_then(|a| a["step"].as_u64())
+                            .unwrap_or(0);
+                        memory["previous_progress"] = json!(progress_receipt(
+                            prompt,
+                            &self.session,
+                            start,
+                            previous_steps as usize,
+                            step_limit
+                        ));
                     }
                 }
                 if let Some(dialogue) = &prior_dialogue {
@@ -1309,10 +1393,8 @@ impl Agent {
                         .collect::<Vec<_>>();
                     memory = json!({"output_reserve_tokens":self.provider.output_reserve(),"verified_file":file.metadata()});
                     if structured {
-                        memory["window_progress"] = json!(crate::file_review::coverage_line(
-                            &file.metadata(),
-                            actions,
-                        ));
+                        memory["window_progress"] =
+                            json!(crate::file_review::coverage_line(&file.metadata(), actions,));
                     }
                     if !recovered_excerpts.is_empty() {
                         memory["verified_checkpoint_windows"] = json!(recovered_excerpts);
@@ -1460,7 +1542,10 @@ impl Agent {
                                 previous_projection = None;
                                 continue;
                             }
-                            anyhow::ensure!(!text.trim().is_empty(), "Empty conversation-only reply");
+                            anyhow::ensure!(
+                                !text.trim().is_empty(),
+                                "Empty conversation-only reply"
+                            );
                             self.completion_state = "answered_from_history".into();
                             self.output(AgentEvent::Answer(text));
                             self.session.messages.push(message);
@@ -1627,7 +1712,9 @@ impl Agent {
                 .cloned()
                 .unwrap_or_default();
             if calls.is_empty() && is_text_tool_envelope(&extract_text(&message)) {
-                anyhow::bail!("Provider returned a tool request as ordinary text; no tool executed");
+                anyhow::bail!(
+                    "Provider returned a tool request as ordinary text; no tool executed"
+                );
             }
             if report_recovery
                 && (!calls.is_empty() || looks_like_text_tool_call(&extract_text(&message)))
@@ -1813,7 +1900,9 @@ impl Agent {
                         json!(windows)
                     )));
                 }
-                if budget_report && self.completion_state == "answer_returned_no_acceptance_contract" {
+                if budget_report
+                    && self.completion_state == "answer_returned_no_acceptance_contract"
+                {
                     self.completion_state = "reported_at_step_limit".into();
                 }
                 if !emitted || self.output.is_some() {
@@ -2320,7 +2409,9 @@ impl Agent {
                         result = json!({"result":result});
                     }
                     result["agent_recovery_hint"] = if name == "list_files"
-                        && result["files"].as_array().is_some_and(|files| !files.is_empty())
+                        && result["files"]
+                            .as_array()
+                            .is_some_and(|files| !files.is_empty())
                     {
                         json!("Use a relevant file path from the returned list. For a large local file use read_file_window and continue at its next_byte_offset. If no listed file fits the request, report that limit.")
                     } else {
@@ -2436,7 +2527,11 @@ impl Agent {
                     && name == "read_file_window"
                     && result["content"].is_string()
                 {
-                    if local_search_failed && result["content"].as_str().is_some_and(|text| !text.is_empty()) {
+                    if local_search_failed
+                        && result["content"]
+                            .as_str()
+                            .is_some_and(|text| !text.is_empty())
+                    {
                         local_read_after_search_failure = true;
                     }
                     action["verified_window"] = json!({"id":result["evidence_id"],
@@ -2465,7 +2560,10 @@ impl Agent {
                 self.session.messages.push(json!({"role":"user","content":
                     "History paging reached its turn limit. Give a short final answer using the available evidence. Report observed values with their evidence IDs and mark any missing fields as unverified. Do not call tools or repeat browser actions."}));
                 self.persist()?;
-                self.output(AgentEvent::Notice("History read limit reached. Preparing a short report from existing evidence.".into()));
+                self.output(AgentEvent::Notice(
+                    "History read limit reached. Preparing a short report from existing evidence."
+                        .into(),
+                ));
                 continue 'steps;
             }
             if self.loop_guard.stalled() {
@@ -2492,20 +2590,50 @@ impl Agent {
 }
 
 /// A recovery report is not a successful task completion or a new finding.
-fn progress_receipt(prompt: &str, session: &session::Session, start: usize, step: usize, limit: usize) -> String {
-    let arabic = prompt.chars().any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
-    let mut lines = vec![if arabic { format!("التقدم بعد {step} من {limit} جولة") }
-        else { format!("Progress after {step} of {limit} rounds") }];
-    for o in session.observations.iter().rev().take_while(|o| o.message_index >= start).take(3) {
+fn progress_receipt(
+    prompt: &str,
+    session: &session::Session,
+    start: usize,
+    step: usize,
+    limit: usize,
+) -> String {
+    let arabic = prompt
+        .chars()
+        .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+    let mut lines = vec![if arabic {
+        format!("التقدم بعد {step} من {limit} جولة")
+    } else {
+        format!("Progress after {step} of {limit} rounds")
+    }];
+    for o in session
+        .observations
+        .iter()
+        .rev()
+        .take_while(|o| o.message_index >= start)
+        .take(3)
+    {
         let mut line = format!("{} · {}", o.id, o.tool);
         if !o.ok {
-            line.push_str(if arabic { " · تعذّر التنفيذ" } else { " · unsuccessful" });
+            line.push_str(if arabic {
+                " · تعذّر التنفيذ"
+            } else {
+                " · unsuccessful"
+            });
         } else if let Ok((_, args, result)) = crate::audit::request_for(session, &o.id) {
             if let Some(target) = args["path"].as_str().or_else(|| args["action"].as_str()) {
-                line.push_str(&format!(" · {}", crate::reasoning::context::clip(target, 120)));
+                line.push_str(&format!(
+                    " · {}",
+                    crate::reasoning::context::clip(target, 120)
+                ));
             }
-            if let (Some(query), Some(matches)) = (args["query"].as_str(), result["matches"].as_array()) {
-                line.push_str(&format!(" · {} → {}", crate::reasoning::context::clip(query, 64), matches.len()));
+            if let (Some(query), Some(matches)) =
+                (args["query"].as_str(), result["matches"].as_array())
+            {
+                line.push_str(&format!(
+                    " · {} → {}",
+                    crate::reasoning::context::clip(query, 64),
+                    matches.len()
+                ));
             }
         }
         lines.push(line);
@@ -2627,17 +2755,24 @@ fn browser_only_constraint_recognizes_the_phone_test() {
 fn route_saved_response(call: &mut Value, definitions: &Value) -> bool {
     if call["function"]["name"] != "save_response"
         || definitions.as_array().is_some_and(|tools| {
-            tools.iter().any(|tool| tool["function"]["name"] == "save_response")
+            tools
+                .iter()
+                .any(|tool| tool["function"]["name"] == "save_response")
         })
     {
         return false;
     }
-    let Some(mut args) = call["function"]["arguments"].as_str()
+    let Some(mut args) = call["function"]["arguments"]
+        .as_str()
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
     else {
         return false;
     };
-    if !args.is_object() || args.get("action").is_some_and(|value| value != "save_response") {
+    if !args.is_object()
+        || args
+            .get("action")
+            .is_some_and(|value| value != "save_response")
+    {
         return false;
     }
     args["action"] = json!("save_response");
@@ -2652,14 +2787,21 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
         r#"{"request_id":"42","path":"test.js"}"#}});
     let defs = json!([crate::browser::definition()]);
     assert!(route_saved_response(&mut call, &defs));
-    let args: Value = serde_json::from_str(call["function"]["arguments"].as_str().unwrap()).unwrap();
+    let args: Value =
+        serde_json::from_str(call["function"]["arguments"].as_str().unwrap()).unwrap();
     assert_eq!(call["id"], "abc");
     assert_eq!(call["function"]["name"], "browser");
-    assert_eq!(args, json!({"request_id":"42","path":"test.js","action":"save_response"}));
+    assert_eq!(
+        args,
+        json!({"request_id":"42","path":"test.js","action":"save_response"})
+    );
     assert!(crate::tool_arguments::prepare("browser", &args, &defs).is_ok());
     assert!(crate::tool_arguments::prepare("browser", &args, &json!([])).is_err());
     call["function"]["name"] = json!("save_response");
-    assert!(!route_saved_response(&mut call, &json!([{"function":{"name":"save_response"}}])));
+    assert!(!route_saved_response(
+        &mut call,
+        &json!([{"function":{"name":"save_response"}}])
+    ));
     call["function"]["arguments"] = json!(r#"{"action":"click"}"#);
     assert!(!route_saved_response(&mut call, &defs));
 }
@@ -2704,12 +2846,16 @@ mod tests {
     use super::*;
     #[test]
     fn text_tool_envelope_does_not_complete_a_turn() {
-        let message = json!({"role":"assistant","content":r#"{"tool":"list_files","args":{"path":"."}}"#});
+        let message =
+            json!({"role":"assistant","content":r#"{"tool":"list_files","args":{"path":"."}}"#});
         let (mut agent, _work, _state, server) = scripted_agent(vec![completion(message)]);
         let result = agent.run_once("List files in the current directory");
         assert!(result.unwrap_err().to_string().contains("ordinary text"));
         assert_eq!(server.join().unwrap().len(), 1);
-        assert!(agent.session.last_report["actions"].as_array().unwrap().is_empty());
+        assert!(agent.session.last_report["actions"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
     fn completion(message: Value) -> Value {
         json!({"choices":[{"message":message}]})
@@ -2774,7 +2920,10 @@ mod tests {
         for request in &requests[1..] {
             assert!(request["tools"].as_array().is_none_or(Vec::is_empty));
         }
-        assert_eq!(agent.session.last_report["task_status"], "answered_from_history");
+        assert_eq!(
+            agent.session.last_report["task_status"],
+            "answered_from_history"
+        );
         assert_eq!(agent.session.last_report["actions"], json!([]));
     }
     #[test]
@@ -2787,29 +2936,51 @@ mod tests {
             completion(json!({"role":"assistant","content":"Rechecked the metadata."})),
         ]);
         agent.turn("Check demo.txt").unwrap();
-        agent.turn("What happened, and check the file again").unwrap();
+        agent
+            .turn("What happened, and check the file again")
+            .unwrap();
         let requests = server.join().unwrap();
         assert!(requests[2]["tools"].as_array().is_none_or(Vec::is_empty));
-        assert!(requests[3]["tools"].as_array().is_some_and(|tools| !tools.is_empty()));
-        assert_eq!(agent.session.last_report["actions"].as_array().unwrap().len(), 1);
+        assert!(requests[3]["tools"]
+            .as_array()
+            .is_some_and(|tools| !tools.is_empty()));
+        assert_eq!(
+            agent.session.last_report["actions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
     #[test]
     fn free_form_followups_receive_prior_dialogue() {
         let replies = ["First answer", "Second answer", "Third answer"]
             .map(|text| completion(json!({"role":"assistant","content":text})));
         let (mut agent, _workspace, _state, server) = scripted_agent(replies.to_vec());
-        for prompt in ["Describe the sample table", "طيب والعمود التاني؟", "خلينا بموضوع جديد"] {
+        for prompt in [
+            "Describe the sample table",
+            "طيب والعمود التاني؟",
+            "خلينا بموضوع جديد",
+        ] {
             agent.turn(prompt).unwrap();
         }
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 3);
         for (index, request) in requests.iter().enumerate() {
-            let notes = request["messages"].as_array().unwrap().iter()
+            let notes = request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
                 .filter_map(|m| m["content"].as_str())
-                .find(|text| text.starts_with("Blue Dragon working notes")).unwrap();
+                .find(|text| text.starts_with("Blue Dragon working notes"))
+                .unwrap();
             assert_eq!(notes.contains("\"prior_dialogue\""), index > 0);
-            if index > 0 { assert!(notes.contains("First answer")); }
-            if index == 2 { assert!(notes.contains("طيب والعمود التاني؟")); }
+            if index > 0 {
+                assert!(notes.contains("First answer"));
+            }
+            if index == 2 {
+                assert!(notes.contains("طيب والعمود التاني؟"));
+            }
         }
     }
     #[test]
@@ -3288,7 +3459,9 @@ mod tests {
             .push(second["choices"][0]["message"]["tool_calls"][0].clone());
         let (mut agent, _workspace, _state, server) = scripted_agent(vec![message]);
         let error = agent.turn("Read demo.txt").unwrap_err();
-        assert!(error.to_string().contains("batch rejected before execution"));
+        assert!(error
+            .to_string()
+            .contains("batch rejected before execution"));
         assert!(agent.session.observations.is_empty());
         assert_eq!(server.join().unwrap().len(), 1);
     }
@@ -3566,18 +3739,37 @@ mod tests {
     }
     #[test]
     fn exhausted_history_budget_gets_one_tool_free_report_at_step_limit() {
-        let mut replies = (0..9).map(|i| tool_call(&format!("r{i}"), "recall_context",
-            json!({"message_index":0,"offset":i*100,"count":100}))).collect::<Vec<_>>();
-        replies.push(completion(json!({"role":"assistant","content":"Partial evidence only."})));
+        let mut replies = (0..9)
+            .map(|i| {
+                tool_call(
+                    &format!("r{i}"),
+                    "recall_context",
+                    json!({"message_index":0,"offset":i*100,"count":100}),
+                )
+            })
+            .collect::<Vec<_>>();
+        replies.push(completion(
+            json!({"role":"assistant","content":"Partial evidence only."}),
+        ));
         let (mut agent, _workspace, _state, server) = scripted_agent(replies);
         agent.settings.max_steps = 10;
-        agent.session.messages.push(json!({"role":"user","content":"sample ".repeat(250)}));
-        agent.turn("Recall the earlier message using recall_context and summarize available evidence.").unwrap();
+        agent
+            .session
+            .messages
+            .push(json!({"role":"user","content":"sample ".repeat(250)}));
+        agent
+            .turn(
+                "Recall the earlier message using recall_context and summarize available evidence.",
+            )
+            .unwrap();
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 10);
         assert!(requests[9]["tools"].as_array().is_none_or(Vec::is_empty));
         assert!(agent.session.messages.iter().any(|m| m["role"] == "tool"
-            && m["content"].as_str().unwrap_or("").contains("recall_budget_exhausted")));
+            && m["content"]
+                .as_str()
+                .unwrap_or("")
+                .contains("recall_budget_exhausted")));
     }
     #[test]
     fn long_session_recalls_exact_old_details_without_losing_original_goals() {

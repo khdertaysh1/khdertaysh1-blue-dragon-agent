@@ -134,13 +134,19 @@ impl SavedFile {
     }
 
     pub(crate) fn seed(&self, tail: bool, cancelled: &AtomicBool) -> Result<(Value, Value)> {
-        let mut offset = if tail { self.checkpoint.size.saturating_sub(2048) } else { 0 };
+        let mut offset = if tail {
+            self.checkpoint.size.saturating_sub(2048)
+        } else {
+            0
+        };
         if offset > 0 {
             let mut file = self.snapshot.try_clone()?;
             file.seek(SeekFrom::Start(offset))?;
             let mut prefix = [0; 4];
             file.read_exact(&mut prefix)?;
-            let skip = prefix.iter().position(|byte| byte & 0xc0 != 0x80)
+            let skip = prefix
+                .iter()
+                .position(|byte| byte & 0xc0 != 0x80)
                 .context("Invalid UTF-8 boundary in file tail")?;
             offset += skip as u64;
         }

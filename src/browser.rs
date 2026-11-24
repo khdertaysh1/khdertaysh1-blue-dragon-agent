@@ -421,11 +421,19 @@ impl Browser {
             !self.uncertain_mutation,
             "Inspect the current tab before saving after an uncertain browser action"
         );
-        let cdp = self.cdp.as_ref().context("No connected CDP tab; saved session metadata cannot supply response bytes")?;
+        let cdp = self
+            .cdp
+            .as_ref()
+            .context("No connected CDP tab; saved session metadata cannot supply response bytes")?;
         let id = match args.get("request_id") {
             Some(value) => value.as_str().context("Invalid request ID")?,
-            None => cdp.script_request_id(args["url"].as_str().context("Supply an observed request ID or exact observed script URL")?)?,
-        }.to_owned();
+            None => cdp.script_request_id(
+                args["url"]
+                    .as_str()
+                    .context("Supply an observed request ID or exact observed script URL")?,
+            )?,
+        }
+        .to_owned();
         let path = args["path"]
             .as_str()
             .context("Workspace-relative path required")?;
@@ -625,8 +633,8 @@ impl Browser {
                 action,
                 "snapshot" | "wait_for" | "network" | "console" | "source" | "screenshot"
             );
-        let grouped =
-            matches!(action, "network" | "snapshot" | "console") && args.get("frame_selector").is_none();
+        let grouped = matches!(action, "network" | "snapshot" | "console")
+            && args.get("frame_selector").is_none();
         if !grouped
             && !matches!(
                 action,
@@ -936,7 +944,10 @@ mod tests {
                     Some(json!({"document_identity":first,"entries":[]})),
                 ),
                 ("document_identity", Some(first.clone())),
-                ("console", Some(json!({"document_identity":first,"entries":[]}))),
+                (
+                    "console",
+                    Some(json!({"document_identity":first,"entries":[]})),
+                ),
                 ("document_identity", Some(next)),
             ],
         );
@@ -961,7 +972,12 @@ mod tests {
                 .unwrap()["ok"],
             true
         );
-        assert_eq!(browser.invoke(&tools, &json!({"action":"console"})).unwrap()["ok"], true);
+        assert_eq!(
+            browser
+                .invoke(&tools, &json!({"action":"console"}))
+                .unwrap()["ok"],
+            true
+        );
         assert_eq!(
             browser
                 .invoke(&tools, &json!({"action":"snapshot"}))

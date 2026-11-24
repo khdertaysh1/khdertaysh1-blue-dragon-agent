@@ -108,12 +108,14 @@ impl Assembly {
             self.saw_choice |= choice.is_object();
             self.saw_content_parts |= choice["delta"]["content"].is_array();
             self.saw_message_object |= choice["message"].is_object();
-            self.saw_reasoning |= ["reasoning", "reasoning_content", "reasoning_details"].iter().any(|key| {
-                let field = &choice["delta"][*key];
-                field.as_str().is_some_and(|s| !s.is_empty())
-                    || field.as_array().is_some_and(|items| !items.is_empty())
-                    || field.is_object()
-            });
+            self.saw_reasoning |= ["reasoning", "reasoning_content", "reasoning_details"]
+                .iter()
+                .any(|key| {
+                    let field = &choice["delta"][*key];
+                    field.as_str().is_some_and(|s| !s.is_empty())
+                        || field.as_array().is_some_and(|items| !items.is_empty())
+                        || field.is_object()
+                });
             if choice["delta"]["refusal"]
                 .as_str()
                 .is_some_and(|s| !s.is_empty())
@@ -421,9 +423,18 @@ mod stream_shape_tests {
     #[test]
     fn distinguishes_empty_response_shapes_without_recording_payloads() {
         for (name, choice) in [
-            ("saw_reasoning", json!({"delta":{"reasoning_content":"private"}})),
-            ("saw_content_parts", json!({"delta":{"content":[{"text":"private"}]}})),
-            ("saw_message_object", json!({"message":{"content":"private"}})),
+            (
+                "saw_reasoning",
+                json!({"delta":{"reasoning_content":"private"}}),
+            ),
+            (
+                "saw_content_parts",
+                json!({"delta":{"content":[{"text":"private"}]}}),
+            ),
+            (
+                "saw_message_object",
+                json!({"message":{"content":"private"}}),
+            ),
             ("empty_delta", json!({"delta":{}})),
             ("visible", json!({"delta":{"content":"ok"}})),
         ] {
@@ -444,7 +455,14 @@ mod stream_shape_tests {
                 result.unwrap();
                 assert_eq!(shape["visible_characters"], 2);
             } else {
-                assert_eq!(result.unwrap_err().downcast_ref::<crate::provider_contract::Incomplete>().unwrap().kind, "empty_response");
+                assert_eq!(
+                    result
+                        .unwrap_err()
+                        .downcast_ref::<crate::provider_contract::Incomplete>()
+                        .unwrap()
+                        .kind,
+                    "empty_response"
+                );
             }
         }
     }

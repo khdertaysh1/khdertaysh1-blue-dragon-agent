@@ -35,10 +35,21 @@ impl Guard {
     pub fn for_task(prompt: &str) -> Self {
         let text = prompt.to_lowercase();
         let saving_file = ["save", "download", "احفظ", "حفظ", "نزّل", "نزل", "تحميل"]
-            .iter().any(|word| text.contains(word))
-            && !["reload", "refresh the page", "reopen", "أعد تحميل الصفحة", "أعد فتح"]
-                .iter().any(|word| text.contains(word));
-        Self { saving_file, ..Self::default() }
+            .iter()
+            .any(|word| text.contains(word))
+            && ![
+                "reload",
+                "refresh the page",
+                "reopen",
+                "أعد تحميل الصفحة",
+                "أعد فتح",
+            ]
+            .iter()
+            .any(|word| text.contains(word));
+        Self {
+            saving_file,
+            ..Self::default()
+        }
     }
 
     fn key(name: &str, args: &Value) -> String {
@@ -75,13 +86,16 @@ impl Guard {
         }
     }
     pub fn link_evidence(&mut self, name: &str, args: &Value, id: &str, result: &Value) {
-        if name == "browser" && args["action"] == "network" && self.opened_url.is_some()
+        if name == "browser"
+            && args["action"] == "network"
+            && self.opened_url.is_some()
             && result["ok"] == true
         {
             self.network_evidence = Some(id.to_owned());
-            self.capture_summary = self.opened_url.as_deref().and_then(|url| {
-                crate::network_history::file_selection(result, url, id)
-            });
+            self.capture_summary = self
+                .opened_url
+                .as_deref()
+                .and_then(|url| crate::network_history::file_selection(result, url, id));
         }
         if let Some(seen) = self.seen.get_mut(&Self::key(name, args)) {
             seen.evidence = Some(id.to_owned());
@@ -131,15 +145,20 @@ impl Guard {
                 "Repeated identical arguments returned unchanged results. Inspect the previous result for this tool."
             }}));
         }
-        if name == "browser" && self.saving_file && matches!(args["action"].as_str(), Some("open" | "navigate"))
-            && self.opened_url.is_some() && self.opened_url.as_deref() == args["url"].as_str()
+        if name == "browser"
+            && self.saving_file
+            && matches!(args["action"].as_str(), Some("open" | "navigate"))
+            && self.opened_url.is_some()
+            && self.opened_url.as_deref() == args["url"].as_str()
         {
             if let Some(id) = self.network_evidence.as_deref() {
                 self.blocked += 1;
                 self.consecutive_blocks += 1;
-                return Some(json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,
+                return Some(
+                    json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,
                     "category":"network_already_captured","original_evidence_id":id,
-                    "error":"This document already has a network capture. Continue from its recorded request or page the existing capture. Use browser action save_response for the requested file. If no suitable response is present, report the missing evidence."}));
+                    "error":"This document already has a network capture. Continue from its recorded request or page the existing capture. Use browser action save_response for the requested file. If no suitable response is present, report the missing evidence."}),
+                );
             }
         }
         if name == "web_fetch" {
@@ -173,7 +192,10 @@ impl Guard {
         if name == "browser" && self.saving_file {
             match args["action"].as_str() {
                 Some("open" | "navigate") => {
-                    self.opened_url = args["url"].as_str().filter(|_| result["ok"] == true).map(str::to_owned);
+                    self.opened_url = args["url"]
+                        .as_str()
+                        .filter(|_| result["ok"] == true)
+                        .map(str::to_owned);
                     self.network_evidence = None;
                     self.capture_summary = None;
                 }
@@ -184,7 +206,10 @@ impl Guard {
                         self.capture_summary = None;
                     }
                 }
-                Some("snapshot" | "network" | "source" | "status" | "console" | "screenshot" | "wait_for" | "save_response") => {}
+                Some(
+                    "snapshot" | "network" | "source" | "status" | "console" | "screenshot"
+                    | "wait_for" | "save_response",
+                ) => {}
                 _ => {
                     self.opened_url = None;
                     self.network_evidence = None;
@@ -296,7 +321,9 @@ mod tests {
         guard.after("list_files", &json!({}), &ok);
         let blocked = guard.before("browser", &open).unwrap();
         assert_eq!(blocked["original_evidence_id"], "E000047");
-        assert!(guard.before("browser", &json!({"action":"save_response"})).is_none());
+        assert!(guard
+            .before("browser", &json!({"action":"save_response"}))
+            .is_none());
         guard.after("browser", &json!({"action":"click"}), &ok);
         assert!(guard.before("browser", &open).is_none());
     }

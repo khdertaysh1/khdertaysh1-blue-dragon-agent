@@ -100,7 +100,11 @@ pub struct Incomplete {
 impl std::fmt::Display for Incomplete {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.partial_text.is_empty() {
-            write!(f, "Provider completion incomplete: {}; no response text or executed tool batch", self.kind)
+            write!(
+                f,
+                "Provider completion incomplete: {}; no response text or executed tool batch",
+                self.kind
+            )
         } else {
             write!(f, "Provider completion incomplete: {}; partial text retained privately, no tool batch executed", self.kind)
         }

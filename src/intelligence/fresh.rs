@@ -37,35 +37,67 @@ fn explicit_range(prompt: &str) -> Option<Result<(u64, u64), ()>> {
         .collect();
     let lower = normalized.to_lowercase();
     // "first N bytes" names a prefix without spelling out two offsets.
-    let words: Vec<_> = lower.split_whitespace()
-        .map(|word| word.trim_matches(|c: char| matches!(c, '.' | ',' | ';' | '،' | '؛' | ':' | '`')))
+    let words: Vec<_> = lower
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|c: char| matches!(c, '.' | ',' | ';' | '،' | '؛' | ':' | '`'))
+        })
         .collect();
-    let mut prefixes = words.windows(3).filter(|w|
-        matches!(w[0], "first" | "أول" | "اول") && matches!(w[2], "bytes" | "byte" | "بايت"));
+    let mut prefixes = words.windows(3).filter(|w| {
+        matches!(w[0], "first" | "أول" | "اول") && matches!(w[2], "bytes" | "byte" | "بايت")
+    });
     if let Some(prefix) = prefixes.next() {
         // A second range or offset must not be silently discarded.
-        if prefixes.next().is_some() || lower.contains("..")
-            || words.iter().any(|w| matches!(*w, "offset" | "offsets" | "إزاحة" | "ازاحة"))
-            || words.iter().filter(|w| matches!(**w, "byte" | "bytes" | "بايت" | "البايت")).count() != 1
+        if prefixes.next().is_some()
+            || lower.contains("..")
+            || words
+                .iter()
+                .any(|w| matches!(*w, "offset" | "offsets" | "إزاحة" | "ازاحة"))
+            || words
+                .iter()
+                .filter(|w| matches!(**w, "byte" | "bytes" | "بايت" | "البايت"))
+                .count()
+                != 1
         {
             return Some(Err(()));
         }
-        return Some(prefix[1].parse::<u64>().ok().filter(|n| *n > 0)
-            .map(|n| (0, n)).ok_or(()));
+        return Some(
+            prefix[1]
+                .parse::<u64>()
+                .ok()
+                .filter(|n| *n > 0)
+                .map(|n| (0, n))
+                .ok_or(()),
+        );
     }
     // With a descriptive endpoint the only numeric requirement is coverage
     // of the starting byte. The report must establish the semantic endpoint.
     if let Some(start) = words.windows(4).find(|w| {
-        matches!((w[0], w[1], w[3]),
-            ("من", "البايت" | "بايت", "حتى") | ("from" | "at", "byte", "until"))
+        matches!(
+            (w[0], w[1], w[3]),
+            ("من", "البايت" | "بايت", "حتى") | ("from" | "at", "byte", "until")
+        )
     }) {
-        if !lower.contains("..") && words.iter().filter(|w| w.chars().any(|c| c.is_ascii_digit())).count() == 1
+        if !lower.contains("..")
+            && words
+                .iter()
+                .filter(|w| w.chars().any(|c| c.is_ascii_digit()))
+                .count()
+                == 1
+            && words.windows(2).any(|w| {
+                matches!(
+                    (w[0], w[1]),
+                    ("آخر" | "نهاية", "الدالة") | ("function", "ends")
+                )
+            })
         {
-            if words.windows(2).any(|w| matches!((w[0], w[1]),
-                ("آخر" | "نهاية", "الدالة") | ("function", "ends"))) {
-                return Some(start[2].parse::<u64>().ok()
-                    .and_then(|n| n.checked_add(1).map(|end| (n, end))).ok_or(()));
-            }
+            return Some(
+                start[2]
+                    .parse::<u64>()
+                    .ok()
+                    .and_then(|n| n.checked_add(1).map(|end| (n, end)))
+                    .ok_or(()),
+            );
         }
     }
     let marker = ["bytes ", "byte range ", "بايت ", "البايت "]
@@ -150,9 +182,17 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
         return vec![];
     }
     // A filename like bundle-01.js supplies a target, not a byte offset.
-    let range_text = prompt.split_whitespace()
-        .map(|word| if source_path(word).is_some() { "<file>" } else { word })
-        .collect::<Vec<_>>().join(" ");
+    let range_text = prompt
+        .split_whitespace()
+        .map(|word| {
+            if source_path(word).is_some() {
+                "<file>"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
     let range = explicit_range(&range_text);
     let explicit_window = range.is_some();
     let bounded_only = explicit_window
@@ -169,8 +209,11 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if !read {
         return vec![];
     }
-    let mut paths = prompt.split_whitespace().filter_map(source_path)
-        .map(str::to_owned).collect::<Vec<_>>();
+    let mut paths = prompt
+        .split_whitespace()
+        .filter_map(source_path)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     let historical_network = [
         "network_events",
         "saved network",
@@ -179,19 +222,38 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     ]
     .iter()
     .any(|marker| text.contains(marker));
-    let evidence_reference = text.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| {
-        word.strip_prefix('e').is_some_and(|id| {
-            id.len() >= 6 && id.bytes().all(|digit| digit.is_ascii_digit())
-        })
-    });
-    let historical_result = evidence_reference && [
-        "saved result", "saved evidence", "recorded result", "النتيجة المحفوظة",
-        "الدليل المحفوظ", "الأدلة المحفوظة",
-    ].iter().any(|phrase| text.contains(phrase));
-    if (historical_network || historical_result) && paths.is_empty() && !bounded_only
-        && !["local file", "from disk", "الملف المحلي", "من القرص", "fresh read", "أعد قراءة"]
-            .iter().any(|term| text.contains(term))
-        && !text.contains("byte") && !text.contains("بايت")
+    let evidence_reference = text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| {
+            word.strip_prefix('e')
+                .is_some_and(|id| id.len() >= 6 && id.bytes().all(|digit| digit.is_ascii_digit()))
+        });
+    let historical_result = evidence_reference
+        && [
+            "saved result",
+            "saved evidence",
+            "recorded result",
+            "النتيجة المحفوظة",
+            "الدليل المحفوظ",
+            "الأدلة المحفوظة",
+        ]
+        .iter()
+        .any(|phrase| text.contains(phrase));
+    if (historical_network || historical_result)
+        && paths.is_empty()
+        && !bounded_only
+        && ![
+            "local file",
+            "from disk",
+            "الملف المحلي",
+            "من القرص",
+            "fresh read",
+            "أعد قراءة",
+        ]
+        .iter()
+        .any(|term| text.contains(term))
+        && !text.contains("byte")
+        && !text.contains("بايت")
     {
         return vec![];
     }
@@ -335,7 +397,10 @@ mod tests {
             assert_eq!(requests[0].expected_window, Some((0, 512)));
             assert!(requests[0].explicit_window);
         }
-        assert_eq!(explicit_range("first 512 bytes and bytes 800..900"), Some(Err(())));
+        assert_eq!(
+            explicit_range("first 512 bytes and bytes 800..900"),
+            Some(Err(()))
+        );
     }
 
     #[test]
@@ -346,7 +411,10 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].path.as_deref(), Some("aghanim-trial-01.js"));
         assert_eq!(requests[0].expected_window, Some((397, 398)));
-        assert_eq!(explicit_range("من البايت 397 حتى 900 ثم نهاية الدالة"), Some(Err(())));
+        assert_eq!(
+            explicit_range("من البايت 397 حتى 900 ثم نهاية الدالة"),
+            Some(Err(()))
+        );
     }
 
     #[test]
@@ -404,7 +472,11 @@ mod tests {
     #[test]
     fn native_pairs_hashes_ranges_and_success_are_required() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("aghanim-trial-01.js"), "const value = 42;\n").unwrap();
+        std::fs::write(
+            dir.path().join("aghanim-trial-01.js"),
+            "const value = 42;\n",
+        )
+        .unwrap();
         let tools = ToolBox::new(
             dir.path().canonicalize().unwrap(),
             crate::tools::ApprovalMode::ReadOnly,
@@ -417,7 +489,9 @@ mod tests {
         assert_eq!(request.path.as_deref(), Some("aghanim-trial-01.js"));
         assert!(!request.explicit_window);
         let args = json!({"path":"aghanim-trial-01.js","byte_offset":0,"byte_count":4096});
-        let result = tools.read_file_window("aghanim-trial-01.js", 0, 4096).unwrap();
+        let result = tools
+            .read_file_window("aghanim-trial-01.js", 0, 4096)
+            .unwrap();
         session.messages.push(json!({"role":"assistant","tool_calls":[{"id":"capture","function":{"name":"read_file_window","arguments":args.to_string()}}]}));
         let mut observation = crate::reasoning::observe(1, "read_file_window", &result);
         observation.request_sha256 =

@@ -74,11 +74,13 @@ impl ProviderFailure {
         };
         let retry_after = retry_after
             .or_else(|| error["retry_after_seconds"].as_u64())
-            .unwrap_or(if status != 429 && (model_specific || matches!(status, 502 | 503)) {
-                60
-            } else {
-                0
-            });
+            .unwrap_or(
+                if status != 429 && (model_specific || matches!(status, 502 | 503)) {
+                    60
+                } else {
+                    0
+                },
+            );
         Self {
             status,
             retry_after_source,

@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.1.14.0
+
+- Preserve file references and conversation context across follow-ups.
+- Improve Arabic and English byte-range requests for local files.
+- Retain browser network observations during approved response saves.
+- Record bounded stream diagnostics when a provider returns an empty completion.
+
 ## 1.1.12.0 — cumulative R2–R11 update
 
 - Improve Termux input, including multiline paste, cancellation and Arabic rendering.

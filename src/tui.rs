@@ -187,13 +187,18 @@ impl Screen {
         if self.busy {
             let text = self.input.trim();
             if !text.is_empty() {
-                if text.starts_with('/') || self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                if text.starts_with('/')
+                    || self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+                {
                     self.status = "Draft kept. Submit after the current task stops.".into();
                 } else {
                     self.followups.push_back(text.to_owned());
                     self.input.clear();
                     self.cursor = 0;
-                    self.log("System:", "Follow-up queued for this conversation after the current task.");
+                    self.log(
+                        "System:",
+                        "Follow-up queued for this conversation after the current task.",
+                    );
                     self.status = "Working · follow-up queued".into();
                 }
             }
