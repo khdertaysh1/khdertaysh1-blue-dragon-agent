@@ -514,11 +514,85 @@ impl Agent {
         )
     }
     pub fn operator_command(&self, line: &str) -> Result<Value> {
+        let (command, args) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+        let args = args.trim();
+        if command == "/httpflow" {
+            let mut parts = args.split_whitespace();
+            let evidence = parts.next().context("Use /httpflow EVIDENCE_ID [OFFSET]")?;
+            let offset = parts.next().unwrap_or("0").parse::<usize>()?;
+            anyhow::ensure!(parts.next().is_none(), "Too many arguments");
+            return self.saved_network(&format!("{evidence} --rows {offset}"));
+        }
         anyhow::ensure!(
             self.tools.allows_url_inspection(),
             "Read-only mode or cancellation prevents external operator commands"
         );
+        if command == "/swarm" {
+            return self.coding_swarm(args);
+        }
+        if command == "/desktop" {
+            let path = args
+                .strip_prefix("open ")
+                .context("Use /desktop open PATH")?
+                .trim();
+            return crate::operator::open_editor(&self.tools.local_file_path(path)?);
+        }
         crate::operator::run(line)
+    }
+    fn coding_swarm(&self, args: &str) -> Result<Value> {
+        let (path, task) = args.split_once('|').context("Use /swarm PATH | TASK")?;
+        let (path, task) = (path.trim(), task.trim());
+        anyhow::ensure!(
+            !path.is_empty() && !task.is_empty() && task.len() <= 3600,
+            "Supply a workspace path and a task of 1..3600 bytes"
+        );
+        let invoke = |args: Value| {
+            self.delegates.invoke(
+                &self.settings,
+                self.provider.model(),
+                &self.tools,
+                self.cancelled.clone(),
+                &args,
+            )
+        };
+        let mut ids = Vec::new();
+        let mut issues = Vec::new();
+        for focus in [
+            "Review implementation and correctness",
+            "Review tests and missing regression coverage",
+        ] {
+            match invoke(json!({"action":"spawn","paths":[path],"task":format!("{focus}: {task}")}))
+            {
+                Ok(v) if v["agent_id"].is_string() => ids.push(v["agent_id"].clone()),
+                Ok(v) => {
+                    issues.push(v);
+                    break;
+                }
+                Err(e) => {
+                    issues.push(json!({"error":e.to_string()}));
+                    break;
+                }
+            }
+        }
+        loop {
+            let status = self.delegates.status();
+            let results: Vec<_> = status["agents"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|row| ids.contains(&row["agent_id"]))
+                .collect();
+            if self.tools.is_cancelled()
+                || results
+                    .iter()
+                    .all(|row| !matches!(row["state"].as_str(), Some("starting" | "running")))
+            {
+                return Ok(
+                    json!({"task":task,"results":results,"launch_issues":issues,"cancelled":self.tools.is_cancelled()}),
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
     pub fn saved_inventory(&self, line: &str) -> Result<Value> {
         let mut parts = line.split_whitespace().skip(1);

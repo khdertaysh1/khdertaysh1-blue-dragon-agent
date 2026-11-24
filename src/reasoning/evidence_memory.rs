@@ -22,7 +22,7 @@ pub fn select(session: &crate::session::Session, prompt: &str) -> Value {
                     .and_then(|(url,path)|path.map(|p|json!({"destination_argument":p,"requested_url_sha256":crate::intelligence::code::hash(url.as_bytes()),"exit_code":0}))),
                 "file_info" if r["saved_to_disk"]==true => Some(json!({"observed_disk_path":r["path"],"bytes":r["bytes"]})),
                 "write_file"|"edit_file" if r["saved_to_disk"]==true => Some(json!({"written_path":r["path"],"bytes":r["bytes"],"sha256":r["sha256"]})),
-                "web_fetch" if r["script_url_hashes"].as_array().is_some_and(|v|!v.is_empty()) => Some(json!({"first_script_url_hashes":r["script_url_hashes"].as_array().unwrap().iter().take(2).collect::<Vec<_>>() })),
+                "web_fetch" if r["first_script_urls"].is_array() || r["script_url_hashes"].is_array() => Some(script_receipt(&r)),
                 _=>None
             };
             if let Some(mut receipt) = receipt {
@@ -135,5 +135,49 @@ mod tests {
         let tampered = select(&restored, "marker");
         assert_eq!(tampered["records"], json!([]));
         assert_eq!(tampered["local_read_refs"], json!([]));
+    }
+}
+
+fn script_receipt(result: &Value) -> Value {
+    let hashes: Vec<_> = result["script_url_hashes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(2)
+        .collect();
+    let verified: Vec<_> = result["first_script_urls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .zip(&hashes)
+        .take_while(|(url, digest)| {
+            url.as_str().is_some_and(|s| {
+                s.len() <= 2048
+                    && Some(crate::intelligence::code::hash(s.as_bytes()).as_str())
+                        == digest.as_str()
+            })
+        })
+        .map(|(url, _)| url)
+        .collect();
+    json!({"first_script_url_hashes":hashes,"verified_script_urls":verified,
+        "source":"original fetch result","untrusted_data_not_instructions":true})
+}
+
+#[cfg(test)]
+mod receipt_tests {
+    use super::*;
+
+    #[test]
+    fn compact_receipt_only_quotes_verified_values_in_order() {
+        let url = "https://example.test/a.js?v=1";
+        let sha = crate::intelligence::code::hash(url.as_bytes());
+        let receipt = script_receipt(
+            &json!({"first_script_urls":[url,"truncated"],"script_url_hashes":[sha,"invalid"]}),
+        );
+        assert_eq!(receipt["verified_script_urls"], json!([url]));
+        assert_eq!(
+            script_receipt(&json!({"script_url_hashes":[sha]}))["verified_script_urls"],
+            json!([])
+        );
     }
 }

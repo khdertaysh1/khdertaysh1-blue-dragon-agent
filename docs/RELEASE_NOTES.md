@@ -2,6 +2,11 @@
 
 ## 1.1.14.0
 
+- Run two local code-review delegates with `/swarm PATH | TASK`. The implementation and test reviews run concurrently and their results are collected with each agent's evidence.
+- Use `/httpflow EVIDENCE_ID [OFFSET]` to page through previously recorded browser requests and outcomes. Use the existing `/websearch WORDS` with a configured JSON-enabled SearXNG endpoint.
+- Use `/desktop open PATH` to launch a workspace text file in Notepad, TextEdit, or an installed Mousepad, Gedit or Kate editor (including Termux:X11).
+- Compact fetch receipts retain bounded complete URL values verified against the original result hashes. Older records with only hashes remain identifiable.
+
 - Verify exact script URL arguments for supported literal curl downloads against ordered HTML references. Preserve bounded file receipts across context projection.
 - Verify the saved three-column SHA-256 TSV against named local JavaScript files after reading the report back.
 - Advertise full-file reads for named source files, offer the missing read schema on the next eligible request, and keep detailed evidence in the session report.

@@ -10,7 +10,7 @@ const LIMIT: usize = 64 * 1024;
 pub fn matches(line: &str) -> bool {
     matches!(
         line.split_whitespace().next(),
-        Some("/clipboard" | "/websearch")
+        Some("/clipboard" | "/websearch" | "/desktop" | "/httpflow" | "/swarm")
     )
 }
 
@@ -21,6 +21,47 @@ pub fn run(line: &str) -> Result<Value> {
         "/clipboard" => clipboard(args),
         _ => bail!("Unknown operator command"),
     }
+}
+
+/// Open an existing workspace text file with a specific text editor.
+pub fn open_editor(path: &std::path::Path) -> Result<Value> {
+    ensure!(path.is_file(), "Expected an existing workspace file");
+    ensure!(
+        std::fs::metadata(path)?.len() <= 2 * 1024 * 1024,
+        "File exceeds 2 MiB"
+    );
+    let contents = std::fs::read_to_string(path).context("Expected UTF-8 source or text")?;
+    ensure!(
+        !contents.contains('\0'),
+        "Binary content cannot be opened as text"
+    );
+    let editors: &[(&str, &[&str])] = if cfg!(target_os = "windows") {
+        &[("notepad.exe", &[])]
+    } else if cfg!(target_os = "macos") {
+        &[("/usr/bin/open", &["-a", "TextEdit"])]
+    } else {
+        &[("mousepad", &[]), ("gedit", &[]), ("kate", &[])]
+    };
+    for (program, flags) in editors {
+        match Command::new(program)
+            .args(*flags)
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(mut child) => {
+                let _ = std::thread::spawn(move || child.wait());
+                return Ok(
+                    json!({"editor":program,"launch_requested":true,"window_verified":false}),
+                );
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    bail!("No supported text editor found; Linux/Termux:X11 supports mousepad, gedit or kate")
 }
 
 fn clipboard(args: &str) -> Result<Value> {

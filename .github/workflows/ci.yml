@@ -177,6 +177,33 @@ jobs:
           path: release-payload/
           if-no-files-found: error
           retention-days: 14
+  android-runtime:
+    name: Android emulator runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Build for the emulator
+        run: |
+          bin="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$bin/x86_64-linux-android26-clang"
+          export CC_x86_64_linux_android="$bin/x86_64-linux-android26-clang"
+          export AR_x86_64_linux_android="$bin/llvm-ar"
+          cargo build --locked --release --target x86_64-linux-android
+          sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          script: |
+            adb push target/x86_64-linux-android/release/blue-dragon /data/local/tmp/blue-dragon
+            adb shell chmod 755 /data/local/tmp/blue-dragon
+            adb shell /data/local/tmp/blue-dragon --version | tr -d '\r' | grep -Fx "blue-dragon $(cat VERSION)"
+            adb shell /data/local/tmp/blue-dragon --help
   installer:
     name: Installer safety and upgrade checks
     runs-on: ubuntu-latest
@@ -289,7 +316,7 @@ jobs:
   publish:
     name: Publish verified binaries
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, android, installer, browser, qualification]
+    needs: [test, android, android-runtime, installer, browser, qualification]
     runs-on: ubuntu-latest
     permissions:
       contents: write
