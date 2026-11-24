@@ -1,5 +1,13 @@
 # Release notes
 
+## 1.1.14.2
+
+- Show the active model and provider in the terminal session footer, including on phone-sized screens.
+- Recognize direct Arabic requests to open a site. Retry malformed text-form tool replies once and report whether an action ran.
+- Report repeated failed browser-history lookups and unavailable response bodies with evidence from the current turn.
+- Sync Unix session checkpoint directories after replacement. Local qualification writes JUnit results alongside JSON.
+- CI builds Debian amd64 and unsigned macOS arm64 installer candidates as workflow artifacts. The four platform downloads remain available through the one-command installers.
+
 ## 1.1.14.1
 
 Restores the coding, browser and source-review behavior of dc53e39. Local qualification retains marker and response-header checks. The four-part public version now supports a maintenance revision, with Cargo retaining its three-part package version.

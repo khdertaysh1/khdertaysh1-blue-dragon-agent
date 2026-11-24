@@ -8,21 +8,21 @@ Blue Dragon is a Rust coding agent for the terminal. Open it in your project to 
 
 ## Quick Start
 
-Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.1** and verify the executable's SHA-256 and reported version.
+Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.2** and verify the executable's SHA-256 and reported version.
 
 **Linux x64, macOS on Apple Silicon, or Android ARM64 in Termux** (Bash and curl)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/start.sh | bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/start.sh | bash
 ```
 
 **Windows x64** (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.1/scripts/start.ps1').Content))
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/start.ps1').Content))
 ```
 
-The [release downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.1) include all four binaries, checksums, and the browser extensions. CI exercises desktop builds and an Android emulator. Physical Termux testing and sustained live-model reliability are separate checks. See [release notes](docs/RELEASE_NOTES.md), [install options](docs/INSTALL.md), and the [CI run](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/runs/45470692162).
+The [release downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.2) include all four binaries, checksums, and the browser extensions. CI exercises desktop builds and an Android emulator. Physical Termux testing and sustained live-model reliability are separate checks. See [release notes](docs/RELEASE_NOTES.md), [install options](docs/INSTALL.md), and the [CI run](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/actions/workflows/ci.yml).
 
 [First session on Termux](docs/FIRST_SESSION.md) · [Documentation](docs/README.md)
 

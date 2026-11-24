@@ -1,6 +1,6 @@
 param([switch]$VersionOnly)
 $ErrorActionPreference = 'Stop'
-$tag = 'v1.1.14.1'
+$tag = 'v1.1.14.2'
 $assets = "https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/download/$tag"
 $name = 'blue-dragon-windows-x64.exe'
 $dir = Join-Path $env:LOCALAPPDATA 'BlueDragon\bin'
