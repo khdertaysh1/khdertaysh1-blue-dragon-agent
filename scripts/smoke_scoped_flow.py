@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 from lab_matrix import LAB_COMMIT,loopback_only
+from fixture_intent import reply_to_work_intent
 from smoke_continuity import call
 
 def main(binary,lab_path,mutation=None):
@@ -34,7 +35,11 @@ def main(binary,lab_path,mutation=None):
     class Model(http.server.BaseHTTPRequestHandler):
         def log_message(self,*_):pass
         def do_POST(self):
-            packet=json.loads(self.rfile.read(int(self.headers['Content-Length'])));packets.append(packet);step=len(packets)
+            packet = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if reply_to_work_intent(self, packet):
+                return
+            packets.append(packet)
+            step = len(packets)
             prior=[json.loads(m['content']) for m in packet['messages'] if m['role']=='tool']
             if step==1:args={'action':'fetch','url':url}
             elif step==2:args={'action':'search','artifact_id':prior[0]['artifact_id'],'query':search_query}

@@ -3,6 +3,7 @@
 import argparse,hashlib,http.server,json,os,subprocess,sys,tempfile,threading
 from pathlib import Path
 from lab_matrix import LAB_COMMIT,loopback_only
+from fixture_intent import reply_to_work_intent
 from smoke_continuity import call
 from smoke_source_discovery import audit_from_stdout
 
@@ -20,7 +21,10 @@ def run(binary,make_server,mode):
     class Model(http.server.BaseHTTPRequestHandler):
         def log_message(self,*_):pass
         def do_POST(self):
-            packet=json.loads(self.rfile.read(int(self.headers['Content-Length'])));packets.append(packet)
+            packet = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if reply_to_work_intent(self, packet):
+                return
+            packets.append(packet)
             step=len(packets);prior=[json.loads(m['content']) for m in packet['messages'] if m['role']=='tool']
             if step==1:args={'action':'fetch','url':base+'/dynamic/app.js'}
             elif step in (2,5):args={'action':'discover','artifact_id':prior[0]['artifact_id']}

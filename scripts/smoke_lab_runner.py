@@ -16,6 +16,7 @@ import tempfile
 import threading
 from urllib.parse import parse_qs, urlsplit
 from lab_matrix import LAB_COMMIT, loopback_only
+from fixture_intent import reply_to_work_intent
 from smoke_continuity import call
 
 
@@ -84,7 +85,10 @@ def case(binary, make_server, mode, condition, scenario='literal_marker'):
         def log_message(self, *_):
             pass
         def do_POST(self):
-            packets.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+            packet = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if reply_to_work_intent(self, packet):
+                return
+            packets.append(packet)
             message = (call('run_local_lab', {'action':'run','run_id':'controlled-run','scenario':scenario,'url':base+endpoint}, 'lab-'+str(len(packets)))
                 if len(packets) in (1,3) else {'role':'assistant','content':'Saved bounded marker observations; no execution or security conclusion.'})
             data = json.dumps({'choices':[{'message':message}]}).encode()

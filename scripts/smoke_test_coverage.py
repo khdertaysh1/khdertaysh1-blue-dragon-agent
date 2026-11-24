@@ -6,6 +6,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+from fixture_intent import reply_to_work_intent
 import subprocess
 import tempfile
 import threading
@@ -24,6 +25,8 @@ def main(binary):
             self.wfile.write(body)
         def do_POST(self):
             packet = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if reply_to_work_intent(self, packet):
+                return
             packets.append(packet)
             results = [json.loads(m['content']) for m in packet['messages'] if m['role'] == 'tool']
             step = len(packets)

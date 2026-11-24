@@ -13,6 +13,7 @@ import threading
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import build_opener, HTTPRedirectHandler, ProxyHandler
+from fixture_intent import reply_to_work_intent
 from smoke_continuity import call
 
 LAB_COMMIT = 'c396c90f2e7ed080f71368ce9edb5cd630098b09'
@@ -42,6 +43,8 @@ def blue_marker_case(binary, base, mode, invalid=False, policy=False):
             pass
         def do_POST(self):
             packet = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if reply_to_work_intent(self, packet):
+                return
             packets.append(packet)
             step = len(packets)
             if policy and step == 2:

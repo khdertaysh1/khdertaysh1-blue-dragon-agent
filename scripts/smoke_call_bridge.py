@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 from lab_matrix import LAB_COMMIT,loopback_only
+from fixture_intent import reply_to_work_intent
 from smoke_continuity import call
 
 def report_from_stdout(text):
@@ -45,7 +46,11 @@ def case(binary,make_server,mode):
     class Model(http.server.BaseHTTPRequestHandler):
         def log_message(self,*_):pass
         def do_POST(self):
-            packet=json.loads(self.rfile.read(int(self.headers['Content-Length'])));packets.append(packet);step=len(packets)
+            packet = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if reply_to_work_intent(self, packet):
+                return
+            packets.append(packet)
+            step = len(packets)
             prior=[json.loads(m['content']) for m in packet['messages'] if m['role']=='tool']
             if step<=3:args={'action':'fetch','url':base+list(sources)[step-1]}
             elif step==4:args={'action':'search','artifact_id':prior[0]['artifact_id'],'query':'render(input)'}
