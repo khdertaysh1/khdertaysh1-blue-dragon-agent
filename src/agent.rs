@@ -978,6 +978,28 @@ impl Agent {
         resume_review: bool,
         recover_browser: bool,
     ) -> Result<()> {
+        if resumed.is_none() && !structured {
+            if let Some(id) = saved_command_output_id(prompt) {
+                // Render only to the operator. Never feed raw output back into model history.
+                let answer = match crate::audit::paired_request_for(&self.session, id) {
+                    Ok((tool, args, result)) if tool == "run_command" => {
+                        let missing = json!("غير مسجّل / not recorded");
+                        let mut fields = json!({"evidence_id":id});
+                        for key in ["program", "args", "cwd"] {
+                            fields[key] = args.get(key).unwrap_or(&missing).clone();
+                        }
+                        for key in ["stdout", "stderr", "exit_code"] {
+                            fields[key] = result.get(key).unwrap_or(&missing).clone();
+                        }
+                        serde_json::to_string_pretty(&fields)?
+                    }
+                    Ok(_) => format!("{id}: الدليل المحفوظ ليس نتيجة run_command."),
+                    Err(_) => format!("{id}: تعذّر التحقق من الدليل في هذه الجلسة."),
+                };
+                self.output(AgentEvent::Answer(answer));
+                return Ok(());
+            }
+        }
         self.rotation.begin_turn();
         let cooldown = self.provider.cooldown()?;
         let switched = matches!(cooldown, Some((_, true)))
@@ -1744,9 +1766,8 @@ impl Agent {
                         let reply = extract_text(&message);
                         let invalid_routing_reply =
                             explain_first && (native_calls || looks_like_text_tool_call(&reply));
-                        if !report_recovery
-                            && (invalid_routing_reply
-                                || (!native_calls && is_text_tool_envelope(&reply)))
+                        if (!report_recovery && invalid_routing_reply)
+                            || (!native_calls && is_text_tool_envelope(&reply))
                         {
                             if text_tool_retry_used {
                                 if prompt
@@ -1758,7 +1779,9 @@ impl Agent {
                                 anyhow::bail!("Provider returned another unexpected tool request or tool request as ordinary text; no tool executed for that reply");
                             }
                             text_tool_retry_used = true;
-                            text_tool_correction = Some(if explain_first {
+                            text_tool_correction = Some(if report_recovery {
+                                " Format correction: give the report in plain prose from recorded results only. No tools are available. State any missing evidence."
+                            } else if explain_first {
                                 " Format correction: answer the user's question from the available conversation, or return exactly REQUEST_NEW_WORK if another action is needed. No tools are available in this phase."
                             } else {
                                 " Format correction: your previous reply did not execute an action. If the task still needs work, use the native tool_calls field for the next action, with a function and arguments from the advertised schema. For a local file edit, start by reading the relevant workspace file if you have not read it yet. Keep ordinary reply text free of tool requests. Answer in prose when the available evidence is sufficient."
@@ -3308,6 +3331,23 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
     assert!(!route_saved_response(&mut call, &defs));
 }
 
+// An explicit retrospective request for the stored process output is a local lookup.
+fn saved_command_output_id(prompt: &str) -> Option<&str> {
+    let prompt = prompt.trim();
+    if !(prompt.starts_with("من الدليل") || prompt.starts_with("From saved evidence"))
+        || !prompt.contains("stdout")
+        || !prompt.contains("stderr")
+    {
+        return None;
+    }
+    let mut ids = prompt.split(|c: char| !c.is_alphanumeric()).filter(|word| {
+        word.strip_prefix('E')
+            .is_some_and(|digits| digits.len() >= 6 && digits.bytes().all(|b| b.is_ascii_digit()))
+    });
+    let id = ids.next()?;
+    ids.next().is_none().then_some(id)
+}
+
 // An explicit imperative can start a normal tool-enabled turn immediately.
 // Keep questions and quoted instructions in the existing conversation router.
 fn explicit_task_request(prompt: &str) -> bool {
@@ -4808,6 +4848,68 @@ mod tests {
             agent.session.last_report["context"]["initial_limit_retry"],
             true
         );
+    }
+
+    #[test]
+    fn saved_command_output_lookup_uses_no_provider_even_for_an_unknown_id() {
+        let prompt = "من الدليل المحفوظ E000031 فقط، انقل stdout وstderr. لا تعيد تشغيل الأمر.";
+        assert_eq!(saved_command_output_id(prompt), Some("E000031"));
+        let (mut agent, _workspace, _state, server) = scripted_agent(vec![]);
+        agent.turn(prompt).unwrap();
+        assert!(server.join().unwrap().is_empty());
+    }
+
+    #[test]
+    fn saved_command_displays_recorded_exit_and_output_without_replay() {
+        let (mut agent, _work, _state, server) = scripted_agent(vec![]);
+        let args = json!({"program":"python","args":["-m","unittest","-v"]});
+        let call = tool_call("test-run", "run_command", args.clone());
+        agent
+            .session
+            .messages
+            .push(call["choices"][0]["message"].clone());
+        let index = agent.session.messages.len();
+        let result = json!({"ok":false,"stdout":"","stderr":"fixture error","exit_code":5});
+        agent
+            .session
+            .messages
+            .push(json!({"role":"tool","tool_call_id":"test-run","content":result.to_string()}));
+        let obs = crate::reasoning::observe(index, "run_command", &result);
+        let prompt = format!("من الدليل المحفوظ {} فقط، انقل stdout وstderr", obs.id);
+        agent.session.observations.push(obs);
+        let (tx, rx) = std::sync::mpsc::sync_channel(8);
+        agent.output = Some(tx);
+        agent.turn(&prompt).unwrap();
+        let AgentEvent::Answer(text) = rx.try_recv().unwrap() else {
+            panic!("expected local output")
+        };
+        let fields: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(fields["args"], args["args"]);
+        assert_eq!(fields["cwd"], "غير مسجّل / not recorded");
+        assert_eq!(fields["stdout"], "");
+        assert_eq!(fields["stderr"], "fixture error");
+        assert_eq!(fields["exit_code"], 5);
+        assert_eq!(agent.session.messages.len(), index + 1);
+        assert!(server.join().unwrap().is_empty());
+    }
+
+    #[test]
+    fn report_json_retry_has_no_tools_and_does_not_replay() {
+        let mut limited = completion(json!({"role":"assistant","content":"Incomplete."}));
+        limited["choices"][0]["finish_reason"] = json!("length");
+        let (mut agent, _workspace, _state, server) = scripted_agent(vec![
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            limited,
+            completion(
+                json!({"role":"assistant","content":r#"{"tool":"read_file","args":{"path":"demo.txt"}}"#}),
+            ),
+            completion(json!({"role":"assistant","content":"Read ORIGINAL_EVIDENCE_42."})),
+        ]);
+        agent.turn("Read demo.txt").unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[3]["tools"], json!([]));
+        assert_eq!(agent.session.observations.len(), 1);
     }
 
     #[test]
