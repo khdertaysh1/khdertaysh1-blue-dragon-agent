@@ -95,6 +95,7 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
         "storage",
         "saved_to_disk",
         "complete_browser_body",
+        "capture_content",
         "request_id",
         "bytes",
         "window_sha256",

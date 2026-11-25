@@ -2900,6 +2900,13 @@ impl Agent {
                     )
                     && result["ok"] == true
                 {
+                    if guard_args["action"] == "network" {
+                        result["capture_content"] = json!("network_events_only");
+                    } else if guard_args["action"] == "source"
+                        && result["result"]["body"].is_string()
+                    {
+                        result["capture_content"] = json!("source_body_in_session");
+                    }
                     result["storage"] = json!("session_only");
                     result["saved_to_disk"] = json!(false);
                 }

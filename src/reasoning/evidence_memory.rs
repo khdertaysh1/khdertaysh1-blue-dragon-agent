@@ -94,7 +94,11 @@ mod tests {
         let result = json!({"ok":true,"storage":"disk","saved_to_disk":true,
             "complete_browser_body":true,"path":"actual.js","bytes":84,"request_id":"4.2"});
         for (id, a, r) in [
-            ("network", json!({"action":"network"}), json!({"ok":true,"storage":"session_only","saved_to_disk":false})),
+            (
+                "network",
+                json!({"action":"network"}),
+                json!({"ok":true,"storage":"session_only","saved_to_disk":false}),
+            ),
             ("save", args.clone(), result),
             ("denied", args, json!({"ok":false,"denied":true})),
         ] {
@@ -102,7 +106,8 @@ mod tests {
             let mut obs = crate::reasoning::observe(s.messages.len(), "browser", &r);
             obs.request_sha256 = Some(crate::intelligence::code::hash(a.to_string().as_bytes()));
             s.observations.push(obs);
-            s.messages.push(json!({"role":"tool","tool_call_id":id,"content":r.to_string()}));
+            s.messages
+                .push(json!({"role":"tool","tool_call_id":id,"content":r.to_string()}));
             for prompt in ["وين انحفظ الملف؟", "Where was the file saved?"] {
                 let memory = select(&s, prompt);
                 let receipts = memory["file_receipts"].as_array().unwrap();
