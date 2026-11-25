@@ -71,6 +71,7 @@ pub struct Browser {
     inspection_grant: bool,
     page_read_grant: Option<(Option<u64>, Value)>,
     uncertain_mutation: bool,
+    pub(crate) remembered_form_actions: std::collections::BTreeSet<(String, String)>,
     preference: Option<ConnectionPreference>,
     latest_screenshot: Option<Vec<u8>>,
     latest_screenshot_path: Option<PathBuf>,
@@ -85,6 +86,7 @@ impl Browser {
             inspection_grant: false,
             page_read_grant: None,
             uncertain_mutation: false,
+            remembered_form_actions: Default::default(),
             preference: Self::load_preference(home),
             latest_screenshot: None,
             latest_screenshot_path: None,
@@ -242,6 +244,15 @@ impl Browser {
         self.clear_screenshot();
         self.inspection_grant = false;
     }
+    // A local form permission applies to the approved page and verb, never to
+    // evaluate, a different frame, a different port, or another website.
+    fn loopback_lab_url(raw: &str) -> bool {
+        let Ok(url) = reqwest::Url::parse(raw) else { return false };
+        matches!(url.scheme(), "http" | "https") && url.username().is_empty() &&
+            url.password().is_none() && matches!(url.host_str(), Some("127.0.0.1" | "[::1]")) &&
+            !["%2f", "%5c", "%2e", "%25"].iter().any(|s| url.path().to_ascii_lowercase().contains(s))
+    }
+
     fn check_document_scope(&mut self, args: &Value, level: &str) -> Result<()> {
         let location = self.raw("evaluate", &json!({"expression":"location.href"}))?;
         self.scope.check(location.as_str().unwrap_or(""), level)?;
@@ -470,7 +481,12 @@ impl Browser {
                 "Request ID does not match the expected script URL; nothing saved"
             );
         }
-        self.scope.check(&url, "read")?;
+        // This is a retained same-origin response from an already readable
+        // local page. The following prompt authorizes both reading it and
+        // creating the exact new file. No URL is fetched or added to scope.
+        if !Self::loopback_lab_url(&url) {
+            self.scope.check(&url, "read")?;
+        }
         self.check_save_document_origin(&url)?;
         let epoch = self.status()["connection_epoch"].as_u64();
         if !tools.approve(
@@ -507,6 +523,7 @@ impl Browser {
         let mut result = tools.persist_browser_response(path, &bytes)?;
         result["request_id"] = json!(id);
         result["source_origin"] = json!(origin);
+        result["comparison_hint"] = json!("For a requested comparison with a workspace-relative path, compare both files on disk, e.g. with cmp. Do not convert the local path to a URL.");
         Ok(result)
     }
 
@@ -658,8 +675,22 @@ impl Browser {
                 self.scope.check(url, operation)?;
             }
         }
+        let mut form_doc = None;
         if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
-            self.check_document_scope(args, operation)?;
+            if matches!(action, "fill" | "click" | "select" | "set_checked") && args.get("frame_selector").is_none() {
+                let page = self.raw("evaluate", &json!({"expression":"location.href"}))?;
+                let url = page.as_str().context("Current tab URL unavailable")?;
+                if let Err(error) = self.scope.check(url, operation) {
+                    if !Self::loopback_lab_url(url) || self.scope.check(url, "read").is_err() {
+                        return Err(error);
+                    }
+                    let identity = self.raw("document_identity", &json!({}))?;
+                    anyhow::ensure!(identity[0] == page && identity[1].as_str().is_some_and(|s| !s.is_empty()), "Page changed before approval");
+                    form_doc = Some((url.to_owned(), identity));
+                }
+            } else {
+                self.check_document_scope(args, operation)?;
+            }
         }
 
         let automatic_read = self.inspection_grant
@@ -688,7 +719,20 @@ impl Browser {
                 }
             }
         }
-        if !automatic_read && reused.is_none()
+        if let Some((url, identity)) = &form_doc {
+            let key = (url.clone(), action.to_owned());
+            if !self.remembered_form_actions.contains(&key) {
+                let remember = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let detail = format!("Page: {}\nAction: {}\nArguments: {}\nRemember permits future {} actions on this exact page in this session.", json!(url), action, args, action);
+                if !tools.approve_with_memory("Local browser form action", &detail, Some(remember.clone()))? {
+                    return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
+                }
+                anyhow::ensure!(self.raw("document_identity", &json!({}))? == *identity, "Page changed during approval; no action dispatched");
+                if remember.load(std::sync::atomic::Ordering::Relaxed) {
+                    self.remembered_form_actions.insert(key);
+                }
+            }
+        } else if !automatic_read && reused.is_none()
             && !tools.approve(
                 &if grouped { format!("Browser: {action} (allow snapshot, network and console reads on this page for this task)") } else { format!("Browser: {action}") },
                 &format!(
@@ -699,7 +743,9 @@ impl Browser {
         {
             return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
         }
-        if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
+        if let Some((_, identity)) = &form_doc {
+            anyhow::ensure!(self.raw("document_identity", &json!({}))? == *identity, "Page changed before dispatch; no action dispatched");
+        } else if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
             self.check_document_scope(args, operation)?;
         }
         if self.status()["ready"] != true && matches!(action, "open" | "navigate") {
@@ -1095,6 +1141,37 @@ mod tests {
         assert_eq!(result["denied"], true);
         assert_eq!(result["execution_status"], "not_executed");
     }
+    #[test]
+    fn loopback_form_consent_resumes_one_action_without_widening_scope() {
+        let url = "http://127.0.0.1:8765/bench.html";
+        let root = tempfile::tempdir().unwrap();
+        let mut browser = Browser::new(root.path());
+        browser.scope.command(&format!("allow {url} read")).unwrap();
+        browser.command("start 0").unwrap();
+        let identity = json!([url,"page1"]);
+        let worker = extension_fixture(&browser, vec![
+            ("evaluate", Some(json!(url))),
+            ("document_identity", Some(identity.clone())),
+            ("document_identity", Some(identity.clone())),
+            ("document_identity", Some(identity)),
+            ("fill", Some(json!({"filled":true,"matched":true}))),
+            ("evaluate", Some(json!(url))),
+        ]);
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::Tui(tx));
+        let approval = std::thread::spawn(move || {
+            let request = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+            assert!(request.detail.contains(url));
+            assert!(request.remember.is_some());
+            request.respond_to.send(true).unwrap();
+        });
+        assert_eq!(browser.invoke(&tools, &json!({"action":"fill","selector":"#quantity","value":"3"})).unwrap()["ok"],true);
+        approval.join().unwrap();
+        assert_eq!(worker.join().unwrap().iter().filter(|action| action.as_str()=="fill").count(),1);
+        assert!(browser.remembered_form_actions.is_empty());
+        assert!(browser.scope.check(url,"mutate").is_err());
+    }
+
     #[test]
     fn unconfigured_fill_does_not_block_an_authorized_fill_after_connecting() {
         let root = tempfile::tempdir().unwrap();

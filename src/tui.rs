@@ -273,7 +273,9 @@ impl Screen {
             let _ = request.respond_to.send(accepted);
             self.log(
                 "Approval:",
-                if accepted && crate::browser::group_approval(&request.action) {
+                if accepted && request.remember.as_ref().is_some_and(|v| v.load(std::sync::atomic::Ordering::Relaxed)) {
+                    "Approved and remembered for this session"
+                } else if accepted && crate::browser::group_approval(&request.action) {
                     "Approved page reads for this task"
                 } else if accepted {
                     "Approved one action"
@@ -708,6 +710,12 @@ pub fn run(
         }
         if app.approval.is_some() {
             match key.code {
+                KeyCode::Char('r' | 'R') if app.approval.as_ref().and_then(|r| r.remember.as_ref()).is_some() => {
+                    if let Some(flag) = app.approval.as_ref().and_then(|r| r.remember.as_ref()) {
+                        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    app.approve(true);
+                }
                 KeyCode::Char('y' | 'Y') => app.approve(true),
                 KeyCode::Char('n' | 'N') => app.approve(false),
                 KeyCode::Esc => {
@@ -1200,7 +1208,9 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
             regions[0],
         );
         frame.render_widget(
-            Paragraph::new(if crate::browser::group_approval(&request.action) {
+            Paragraph::new(if request.remember.is_some() {
+                "[Y] once · [R] remember for session · [N/Esc] deny"
+            } else if crate::browser::group_approval(&request.action) {
                 "[Y] allow page reads this task · [N/Esc] deny\nUp/Down scroll details"
             } else {
                 "[Y] approve one · [N/Esc] deny\nUp/Down scroll details"
@@ -1450,6 +1460,7 @@ mod tests {
                 action: "Write demo".into(),
                 detail: "Only this change".into(),
                 respond_to: tx,
+                remember: None,
             });
             terminal.draw(|frame| draw(frame, &app)).unwrap();
             let rendered = terminal
@@ -1504,6 +1515,7 @@ mod tests {
             action: "Write file".into(),
             detail: "Long change details\n".repeat(100),
             respond_to: tx,
+                remember: None,
         });
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
         for scroll in [0, 30, u16::MAX] {
@@ -1595,6 +1607,7 @@ mod tests {
             action: "Write file".into(),
             detail: "demo".into(),
             respond_to: tx,
+                remember: None,
         });
         app.approve(false);
         assert!(!rx.recv().unwrap());

@@ -393,6 +393,7 @@ impl Agent {
         let result = scope.command(input)?;
         if !input.trim().is_empty() {
             self.browser.end_inspection();
+            self.browser.remembered_form_actions.clear();
         }
         self.session.scope = scope.clone();
         self.tools.scope = scope.clone();

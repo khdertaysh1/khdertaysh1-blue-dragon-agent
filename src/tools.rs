@@ -15,6 +15,7 @@ pub struct ApprovalRequest {
     pub action: String,
     pub detail: String,
     pub respond_to: std::sync::mpsc::Sender<bool>,
+    pub remember: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 #[derive(Debug, Clone)]
@@ -446,6 +447,10 @@ impl ToolBox {
             .swap(false, std::sync::atomic::Ordering::Relaxed)
     }
     pub fn approve(&self, action: &str, detail: &str) -> Result<bool> {
+        self.approve_with_memory(action, detail, None)
+    }
+
+    pub(crate) fn approve_with_memory(&self, action: &str, detail: &str, remember: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> Result<bool> {
         self.user_declined
             .store(false, std::sync::atomic::Ordering::Relaxed);
         if self.is_cancelled() {
@@ -464,6 +469,7 @@ impl ToolBox {
                     action: action.to_owned(),
                     detail: detail.to_owned(),
                     respond_to,
+                    remember,
                 })
                 .context("Terminal UI closed while requesting approval")?;
             loop {
