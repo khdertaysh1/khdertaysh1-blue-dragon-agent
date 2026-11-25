@@ -3574,6 +3574,11 @@ fn explicit_task_request(prompt: &str) -> bool {
         Some("افتح" | "افتحلي" | "افتحي" | "افتحوا" | "إفتح") => true,
         Some("شغّل" | "شغل" | "شغلي" | "شغّللي") => {
             matches!(object, "الاختبارات" | "اختبارات" | "الاختبار")
+                || (matches!(object.trim_matches('`'), "python" | "python3")
+                    && words.next() == Some("-m")
+                    && words
+                        .next()
+                        .is_some_and(|module| module.trim_end_matches('`') == "unittest"))
         }
         Some("اعمل" | "اعمللي" | "اعملي" | "اعملّي" | "أنشئ" | "انشئ" | "اكتب") => {
             matches!(object, "ملف" | "ملفاً" | "ملفا")
@@ -4163,6 +4168,43 @@ mod tests {
         assert!(server.join().unwrap()[2]["tools"]
             .as_array()
             .is_some_and(|t| !t.is_empty()));
+    }
+
+    #[test]
+    fn arabic_unittest_followup_invokes_command_once_after_file_inspection() {
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("prior", "file_info", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"Checked file."})),
+            tool_call(
+                "tests",
+                "run_command",
+                json!({"program":"python","args":["-m","unittest","-v","test_wallet"]}),
+            ),
+            completion(json!({"role":"assistant","content":"Ran 1 test. OK"})),
+        ]);
+        std::fs::write(root.path().join("test_wallet.py"), "import unittest\nclass Wallet(unittest.TestCase):\n    def test_balance(self): self.assertEqual(104-95-9, 0)\n").unwrap();
+        agent.turn("Inspect demo.txt").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let approval = std::thread::spawn(move || {
+            rx.recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap()
+                .respond_to
+                .send(true)
+                .unwrap()
+        });
+        agent.turn("شغّل python -m unittest -v test_wallet مرة واحدة من مجلد wallet-lab. انقل من ناتج هالتشغيل سطر Ran وسطر النتيجة النهائية. لا تعدّل أي ملف.").unwrap();
+        approval.join().unwrap();
+        let requests = server.join().unwrap();
+        assert!(requests[2]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["function"]["name"] == "run_command"));
+        let actions = agent.session.last_report["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["tool"], "run_command");
+        assert!(requests[3].to_string().contains("test_balance"));
     }
 
     #[test]
