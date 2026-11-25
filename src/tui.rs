@@ -44,6 +44,7 @@ const MAX_LOG_LINES: usize = 600;
 
 enum Work {
     Prompt(String),
+    QueuedPrompt(String),
     Slash(String),
 }
 
@@ -257,7 +258,7 @@ impl Screen {
         }
         if let Some(text) = self.followups.pop_front() {
             self.log("You:", &text);
-            if tx.send(Work::Prompt(text)).is_ok() {
+            if tx.send(Work::QueuedPrompt(text)).is_ok() {
                 self.busy = true;
                 self.status = "Working on queued follow-up".into();
             } else {
@@ -464,6 +465,7 @@ pub fn run(
         for work in work_rx {
             let result = match work {
                 Work::Prompt(prompt) => agent.turn(&prompt),
+                Work::QueuedPrompt(prompt) => agent.queued_turn(&prompt),
                 Work::Slash(line) => run_slash(&mut agent, &message_tx, &line),
             };
             let status = result.map_err(|error| format!("{error:#}"));
@@ -1578,9 +1580,9 @@ mod tests {
         app.submit(&tx);
         app.input = "unsent draft".into();
         app.dispatch_followup(&tx);
-        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "draft"));
+        assert!(matches!(rx.try_recv(), Ok(Work::QueuedPrompt(s)) if s == "draft"));
         app.dispatch_followup(&tx);
-        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "second"));
+        assert!(matches!(rx.try_recv(), Ok(Work::QueuedPrompt(s)) if s == "second"));
         assert_eq!(app.input, "unsent draft");
         assert!(rx.try_recv().is_err());
     }
