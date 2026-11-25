@@ -111,6 +111,33 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
             );
         }
     }
+    // Keep complete literal-search hits together when raw JSON is too long.
+    // A clipped byte window cannot supply an absolute line number.
+    if parsed["search_mode"] == "literal" {
+        if let Some(matches) = parsed["matches"].as_array() {
+            let mut rows = Vec::new();
+            let mut remaining = cap;
+            for hit in matches {
+                let row = json!({"line":hit["line"],"line_text":hit["line_text"],
+                    "byte_offset":hit["byte_offset"],"line_complete":hit["line_complete"]});
+                let length = row.to_string().len();
+                if length > remaining {
+                    break;
+                }
+                remaining -= length;
+                rows.push(row);
+            }
+            selected.insert("matches_omitted".into(), json!(matches.len() - rows.len()));
+            selected.insert("matches".into(), json!(rows));
+            selected.insert(
+                "whole_file_searched".into(),
+                parsed["whole_file_searched"].clone(),
+            );
+            selected.insert("original_message_index".into(), json!(index));
+            selected.insert("omitted_details".into(), json!("Recall omitted matches from the original result. Report only verified absolute line numbers."));
+            return Value::Object(selected).to_string();
+        }
+    }
     if parsed["untrusted_web_content"] == true && parsed["ok"] == true {
         let result = &parsed["result"];
         if result["entries"].is_array() && result.get("ring_entries_omitted").is_some() {
