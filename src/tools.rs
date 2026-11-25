@@ -450,7 +450,12 @@ impl ToolBox {
         self.approve_with_memory(action, detail, None)
     }
 
-    pub(crate) fn approve_with_memory(&self, action: &str, detail: &str, remember: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> Result<bool> {
+    pub(crate) fn approve_with_memory(
+        &self,
+        action: &str,
+        detail: &str,
+        remember: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Result<bool> {
         self.user_declined
             .store(false, std::sync::atomic::Ordering::Relaxed);
         if self.is_cancelled() {

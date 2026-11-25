@@ -247,10 +247,16 @@ impl Browser {
     // A local form permission applies to the approved page and verb, never to
     // evaluate, a different frame, a different port, or another website.
     fn loopback_lab_url(raw: &str) -> bool {
-        let Ok(url) = reqwest::Url::parse(raw) else { return false };
-        matches!(url.scheme(), "http" | "https") && url.username().is_empty() &&
-            url.password().is_none() && matches!(url.host_str(), Some("127.0.0.1" | "[::1]")) &&
-            !["%2f", "%5c", "%2e", "%25"].iter().any(|s| url.path().to_ascii_lowercase().contains(s))
+        let Ok(url) = reqwest::Url::parse(raw) else {
+            return false;
+        };
+        matches!(url.scheme(), "http" | "https")
+            && url.username().is_empty()
+            && url.password().is_none()
+            && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+            && !["%2f", "%5c", "%2e", "%25"]
+                .iter()
+                .any(|s| url.path().to_ascii_lowercase().contains(s))
     }
 
     fn check_document_scope(&mut self, args: &Value, level: &str) -> Result<()> {
@@ -677,7 +683,9 @@ impl Browser {
         }
         let mut form_doc = None;
         if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
-            if matches!(action, "fill" | "click" | "select" | "set_checked") && args.get("frame_selector").is_none() {
+            if matches!(action, "fill" | "click" | "select" | "set_checked")
+                && args.get("frame_selector").is_none()
+            {
                 let page = self.raw("evaluate", &json!({"expression":"location.href"}))?;
                 let url = page.as_str().context("Current tab URL unavailable")?;
                 if let Err(error) = self.scope.check(url, operation) {
@@ -685,7 +693,10 @@ impl Browser {
                         return Err(error);
                     }
                     let identity = self.raw("document_identity", &json!({}))?;
-                    anyhow::ensure!(identity[0] == page && identity[1].as_str().is_some_and(|s| !s.is_empty()), "Page changed before approval");
+                    anyhow::ensure!(
+                        identity[0] == page && identity[1].as_str().is_some_and(|s| !s.is_empty()),
+                        "Page changed before approval"
+                    );
                     form_doc = Some((url.to_owned(), identity));
                 }
             } else {
@@ -744,7 +755,10 @@ impl Browser {
             return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
         }
         if let Some((_, identity)) = &form_doc {
-            anyhow::ensure!(self.raw("document_identity", &json!({}))? == *identity, "Page changed before dispatch; no action dispatched");
+            anyhow::ensure!(
+                self.raw("document_identity", &json!({}))? == *identity,
+                "Page changed before dispatch; no action dispatched"
+            );
         } else if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
             self.check_document_scope(args, operation)?;
         }
@@ -1148,15 +1162,18 @@ mod tests {
         let mut browser = Browser::new(root.path());
         browser.scope.command(&format!("allow {url} read")).unwrap();
         browser.command("start 0").unwrap();
-        let identity = json!([url,"page1"]);
-        let worker = extension_fixture(&browser, vec![
-            ("evaluate", Some(json!(url))),
-            ("document_identity", Some(identity.clone())),
-            ("document_identity", Some(identity.clone())),
-            ("document_identity", Some(identity)),
-            ("fill", Some(json!({"filled":true,"matched":true}))),
-            ("evaluate", Some(json!(url))),
-        ]);
+        let identity = json!([url, "page1"]);
+        let worker = extension_fixture(
+            &browser,
+            vec![
+                ("evaluate", Some(json!(url))),
+                ("document_identity", Some(identity.clone())),
+                ("document_identity", Some(identity.clone())),
+                ("document_identity", Some(identity)),
+                ("fill", Some(json!({"filled":true,"matched":true}))),
+                ("evaluate", Some(json!(url))),
+            ],
+        );
         let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
         let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::Tui(tx));
         let approval = std::thread::spawn(move || {
@@ -1165,11 +1182,27 @@ mod tests {
             assert!(request.remember.is_some());
             request.respond_to.send(true).unwrap();
         });
-        assert_eq!(browser.invoke(&tools, &json!({"action":"fill","selector":"#quantity","value":"3"})).unwrap()["ok"],true);
+        assert_eq!(
+            browser
+                .invoke(
+                    &tools,
+                    &json!({"action":"fill","selector":"#quantity","value":"3"})
+                )
+                .unwrap()["ok"],
+            true
+        );
         approval.join().unwrap();
-        assert_eq!(worker.join().unwrap().iter().filter(|action| action.as_str()=="fill").count(),1);
+        assert_eq!(
+            worker
+                .join()
+                .unwrap()
+                .iter()
+                .filter(|action| action.as_str() == "fill")
+                .count(),
+            1
+        );
         assert!(browser.remembered_form_actions.is_empty());
-        assert!(browser.scope.check(url,"mutate").is_err());
+        assert!(browser.scope.check(url, "mutate").is_err());
     }
 
     #[test]

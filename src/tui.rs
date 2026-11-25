@@ -273,7 +273,12 @@ impl Screen {
             let _ = request.respond_to.send(accepted);
             self.log(
                 "Approval:",
-                if accepted && request.remember.as_ref().is_some_and(|v| v.load(std::sync::atomic::Ordering::Relaxed)) {
+                if accepted
+                    && request
+                        .remember
+                        .as_ref()
+                        .is_some_and(|v| v.load(std::sync::atomic::Ordering::Relaxed))
+                {
                     "Approved and remembered for this session"
                 } else if accepted && crate::browser::group_approval(&request.action) {
                     "Approved page reads for this task"
@@ -710,7 +715,13 @@ pub fn run(
         }
         if app.approval.is_some() {
             match key.code {
-                KeyCode::Char('r' | 'R') if app.approval.as_ref().and_then(|r| r.remember.as_ref()).is_some() => {
+                KeyCode::Char('r' | 'R')
+                    if app
+                        .approval
+                        .as_ref()
+                        .and_then(|r| r.remember.as_ref())
+                        .is_some() =>
+                {
                     if let Some(flag) = app.approval.as_ref().and_then(|r| r.remember.as_ref()) {
                         flag.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -1515,7 +1526,7 @@ mod tests {
             action: "Write file".into(),
             detail: "Long change details\n".repeat(100),
             respond_to: tx,
-                remember: None,
+            remember: None,
         });
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
         for scroll in [0, 30, u16::MAX] {
@@ -1607,7 +1618,7 @@ mod tests {
             action: "Write file".into(),
             detail: "demo".into(),
             respond_to: tx,
-                remember: None,
+            remember: None,
         });
         app.approve(false);
         assert!(!rx.recv().unwrap());
