@@ -183,7 +183,7 @@ impl Rotation {
         json!({"mode":if self.enabled {"Blue Free automatic"} else {"pinned / disabled"},"active_model":active,"gateway_auto_alias_preserved":active==crate::models::KILO_MODEL,
             "remaining_switches_this_turn":self.remaining,"max_switches_per_turn":3,"history":self.history,
             "cooldowns":self.cooldowns.iter().filter_map(|(id,until)| until.checked_duration_since(Instant::now()).map(|d|json!({"model":id,"seconds":d.as_secs()}))).collect::<Vec<_>>(),
-            "rules":"Same Kilo zero-priced tool-capable pool only. No paid/auth/IP/global-limit fallback; no retry after stream interruption; completed tools are never replayed."})
+            "rules":"Model rotation uses the Kilo free pool. Provider rotation on HTTP 429 uses the configured destination order. Completed tools are never replayed."})
     }
 }
 

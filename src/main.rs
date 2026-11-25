@@ -99,7 +99,7 @@ struct Cli {
     #[arg(
         long,
         global = true,
-        help = "Disable automatic Blue Free model rotation"
+        help = "Disable automatic provider and model switching"
     )]
     no_rotation: bool,
     /// Compatibility flag: verified same-provider free recovery is automatic unless --no-rotation.
@@ -304,6 +304,9 @@ fn run() -> Result<()> {
         .unwrap_or_else(|| "gpt-4o-mini".into());
     let mut settings = Settings::new(root, base, model)?;
     if let Some(selection) = selection {
+        if matches!(selection.provider.as_str(), "groq" | "gemini") {
+            selection.require_key()?;
+        }
         settings.api_key = selection.key();
         // Legacy global key is accepted only for OpenAI, never sent to free/local/other services.
         if selection.provider == "openai" {

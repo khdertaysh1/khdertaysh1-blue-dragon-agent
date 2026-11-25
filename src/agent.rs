@@ -12,6 +12,7 @@ pub use crate::tools::ApprovalMode;
 pub struct Agent {
     provider: Provider,
     synchronous_chat_input: bool,
+    provider_routes: Vec<(crate::models::Selection, String)>,
     project_instructions: Option<String>,
     delegates: crate::delegates::Manager,
     sources: crate::artifacts::Store,
@@ -153,6 +154,10 @@ impl Agent {
             sources,
             provider,
             synchronous_chat_input: false,
+            provider_routes: crate::models::fallback_providers(
+                &std::env::var("BLUE_DRAGON_FALLBACK_PROVIDERS")
+                    .unwrap_or_else(|_| "kilo,jarvis,openrouter".into()),
+            )?,
             tools,
             settings,
             session,
@@ -438,8 +443,61 @@ impl Agent {
 
     pub fn rotation_status(&self) -> Value {
         let mut status = self.rotation.status(self.provider.model());
+        status["provider_fallback_order"] = json!(self
+            .provider_routes
+            .iter()
+            .map(|(s, _)| &s.provider)
+            .collect::<Vec<_>>());
+        status["provider_fallback_enabled"] = json!(self.settings.free_rotation);
         status["concrete_free_fallback_enabled"] = json!(self.settings.free_model_fallback);
         status
+    }
+    fn switch_quota_provider(
+        &mut self,
+        tried: &mut std::collections::BTreeSet<String>,
+    ) -> Result<bool> {
+        let current = &self.settings.base_url;
+        if !self.settings.free_rotation
+            || self.session.vision_destination.is_some()
+            || (crate::models::cloud_provider(current).is_none()
+                && !self.provider_routes.iter().any(|(_, base)| base == current))
+        {
+            return Ok(false);
+        }
+        tried.insert(current.clone());
+        for (selection, base) in &self.provider_routes {
+            if tried.contains(base) || selection.require_key().is_err() {
+                continue;
+            }
+            let key = selection.key();
+            let next = Provider::new(base, selection.model.clone(), key.clone())?.coordinated(
+                self.settings
+                    .sessions_dir
+                    .parent()
+                    .context("Missing provider budget directory")?,
+            )?;
+            if next.cooldown()?.is_some() {
+                continue;
+            }
+            let from = self.settings.safe_endpoint();
+            self.settings.base_url = base.clone();
+            self.settings.api_key = key;
+            self.settings.model = selection.model.clone();
+            self.session.model = selection.model.clone();
+            self.rotation.enabled = selection.provider == "kilo";
+            self.rotation.history.push(json!({"from_provider":from,"to_provider":selection.provider,"to":selection.model,"http_status":429}));
+            self.provider = next;
+            self.context_ceiling = None;
+            self.last_successful_context = Value::Null;
+            self.persist()?;
+            self.output(AgentEvent::Notice(format!(
+                "HTTP 429: switching from {from} to {}. Continuing with existing tool results.",
+                self.settings.safe_endpoint()
+            )));
+            self.output(self.model_event());
+            return Ok(true);
+        }
+        Ok(false)
     }
     fn eligible_model_recovery(&self, failure: &crate::rotation::ProviderFailure) -> bool {
         self.session.vision_destination.is_none()
@@ -878,7 +936,11 @@ impl Agent {
         resume_review: bool,
         recover_browser: bool,
     ) -> Result<()> {
-        if let Some(until) = self.provider.cooldown_until()? {
+        self.rotation.begin_turn();
+        let cooldown = self.provider.cooldown()?;
+        let switched = matches!(cooldown, Some((_, true)))
+            && self.switch_quota_provider(&mut Default::default())?;
+        if let Some((until, _)) = cooldown.filter(|_| !switched) {
             self.session
                 .messages
                 .push(json!({"role":"user","content":prompt}));
@@ -917,7 +979,6 @@ impl Agent {
         self.pending_memories.clear();
         self.changed_sources = false;
         self.completion_state = "running".into();
-        self.rotation.begin_turn();
         self.loop_guard = crate::reasoning::loops::Guard::for_task(prompt);
         self.discovery_states.clear();
         let observation_start = self.session.observations.len();
@@ -1280,6 +1341,7 @@ impl Agent {
         } else {
             Value::Null
         };
+        let mut tried_providers = std::collections::BTreeSet::new();
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
         let mut can_finish_local_verification = false;
@@ -1735,6 +1797,17 @@ impl Agent {
                         else {
                             return Err(error);
                         };
+                        if failure.status == 429
+                            && self.switch_quota_provider(&mut tried_providers)?
+                        {
+                            previous_projection = None;
+                            continue;
+                        }
+                        // Once distinct providers have rejected the turn, do not cycle back
+                        // through their models or repeat the final request.
+                        if failure.status == 429 && tried_providers.len() > 1 {
+                            return Err(error);
+                        }
                         let model_recovery = self.eligible_model_recovery(failure);
                         if failure.status == 429 && model_recovery {
                             if self.recover_free_model(failure, limit)? {
@@ -5006,6 +5079,60 @@ mod tests {
                     .count(),
                 1
             );
+        }
+    }
+    #[test]
+    fn provider_429_moves_between_independent_endpoints_without_repeating_tools() {
+        for second_limited in [false, true] {
+            let quota = (
+                429,
+                "application/json",
+                json!({"error":{"code":"PROMOTION_MODEL_LIMIT_REACHED"}}).to_string(),
+            );
+            let (mut agent, _root, _state, first) = free_recovery_fixture(vec![
+                (
+                    200,
+                    "application/json",
+                    tool_call("once", "read_file", json!({"path":"once.txt"})).to_string(),
+                ),
+                quota.clone(),
+            ]);
+            let second_reply = if second_limited {
+                quota
+            } else {
+                (
+                    200,
+                    "application/json",
+                    completion(json!({"role":"assistant","content":"Read once.txt."})).to_string(),
+                )
+            };
+            let (alt_url, second) = crate::test_support::http_status(vec![second_reply]);
+            agent.provider_routes = vec![
+                (
+                    crate::models::Selection::new("kilo", None).unwrap(),
+                    agent.settings.base_url.clone(),
+                ),
+                (
+                    crate::models::Selection::new("jarvis", None).unwrap(),
+                    alt_url.clone(),
+                ),
+            ];
+            agent.set_synchronous_chat_input();
+            assert_eq!(
+                agent.turn("Read once.txt and summarize").is_ok(),
+                !second_limited
+            );
+            assert_eq!(agent.settings.base_url, alt_url);
+            assert_eq!(first.join().unwrap().len(), 2);
+            let alternate_requests = second.join().unwrap();
+            assert_eq!(alternate_requests.len(), 1);
+            let packet = &alternate_requests[0];
+            assert_eq!(packet["model"], crate::models::FREE_MODEL);
+            assert!(packet["messages"]
+                .to_string()
+                .contains("ORIGINAL_FREE_EVIDENCE"));
+            assert_eq!(agent.session.observations.len(), 1);
+            assert!(agent.settings.api_key.is_none());
         }
     }
     #[test]

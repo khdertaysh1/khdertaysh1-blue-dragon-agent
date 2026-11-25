@@ -112,10 +112,8 @@ impl Provider {
         }
         failure.into()
     }
-    pub fn cooldown_until(&self) -> Result<Option<u64>> {
-        self.coordinator
-            .as_ref()
-            .map_or(Ok(None), |c| c.cooldown_until())
+    pub fn cooldown(&self) -> Result<Option<(u64, bool)>> {
+        self.coordinator.as_ref().map_or(Ok(None), |c| c.cooldown())
     }
     pub fn output_reserve(&self) -> u64 {
         crate::provider_traffic::output_limit(&self.url, self.delegated).unwrap_or(4096)
@@ -403,6 +401,17 @@ impl Provider {
                 "temperature": 0.2
             })
         };
+        if tools.as_array().is_some_and(Vec::is_empty)
+            && (self.url.starts_with("https://api.groq.com/")
+                || self
+                    .url
+                    .starts_with("https://generativelanguage.googleapis.com/"))
+        {
+            if let Some(body) = payload.as_object_mut() {
+                body.remove("tools");
+                body.remove("tool_choice");
+            }
+        }
         if self.url.starts_with("https://api.jarvisclaw.ai/")
             || self.url.starts_with(crate::models::KILO_BASE)
         {

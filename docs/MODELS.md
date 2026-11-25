@@ -38,7 +38,7 @@ This is a historical snapshot, not a permanent lineup. Runtime filtering require
 
 ## Cache, selection and compatibility
 
-Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. With rotation enabled, an explicitly model-scoped HTTP 429 can switch Auto Free to a compatible free model on the same gateway. Unknown or shared limits keep the current route. Concurrent Kilo refreshes share a lock/cache with a 30-second forced-refresh coalescing interval and 60-second failure backoff. Use `--no-rotation` to pin the selected route. No paid fallback, purchase or cross-provider switch occurs. Use `/rotation` for status and see [FREE_ROTATION.md](FREE_ROTATION.md) for the complete retry/cooldown policy.
+Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. With rotation enabled, a cloud provider HTTP 429 tries another configured service first. Concurrent Kilo refreshes share a lock/cache with a 30-second forced-refresh coalescing interval and 60-second failure backoff. Use `--no-rotation` to pin the selected route. Destinations that can incur charges must be explicitly listed for automatic fallback. Use `/rotation` for status and see [FREE_ROTATION.md](FREE_ROTATION.md) for the complete retry/cooldown policy.
 
 Selections are stored as provider/model names in `model.json`, never from repository config. Fresh installs use Kilo unless explicit legacy endpoint/model/key settings exist. Previously saved `{"provider":"free","model":"auto/free"}` migrates to **JarvisClaw** without silently changing its destination; `/model free` explicitly switches to Kilo.
 
@@ -47,6 +47,8 @@ Selections are stored as provider/model names in `model.json`, never from reposi
 | `free` / `blue-free` / `kilo` | Blue Free or discovered eligible `:free` IDs | None |
 | `jarvis` | `auto/free` | None |
 | `openrouter` | `openrouter/free` or `:free` IDs | `OPENROUTER_API_KEY` |
+| `groq` | `llama-3.3-70b-versatile` or explicit ID | `GROQ_API_KEY` |
+| `gemini` | `gemini-4-hydrogen` or explicit ID | `GEMINI_API_KEY` |
 | `ollama` | Installed model with tools | None; local server required |
 | `openai` | Explicit ID or default | `OPENAI_API_KEY`; may incur charges |
 | `anthropic` | Explicit ID or default | `ANTHROPIC_API_KEY`; may incur charges |

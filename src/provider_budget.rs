@@ -118,15 +118,17 @@ impl Coordinator {
     pub fn admit(&self) -> Result<()> {
         self.admit_tokens(0)
     }
-    pub fn cooldown_until(&self) -> Result<Option<u64>> {
+    pub fn cooldown(&self) -> Result<Option<(u64, bool)>> {
         let mut result = None;
         self.change(|state, now| {
-            let until = state["until"]
-                .as_u64()
-                .unwrap()
-                .max(state["models"][&self.model]["until"].as_u64().unwrap_or(0));
+            let model = &state["models"][&self.model];
+            let global_until = state["until"].as_u64().unwrap();
+            let model_until = model["until"].as_u64().unwrap_or(0);
+            let until = global_until.max(model_until);
             if until > now {
-                result = Some(until);
+                let quota = (global_until > now && state["http_status"] == 429)
+                    || (model_until > now && model["http_status"] == 429);
+                result = Some((until, quota));
             }
             Ok(())
         })?;
@@ -193,10 +195,13 @@ impl Coordinator {
                     bail!("Model cooldown registry full; no rotation is safe");
                 }
                 let old = state["models"][&self.model]["until"].as_u64().unwrap_or(0);
-                state["models"][&self.model] =
-                    json!({"until":old.max(until),"source":failure.retry_after_source});
-            } else {
-                state["until"] = json!(state["until"].as_u64().unwrap().max(until));
+                if until >= old {
+                    state["models"][&self.model] =
+                        json!({"until":until,"source":failure.retry_after_source,"http_status":failure.status});
+                }
+            } else if until >= state["until"].as_u64().unwrap() {
+                state["http_status"] = json!(failure.status);
+                state["until"] = json!(until);
                 state["source"] = json!(failure.retry_after_source);
             }
             Ok(())

@@ -38,11 +38,13 @@ impl Selection {
             "kilo" => KILO_MODEL,
             "jarvis" => FREE_MODEL,
             "openrouter" => "openrouter/free",
+            "groq" => "llama-3.3-70b-versatile",
+            "gemini" => "gemini-4-hydrogen",
             "openai" => "gpt-4o-mini",
             "anthropic" => "claude-sonnet-4-5",
             "ollama" => "",
             _ => {
-                anyhow::bail!("Unknown provider. Use free/kilo, jarvis, openrouter, openai, anthropic or ollama")
+                anyhow::bail!("Unknown provider. Use free/kilo, jarvis, openrouter, groq, gemini, openai, anthropic or ollama")
             }
         };
         let model = model.unwrap_or(default);
@@ -68,6 +70,8 @@ impl Selection {
             "kilo" => KILO_BASE,
             "jarvis" => FREE_BASE,
             "openrouter" => "https://openrouter.ai/api/v1",
+            "groq" => "https://api.groq.com/openai/v1",
+            "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai",
             "anthropic" => "https://api.anthropic.com/v1",
             "ollama" => "http://127.0.0.1:11434/v1",
             _ => "https://api.openai.com/v1",
@@ -77,6 +81,8 @@ impl Selection {
         // Never forward an unrelated provider's key to an anonymous gateway.
         let name = match self.provider.as_str() {
             "openrouter" => "OPENROUTER_API_KEY",
+            "groq" => "GROQ_API_KEY",
+            "gemini" => "GEMINI_API_KEY",
             "openai" => "OPENAI_API_KEY",
             "anthropic" => "ANTHROPIC_API_KEY",
             _ => return None,
@@ -86,7 +92,7 @@ impl Selection {
     pub fn require_key(&self) -> Result<()> {
         if matches!(
             self.provider.as_str(),
-            "openrouter" | "openai" | "anthropic"
+            "openrouter" | "openai" | "anthropic" | "groq" | "gemini"
         ) && self.key().is_none()
         {
             anyhow::bail!(
@@ -96,6 +102,38 @@ impl Selection {
         }
         Ok(())
     }
+}
+
+pub const CLOUD_PROVIDERS: [&str; 7] = [
+    "kilo",
+    "jarvis",
+    "openrouter",
+    "groq",
+    "gemini",
+    "openai",
+    "anthropic",
+];
+
+pub fn fallback_providers(order: &str) -> Result<Vec<(Selection, String)>> {
+    let mut routes = Vec::new();
+    for name in order.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        anyhow::ensure!(
+            CLOUD_PROVIDERS.contains(&name),
+            "Unknown cloud fallback provider: {name}"
+        );
+        let selection = Selection::new(name, None)?;
+        let endpoint = selection.base().to_owned();
+        if !routes.iter().any(|(_, url)| url == &endpoint) {
+            routes.push((selection, endpoint));
+        }
+    }
+    Ok(routes)
+}
+
+pub fn cloud_provider(endpoint: &str) -> Option<&'static str> {
+    CLOUD_PROVIDERS
+        .into_iter()
+        .find(|name| Selection::new(name, None).is_ok_and(|selection| selection.base() == endpoint))
 }
 
 pub fn load(home: &Path) -> Result<Option<Selection>> {
@@ -127,7 +165,7 @@ pub fn save(home: &Path, selection: &Selection) -> Result<()> {
 }
 
 pub fn menu() -> &'static str {
-    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free gateway automatic routing; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. Blue Free starts with gateway auto routing and may switch to a verified free model on an explicitly model-scoped 429. /rotation shows routing state. Verified concrete free selections may recover after explicit model-scoped failure; --no-rotation pins the route. Shared/unknown quotas never trigger switching."
+    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free gateway automatic routing; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\ngroq        llama-3.3-70b-versatile GROQ_API_KEY required\ngemini      gemini-4-hydrogen GEMINI_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. On HTTP 429, cloud chat continues at another configured provider with existing context. Default destinations: Kilo, JarvisClaw, then OpenRouter Free if configured. See /rotation and BLUE_DRAGON_FALLBACK_PROVIDERS. --no-rotation pins the route."
 }
 
 fn zero(value: Option<&Value>) -> bool {
