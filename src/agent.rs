@@ -1032,7 +1032,10 @@ impl Agent {
                     break;
                 }
                 let answer = answer.unwrap_or_else(|| {
-                    if !prompt.chars().any(|c| ('\u{0600}'..='\u{06ff}').contains(&c)) {
+                    if !prompt
+                        .chars()
+                        .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c))
+                    {
                         "No final result was recorded for the previous task in this session."
                     } else {
                         "ما في نتيجة نهائية مسجّلة للمهمة السابقة بهالجلسة."
@@ -3549,10 +3552,19 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
 
 // Match a complete status-only utterance, never a status question followed by an action.
 fn status_only_question(prompt: &str) -> bool {
-    let utterance = prompt.trim().trim_end_matches(['؟', '?', '!', '.']).trim_end();
+    let utterance = prompt
+        .trim()
+        .trim_end_matches(['؟', '?', '!', '.'])
+        .trim_end();
     if matches!(
         utterance.to_ascii_lowercase().as_str(),
-        "what happened" | "what was the result" | "what's the status" | "what’s the status" | "what is the status" | "any update" | "status update"
+        "what happened"
+            | "what was the result"
+            | "what's the status"
+            | "what’s the status"
+            | "what is the status"
+            | "any update"
+            | "status update"
     ) {
         return true;
     }
@@ -4042,7 +4054,12 @@ mod tests {
         ];
         agent.session.last_report = json!({"finished":false,"error":"format failure"});
         let report = agent.session.last_report.clone();
-        for prompt in ["شوصارمعك", "إي شو صار معك؟", "What happened?", "Any update?"] {
+        for prompt in [
+            "شوصارمعك",
+            "إي شو صار معك؟",
+            "What happened?",
+            "Any update?",
+        ] {
             agent.turn(prompt).unwrap();
             assert_eq!(
                 agent.session.messages.last().unwrap()["content"],

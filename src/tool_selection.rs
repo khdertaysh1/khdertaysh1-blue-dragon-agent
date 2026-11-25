@@ -25,10 +25,25 @@ pub fn requests_local_edit(prompt: &str) -> bool {
     let normalized = prompt.to_ascii_lowercase();
     let mut words = normalized.split_whitespace();
     let first = words.next();
-    let verb = if first == Some("please") { words.next() } else { first };
+    let verb = if first == Some("please") {
+        words.next()
+    } else {
+        first
+    };
     matches!(
         verb,
-        Some("صلّح" | "صلح" | "أصلح" | "اصلح" | "عدّل" | "عدل" | "fix" | "repair" | "edit" | "modify")
+        Some(
+            "صلّح"
+                | "صلح"
+                | "أصلح"
+                | "اصلح"
+                | "عدّل"
+                | "عدل"
+                | "fix"
+                | "repair"
+                | "edit"
+                | "modify"
+        )
     ) && words.next().is_some()
 }
 
