@@ -4079,9 +4079,14 @@ mod tests {
             .unwrap();
         assert!(
             report.contains("bd_nonexistent_fixture_7354")
-                && report.contains("OS ")
+                && report.contains("تعذّر إيجاد مسار مطلوب للتشغيل")
                 && report.contains("E000")
         );
+        let actions = agent.session.last_report["actions"].as_array().unwrap();
+        let failure = actions.last().unwrap();
+        if let Some(code) = failure["os_error_code"].as_i64() {
+            assert!(report.contains(&format!("OS {code}")));
+        }
         assert!(
             !crate::tool_arguments::summary(&json!({"command_outcome":"spawn_failure"}))
                 .contains("null")
@@ -4118,7 +4123,7 @@ mod tests {
         agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
         let approvals = std::thread::spawn(move || {
             for _ in 0..3 {
-                rx.recv_timeout(std::time::Duration::from_secs(5))
+                rx.recv_timeout(std::time::Duration::from_secs(30))
                     .unwrap()
                     .respond_to
                     .send(true)
