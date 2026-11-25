@@ -979,6 +979,49 @@ impl Agent {
         recover_browser: bool,
     ) -> Result<()> {
         if resumed.is_none() && !structured {
+            if status_only_question(prompt) {
+                let mut end = self.session.messages.len();
+                let mut answer = None;
+                for &start in self.session.user_turns.iter().rev() {
+                    let Some(turn) = self.session.messages.get(start..end) else {
+                        continue;
+                    };
+                    end = start;
+                    let Some(request) = turn.first().filter(|m| m["role"] == "user") else {
+                        continue;
+                    };
+                    if status_only_question(&extract_text(request)) {
+                        continue;
+                    }
+                    answer = turn
+                        .iter()
+                        .rev()
+                        .filter(|m| {
+                            m["role"] == "assistant"
+                                && m["tool_calls"].as_array().is_none_or(Vec::is_empty)
+                        })
+                        .map(extract_text)
+                        .find(|text| {
+                            !text.trim().is_empty()
+                                && !is_text_tool_envelope(text)
+                                && crate::agent_tool_reply::parse(text).is_none()
+                                && !looks_like_text_tool_call(text)
+                        });
+                    break;
+                }
+                let answer = answer
+                    .unwrap_or_else(|| "ما في نتيجة نهائية مسجّلة للمهمة السابقة بهالجلسة.".into());
+                self.session.user_turns.push(self.session.messages.len());
+                self.session
+                    .messages
+                    .push(json!({"role":"user","content":prompt}));
+                self.session
+                    .messages
+                    .push(json!({"role":"assistant","content":answer}));
+                self.persist()?;
+                self.output(AgentEvent::Answer(answer));
+                return Ok(());
+            }
             if let Some(id) = saved_command_output_id(prompt) {
                 // Render only to the operator. Never feed raw output back into model history.
                 let answer = match crate::audit::paired_request_for(&self.session, id) {
@@ -3472,6 +3515,31 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
     assert!(!route_saved_response(&mut call, &defs));
 }
 
+// Match a complete status-only utterance, never a status question followed by an action.
+fn status_only_question(prompt: &str) -> bool {
+    let compact: String = prompt
+        .trim()
+        .trim_end_matches(['؟', '?', '!', '.'])
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, '\u{064B}'..='\u{0652}' | 'ـ'))
+        .collect();
+    let compact = compact.strip_prefix("طيب").unwrap_or(&compact);
+    let compact = compact
+        .strip_prefix("اي")
+        .or_else(|| compact.strip_prefix("إي"))
+        .unwrap_or(compact);
+    matches!(
+        compact,
+        "شوصار"
+            | "شوصارمعك"
+            | "شوصارمعكن"
+            | "شوصارمعاك"
+            | "شوصاؤمعك"
+            | "شوطلعمعك"
+            | "شوالنتيجة"
+    )
+}
+
 // An explicit retrospective request for the stored process output is a local lookup.
 fn saved_command_output_id(prompt: &str) -> Option<&str> {
     let prompt = prompt.trim();
@@ -3917,6 +3985,31 @@ mod tests {
         )
     }
     #[test]
+    fn status_after_failure_uses_the_saved_summary_even_if_a_previous_status_failed() {
+        let (mut agent, work, _state, server) = scripted_agent(vec![]);
+        agent.session.user_turns = vec![0, 2];
+        agent.session.messages = vec![
+            json!({"role":"user","content":"صلّح بيانات الاختبار"}),
+            json!({"role":"assistant","content":"قرأت rules.py وtest_wallet.py ثم توقفت قبل التعديل."}),
+            json!({"role":"user","content":"شو صار معك؟"}),
+            json!({"role":"assistant","content":"Provider returned an unexpected tool request."}),
+        ];
+        agent.session.last_report = json!({"finished":false,"error":"format failure"});
+        let report = agent.session.last_report.clone();
+        for prompt in ["شوصارمعك", "إي شو صار معك؟"] {
+            agent.turn(prompt).unwrap();
+            assert_eq!(
+                agent.session.messages.last().unwrap()["content"],
+                agent.session.messages[1]["content"]
+            );
+        }
+        assert_eq!(agent.session.last_report, report);
+        assert!(!work.path().join("unexpected.js").exists());
+        assert!(server.join().unwrap().is_empty());
+        assert!(!status_only_question("شو صار معك؟ وبعدها شغّل الاختبارات"));
+    }
+
+    #[test]
     fn status_question_and_last_budget_round_use_no_tools() {
         let (mut agent, _work, _state, server) = scripted_agent(vec![
             tool_call("first", "file_info", json!({"path":"demo.txt"})),
@@ -3925,7 +4018,7 @@ mod tests {
         ]);
         agent.settings.max_steps = 2;
         agent.turn("Inspect demo.txt").unwrap();
-        agent.turn("شو صاؤ معك؟").unwrap();
+        agent.turn("شو كانت آخر ملاحظة عن الملف؟").unwrap();
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 3);
         for request in &requests[1..] {
@@ -4085,7 +4178,7 @@ mod tests {
             completion(json!({"role":"assistant","content":"قرأت حجم الملف."})),
         ]);
         agent.turn("Inspect demo.txt").unwrap();
-        agent.turn("شو صار معك؟").unwrap();
+        agent.turn("شو سجّلت عن حجم الملف؟").unwrap();
         let requests = server.join().unwrap();
         assert!(requests[2..]
             .iter()
@@ -4106,7 +4199,7 @@ mod tests {
             invalid,
         ]);
         agent.turn("Inspect demo.txt").unwrap();
-        agent.turn("شوصار معك").unwrap();
+        agent.turn("شو ظهر بالنتيجة؟").unwrap();
         assert_eq!(server.join().unwrap().len(), 4);
         assert_eq!(
             agent.session.last_report["task_status"],
