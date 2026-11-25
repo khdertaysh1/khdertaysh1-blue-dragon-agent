@@ -1770,6 +1770,25 @@ impl Agent {
                             || (!native_calls && is_text_tool_envelope(&reply))
                         {
                             if text_tool_retry_used {
+                                if !explain_first
+                                    && !report_recovery
+                                    && !user_denied_action
+                                    && resumed.is_none()
+                                    && !structured
+                                    && !native_calls
+                                    && crate::tool_selection::requests_workspace_search(prompt)
+                                {
+                                    if let Some(call) = recover_local_search(
+                                        &reply,
+                                        &advertised_definitions,
+                                        self.session.messages.len(),
+                                    ) {
+                                        text_tool_retry_used = false;
+                                        text_tool_correction = None;
+                                        self.output(AgentEvent::Notice("Recovered one validated workspace search; its result follows through the normal tool dispatcher.".into()));
+                                        break call;
+                                    }
+                                }
                                 if prompt
                                     .chars()
                                     .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c))
@@ -3351,7 +3370,9 @@ fn saved_command_output_id(prompt: &str) -> Option<&str> {
 // An explicit imperative can start a normal tool-enabled turn immediately.
 // Keep questions and quoted instructions in the existing conversation router.
 fn explicit_task_request(prompt: &str) -> bool {
-    if crate::tool_selection::requests_local_edit(prompt) {
+    if crate::tool_selection::requests_local_edit(prompt)
+        || crate::tool_selection::requests_workspace_search(prompt)
+    {
         return true;
     }
     let mut words = prompt.split_whitespace();
@@ -3426,6 +3447,23 @@ fn is_text_tool_envelope(text: &str) -> bool {
                     && value["args"].is_object()
             })
         })
+}
+
+// Compatibility for providers which repeat a standalone local search envelope even
+// after native tool correction. Accept a single advertised search, never prose,
+// batches, shell commands, writes, URLs or provider-invented tool names.
+fn recover_local_search(reply: &str, definitions: &Value, index: usize) -> Option<Value> {
+    let envelope: Value = serde_json::from_str(reply.trim()).ok()?;
+    let name = envelope["tool"].as_str()?;
+    if envelope.as_object()?.len() != 2 || !matches!(name, "code_search" | "search_files") {
+        return None;
+    }
+    let args = &envelope["args"];
+    crate::tool_arguments::prepare(name, args, definitions).ok()?;
+    Some(json!({"role":"assistant","content":null,"tool_calls":[{
+        "id":format!("recovered-search-{index}"),"type":"function",
+        "function":{"name":name,"arguments":args.to_string()}
+    }]}))
 }
 
 fn looks_like_text_tool_call(text: &str) -> bool {
@@ -3553,6 +3591,53 @@ mod tests {
         assert!(requests[2]["tools"]
             .as_array()
             .is_some_and(|tools| !tools.is_empty()));
+    }
+
+    #[test]
+    fn repeated_search_envelope_after_a_prior_action_reads_real_workspace() {
+        let prompt =
+            "دور بملفات المشروع على الدالة fee. استخدم القراءة والبحث فقط، بدون تشغيل أو تعديل.";
+        let envelope = completion(
+            json!({"role":"assistant","content":r#"{"tool":"search_files","args":{"query":"fee"}}"#}),
+        );
+        let done = completion(json!({"role":"assistant","content":"Recorded the result."}));
+        let (mut agent, work, _state, server) = scripted_agent(vec![
+            tool_call("prior", "file_info", json!({"path":"demo.txt"})),
+            done.clone(),
+            envelope.clone(),
+            envelope,
+            done,
+        ]);
+        std::fs::write(work.path().join("rules.py"), "def fee(amount): return 2").unwrap();
+        agent.selected_tools = Some(crate::tool_selection::core());
+        agent.turn("Inspect demo.txt").unwrap();
+        agent.turn(prompt).unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 5);
+        assert!(requests[2]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["function"]["name"] == "search_files"));
+        assert_eq!(requests[3]["tool_choice"], "required");
+        assert!(requests[4]["messages"]
+            .to_string()
+            .contains("def fee(amount)"));
+        assert_eq!(
+            agent.session.last_report["actions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let defs = agent.all_definitions();
+        for reply in [
+            r#"{"tool":"run_command","args":{"program":"python","args":[]}}"#,
+            r#"{"tool":"search_files","args":{"pattern":"fee","root":"/"}}"#,
+            r#"{"tool":"search_files","args":{"query":"fee"}} {"tool":"write_file","args":{}}"#,
+        ] {
+            assert!(recover_local_search(reply, &defs, 1).is_none());
+        }
     }
 
     #[test]
