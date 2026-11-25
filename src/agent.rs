@@ -827,10 +827,17 @@ impl Agent {
         id
     }
     pub fn mission_report(&self) -> Value {
-        self.session.mission.as_ref().map_or_else(
-            || json!({"mode":"observe_only","state":"no_recorded_mission"}),
-            crate::mission::Mission::report,
-        )
+        let Some(mission) = &self.session.mission else {
+            return json!({"mode":"observe_only","state":"no_recorded_mission"});
+        };
+        let mut view = mission.report();
+        view["criteria"] = json!(self.session.task_checks.checks);
+        if let Some(request) = self.session.messages.get(mission.turn_message_index) {
+            if request["role"] == "user" {
+                view["objective"] = request["content"].clone();
+            }
+        }
+        view
     }
     pub fn check_status(&self) -> Value {
         self.session.task_checks.status(
@@ -1080,6 +1087,7 @@ impl Agent {
                 return Ok(());
             }
         }
+        self.session.mission = None;
         self.rotation.begin_turn();
         let cooldown = self.provider.cooldown()?;
         let switched = matches!(cooldown, Some((_, true)))
@@ -3109,7 +3117,14 @@ impl Agent {
                 if let Some(mission) = &mut self.session.mission {
                     let fingerprint = (!self.code_index.fingerprint.is_empty())
                         .then_some(self.code_index.fingerprint.as_str());
-                    mission.observe(step + 1, &self.session.task_checks, fingerprint, name, &guard_args, &result);
+                    mission.observe(
+                        step + 1,
+                        &self.session.task_checks,
+                        fingerprint,
+                        name,
+                        &guard_args,
+                        &result,
+                    );
                 }
                 actions.push(action);
                 self.session

@@ -515,7 +515,10 @@ fn run() -> Result<()> {
                                 continue;
                             }
                             "/mission" => {
-                                println!("{}", serde_json::to_string_pretty(&agent.mission_report())?);
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.mission_report())?
+                                );
                                 continue;
                             }
                             "/checks" => {
