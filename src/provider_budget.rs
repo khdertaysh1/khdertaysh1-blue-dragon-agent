@@ -6,7 +6,6 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
 };
-const REQUESTS_PER_MINUTE: u64 = 60;
 const MAX_EVENTS: usize = 10000;
 // 10,000 events with maximum-width u64 fields plus 64 model cooldowns fit
 // below this bound. Read and write the same limit; never persist unreadable state.
@@ -16,7 +15,6 @@ pub struct Coordinator {
     directory: PathBuf,
     identity: String,
     model: String,
-    free_gateway: bool,
 }
 impl Coordinator {
     pub fn new(home: &Path, url: &str, key: Option<&str>, model: &str) -> Result<Self> {
@@ -37,7 +35,6 @@ impl Coordinator {
             directory: home.join("provider-budgets"),
             identity,
             model: crate::intelligence::code::hash(model.as_bytes()),
-            free_gateway: crate::provider_traffic::is_kilo(url),
         })
     }
     fn change(&self, update: impl FnOnce(&mut Value, u64) -> Result<()>) -> Result<()> {
@@ -137,7 +134,7 @@ impl Coordinator {
     }
     pub fn admit_tokens(&self, reserved_tokens: u64) -> Result<()> {
         let rpm = crate::provider_traffic::positive_env("BLUE_DRAGON_RPM", MAX_EVENTS as u64)
-            .unwrap_or(REQUESTS_PER_MINUTE);
+            .unwrap_or(u64::MAX);
         let tpm = crate::provider_traffic::positive_env("BLUE_DRAGON_TPM", 100_000_000);
         self.admit_limits(reserved_tokens, rpm, tpm)
     }
@@ -161,8 +158,9 @@ impl Coordinator {
                 state["window"] = json!(now);
                 state["requests"] = json!(0);
             }
-            let rph = self.free_gateway.then_some(200);
-            admit_window(state, now, reserved_tokens, rpm, tpm, rph)?;
+            if rpm != u64::MAX || tpm.is_some() {
+                admit_window(state, now, reserved_tokens, rpm, tpm)?;
+            }
             let requests = state["requests"].as_u64().unwrap();
             if requests >= rpm {
                 bail!("Local shared request budget exhausted ({rpm} per minute); no request sent");
@@ -212,7 +210,6 @@ fn admit_window(
     tokens: u64,
     rpm: u64,
     tpm: Option<u64>,
-    rph: Option<u64>,
 ) -> Result<()> {
     if tpm.is_some_and(|limit| tokens > limit) {
         bail!("One request exceeds configured TPM; reduce input/output budget. No request sent");
@@ -230,9 +227,7 @@ fn admit_window(
     {
         bail!("Invalid admission history; no request sent");
     }
-    events.retain(|e| {
-        now.saturating_sub(e["at"].as_u64().unwrap()) < if rph.is_some() { 3600 } else { 60 }
-    });
+    events.retain(|e| now.saturating_sub(e["at"].as_u64().unwrap()) < 60);
     let recent = events
         .iter()
         .filter(|e| now.saturating_sub(e["at"].as_u64().unwrap()) < 60)
@@ -247,9 +242,6 @@ fn admit_window(
             .map_or(60, |e| 60 - now.saturating_sub(e["at"].as_u64().unwrap()));
         bail!("Local rolling-minute budget exhausted; retry after at least {wait}s or reduce input/output. Tokens are conservative reservations, not billed usage. No request sent");
     }
-    if rph.is_some_and(|limit| events.len() as u64 >= limit) {
-        bail!("Known free-gateway 200 requests/hour IP limit reached locally; changing model or gateway hostname does not increase it. No request sent");
-    }
     events.push(json!({"at":now,"tokens":tokens}));
     Ok(())
 }
@@ -260,15 +252,15 @@ mod tests {
     #[test]
     fn rolling_reservations_cross_fixed_minute_boundaries_and_preserve_rejected_state() {
         let mut s = json!({});
-        admit_window(&mut s, 59, 600, 10, Some(1000), None).unwrap();
+        admit_window(&mut s, 59, 600, 10, Some(1000)).unwrap();
         let before = s.clone();
-        assert!(admit_window(&mut s, 61, 500, 10, Some(1000), None).is_err());
+        assert!(admit_window(&mut s, 61, 500, 10, Some(1000)).is_err());
         assert_eq!(s, before);
-        admit_window(&mut s, 119, 500, 10, Some(1000), None).unwrap();
-        assert!(admit_window(&mut s, 120, 1001, 10, Some(1000), None).is_err());
+        admit_window(&mut s, 119, 500, 10, Some(1000)).unwrap();
+        assert!(admit_window(&mut s, 120, 1001, 10, Some(1000)).is_err());
     }
     #[test]
-    fn kilo_alias_hosts_share_identity_and_hourly_admission_is_bounded() {
+    fn kilo_alias_hosts_share_cooldowns_without_default_hourly_or_minute_caps() {
         let home = tempfile::tempdir().unwrap();
         let a = Coordinator::new(
             home.path(),
@@ -285,11 +277,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(a.identity, b.identity);
-        let mut state = json!({});
-        admit_window(&mut state, 1, 10, 10, None, Some(2)).unwrap();
-        admit_window(&mut state, 100, 10, 10, None, Some(2)).unwrap();
-        assert!(admit_window(&mut state, 200, 10, 10, None, Some(2)).is_err());
-        admit_window(&mut state, 3601, 10, 10, None, Some(2)).unwrap();
+        a.change(|state, now| {
+            state["requests"] = json!(201);
+            state["events"] = json!(vec![json!({"at":now,"tokens":1}); 201]);
+            Ok(())
+        })
+        .unwrap();
+        b.admit().unwrap();
     }
     #[test]
     fn old_64k_boundary_can_be_crossed_read_again_and_expired() {
@@ -442,12 +436,12 @@ mod tests {
         for _ in 0..60 {
             Coordinator::new(home.path(), "https://provider.test", None, "a")
                 .unwrap()
-                .admit()
+                .admit_limits(0, 60, None)
                 .unwrap();
         }
         let next = Coordinator::new(home.path(), "https://provider.test", None, "b").unwrap();
         assert!(next
-            .admit()
+            .admit_limits(0, 60, None)
             .unwrap_err()
             .to_string()
             .contains("budget exhausted"));

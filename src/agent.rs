@@ -13,7 +13,6 @@ pub struct Agent {
     provider: Provider,
     synchronous_chat_input: bool,
     project_instructions: Option<String>,
-    deferred_model_failure: Option<(String, crate::rotation::ProviderFailure, std::time::Instant)>,
     delegates: crate::delegates::Manager,
     sources: crate::artifacts::Store,
     tools: ToolBox,
@@ -154,7 +153,6 @@ impl Agent {
             sources,
             provider,
             synchronous_chat_input: false,
-            deferred_model_failure: None,
             tools,
             settings,
             session,
@@ -302,7 +300,6 @@ impl Agent {
         }
         crate::models::save(home, &selection)?;
         self.provider = provider;
-        self.deferred_model_failure = None;
         self.context_ceiling = None;
         self.settings.base_url = selection.base().into();
         self.settings.model = selection.model.clone();
@@ -446,7 +443,8 @@ impl Agent {
     }
     fn eligible_model_recovery(&self, failure: &crate::rotation::ProviderFailure) -> bool {
         self.session.vision_destination.is_none()
-            && self.provider.model() != crate::models::KILO_MODEL
+            && (self.provider.model() != crate::models::KILO_MODEL
+                || (failure.status == 429 && self.settings.free_model_fallback))
             && self.rotation.enabled
             && failure.model_specific
     }
@@ -458,6 +456,11 @@ impl Agent {
         if !self.eligible_model_recovery(failure) {
             return Ok(false);
         }
+        if self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+            || crate::terminal_input::cancelled()
+        {
+            anyhow::bail!("Cancelled before model recovery; no retry sent");
+        }
         let (choices, _) = self.kilo_models(false)?;
         let home = self
             .settings
@@ -467,7 +470,9 @@ impl Agent {
         if !crate::models::fallback_catalog_is_recent(home) {
             return Ok(false);
         }
-        if !choices.iter().any(|c| c.id == self.provider.model()) {
+        if self.provider.model() != crate::models::KILO_MODEL
+            && !choices.iter().any(|c| c.id == self.provider.model())
+        {
             return Ok(false);
         }
         let ids = crate::models::fallback_ids(&choices, limit);
@@ -482,7 +487,6 @@ impl Agent {
                 .context("Missing provider budget directory")?,
         )?;
         self.context_ceiling = None;
-        self.deferred_model_failure = None;
         self.settings.model = next.clone();
         self.session.model = next.clone();
         self.persist()?;
@@ -1159,21 +1163,6 @@ impl Agent {
             .messages
             .push(json!({"role":"user","content":prompt}));
         self.persist()?;
-        if let Some((model, failure, until)) = self.deferred_model_failure.clone() {
-            if model == self.provider.model() {
-                if std::time::Instant::now() < until {
-                    anyhow::bail!("Model cooldown remains active; new instruction saved before any request/action. Wait for Retry-After, then continue; /scope and cancellation remain available.");
-                }
-                self.deferred_model_failure = None;
-                if !self.recover_free_model(&failure, self.settings.context_tokens)? {
-                    return Err(anyhow::Error::new(failure).context(
-                        "No verified compatible free fallback; original investigation preserved",
-                    ));
-                }
-            } else {
-                self.deferred_model_failure = None;
-            }
-        }
         if let Some(selected) = &mut self.selected_tools {
             selected.extend(crate::tool_selection::for_prompt(prompt));
         }
@@ -1748,13 +1737,15 @@ impl Agent {
                         };
                         let model_recovery = self.eligible_model_recovery(failure);
                         if failure.status == 429 && model_recovery {
-                            self.deferred_model_failure = std::time::Instant::now()
-                                .checked_add(std::time::Duration::from_secs(
-                                    failure.retry_after.saturating_add(1),
-                                ))
-                                .map(|until| {
-                                    (self.provider.model().to_owned(), failure.clone(), until)
-                                });
+                            if self.recover_free_model(failure, limit)? {
+                                if self.synchronous_chat_input {
+                                    // Let the operator's pending input take precedence over a replay.
+                                    return Err(error.context("Switched to a compatible free model. The chat prompt is ready for your next instruction."));
+                                }
+                                previous_projection = None;
+                                continue;
+                            }
+                            return Err(error);
                         }
                         if failure.status == 429 && self.synchronous_chat_input {
                             // The CLI owns stdin synchronously, including approvals.
@@ -1773,18 +1764,16 @@ impl Agent {
                             return Err(error);
                         }
                         if failure.status == 429
-                            && failure.retry_after_source != "program_default"
+                            && matches!(
+                                failure.retry_after_source,
+                                "provider_header" | "provider_body"
+                            )
                             && failure.retry_after <= 60
                         {
                             quota_recovery_used = true;
                             let seconds = failure.retry_after.saturating_add(1);
                             self.persist()?;
-                            let recovery = if model_recovery {
-                                "one verified same-provider free-model recovery"
-                            } else {
-                                "one retry on the same provider/model"
-                            };
-                            self.output(AgentEvent::Notice(format!("Provider rejected this request with HTTP 429. Waiting {seconds}s (Retry-After={}s, source={}); {recovery}, shared quota admission remains active. Cancel to stop; completed tools will not be replayed.",failure.retry_after,failure.retry_after_source)));
+                            self.output(AgentEvent::Notice(format!("Provider rejected this request with HTTP 429. Waiting {seconds}s (Retry-After={}s, source={}) before one retry on the same model. Cancel to stop; completed tools will not be replayed.",failure.retry_after,failure.retry_after_source)));
                             let deadline =
                                 std::time::Instant::now() + std::time::Duration::from_secs(seconds);
                             while std::time::Instant::now() < deadline {
@@ -1797,15 +1786,7 @@ impl Agent {
                             // identical request. Unknown transmission/partial output
                             // errors never enter this branch; no tool is replayed.
                             previous_projection = None;
-                            if !model_recovery {
-                                continue;
-                            }
-                            if self.recover_free_model(failure, limit)? {
-                                continue;
-                            }
-                            return Err(error.context(
-                                "No verified compatible free fallback; no model-name cycling",
-                            ));
+                            continue;
                         }
                         if failure.status == 429 {
                             // Long/default cooldowns are not bypassed by a route change.
@@ -5028,7 +5009,43 @@ mod tests {
         }
     }
     #[test]
-    fn synchronous_free_recovery_reads_new_instruction_and_scope_before_switching() {
+    fn auto_switches_on_model_quota_without_wait_but_not_on_unspecified_promotion_limit() {
+        for scoped in [true, false] {
+            let failure = if scoped {
+                json!({"code":"model_quota_exceeded","retry_after_seconds":600})
+            } else {
+                json!({"code":"PROMOTION_MODEL_LIMIT_REACHED"})
+            };
+            let mut responses = vec![(
+                429,
+                "application/json",
+                json!({"error":failure}).to_string(),
+            )];
+            if scoped {
+                responses.push((
+                    200,
+                    "application/json",
+                    completion(json!({"role":"assistant","content":"Done."})).to_string(),
+                ));
+            }
+            let (mut agent, _root, _state, server) = free_recovery_fixture(responses);
+            agent.provider = Provider::new(
+                &agent.settings.base_url,
+                crate::models::KILO_MODEL.into(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(agent.turn("Hello").is_ok(), scoped);
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 1 + usize::from(scoped));
+            if scoped {
+                assert_ne!(requests[0]["model"], requests[1]["model"]);
+            }
+        }
+    }
+
+    #[test]
+    fn synchronous_free_recovery_switches_then_reads_new_input_before_dispatch() {
         let (mut agent,_workspace,_state,server)=free_recovery_fixture(vec![
             (429,"application/json",json!({"error":{"limit_source":"model","code":"model_rate_limit_exceeded","retry_after_seconds":0}}).to_string()),
             (200,"application/json",completion(json!({"role":"assistant","content":"Updated scope retained. No actions."})).to_string())]);
@@ -5037,20 +5054,15 @@ mod tests {
             .scope_command("allow http://127.0.0.1:12345/ read")
             .unwrap();
         assert!(agent.turn("Analyze only; never execute commands.").is_err());
-        assert!(agent
-            .turn("New instruction during cooldown: do not access any website.")
-            .is_err());
+        assert_eq!(agent.provider.model(), "fixture/next:free");
         agent.scope_command("clear").unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1100));
         agent
             .turn("Continue analysis under the narrowed scope; no commands.")
             .unwrap();
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[1]["model"], "fixture/next:free");
-        assert!(requests[1]
-            .to_string()
-            .contains("New instruction during cooldown"));
+        assert!(requests[1].to_string().contains("under the narrowed scope"));
         assert!(requests[1].to_string().contains("never execute commands"));
         assert!(agent.session.observations.is_empty());
         assert!(
@@ -5121,33 +5133,19 @@ mod tests {
     }
     #[test]
     fn cancellation_stops_model_transition_before_catalog_or_request() {
-        let (mut agent, _workspace, _state, server) = free_recovery_fixture(vec![(
+        let (mut agent, _workspace, _state, server) = free_recovery_fixture(vec![]);
+        let failure = crate::rotation::ProviderFailure::from_response(
             429,
-            "application/json",
-            json!({"error":{"limit_source":"model","retry_after_seconds":60}}).to_string(),
-        )]);
-        let (tx, rx) = std::sync::mpsc::sync_channel(64);
-        agent.set_output(tx);
-        let cancel = agent.cancelled.clone();
-        let worker = std::thread::spawn(move || {
-            while let Ok(event) = rx.recv_timeout(std::time::Duration::from_secs(5)) {
-                if matches!(event,AgentEvent::Notice(ref text) if text.contains("Waiting 61s")) {
-                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                    return;
-                }
-            }
-            panic!("model cooldown notice missing");
-        });
-        assert!(agent
-            .turn("Never execute an action without approval.")
-            .is_err());
-        worker.join().unwrap();
-        assert_eq!(server.join().unwrap().len(), 1);
+            Some(60),
+            r#"{"error":{"limit_source":"model"}}"#,
+        );
+        agent
+            .cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let error = agent.recover_free_model(&failure, 32768).unwrap_err();
+        assert!(error.to_string().contains("Cancelled"));
+        assert!(server.join().unwrap().is_empty());
         assert!(agent.rotation.history.is_empty());
-        assert_eq!(agent.session.last_report["cancelled"], true);
-        assert!(agent.session.messages.iter().any(|m| m["content"]
-            .as_str()
-            .is_some_and(|s| s.contains("Never execute an action"))));
     }
     #[test]
     fn no_compatible_free_model_returns_partial_without_a_second_request() {
