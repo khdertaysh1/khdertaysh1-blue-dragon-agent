@@ -717,9 +717,6 @@ impl Browser {
         if action == "source" {
             self.check_source_scope(args)?;
         }
-        if mutation {
-            self.uncertain_mutation = true;
-        }
         let dispatch_epoch = self.status()["connection_epoch"].as_u64();
         if checked_epoch.is_some()
             && (checked_epoch != dispatch_epoch || self.status()["ready"] != true)
@@ -738,6 +735,10 @@ impl Browser {
                 json!({"ok":false,"execution_status":"not_executed","error":"Browser not configured; start or attach it before acting"}),
             );
         };
+        // Only a call handed to a transport can have an unconfirmed effect.
+        if mutation {
+            self.uncertain_mutation = true;
+        }
         let mut value = match outcome {
             Ok(value) => value,
             Err(_) => {
@@ -1093,6 +1094,36 @@ mod tests {
             .unwrap();
         assert_eq!(result["denied"], true);
         assert_eq!(result["execution_status"], "not_executed");
+    }
+    #[test]
+    fn unconfigured_fill_does_not_block_an_authorized_fill_after_connecting() {
+        let root = tempfile::tempdir().unwrap();
+        let mut browser = Browser::new(root.path());
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::Tui(tx));
+        let approvals = std::thread::spawn(move || {
+            for _ in 0..2 {
+                rx.recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap()
+                    .respond_to
+                    .send(true)
+                    .unwrap();
+            }
+        });
+        let args = json!({"action":"fill","selector":"#quantity","value":"3"});
+        assert_eq!(
+            browser.invoke(&tools, &args).unwrap()["execution_status"],
+            "not_executed"
+        );
+        assert!(!browser.uncertain_mutation);
+        browser.command("start 0").unwrap();
+        let worker = extension_fixture(
+            &browser,
+            vec![("fill", Some(json!({"filled":true,"matched":true})))],
+        );
+        assert_eq!(browser.invoke(&tools, &args).unwrap()["ok"], true);
+        assert_eq!(worker.join().unwrap(), vec!["fill"]);
+        approvals.join().unwrap();
     }
     #[test]
     fn interrupted_scroll_is_unknown_and_identical_retry_is_blocked() {
