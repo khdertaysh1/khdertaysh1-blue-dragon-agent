@@ -22,10 +22,13 @@ pub fn core() -> BTreeSet<String> {
 }
 /// Recognize an imperative to edit local code, including follow-ups with an implicit file.
 pub fn requests_local_edit(prompt: &str) -> bool {
-    let mut words = prompt.split_whitespace();
+    let normalized = prompt.to_ascii_lowercase();
+    let mut words = normalized.split_whitespace();
+    let first = words.next();
+    let verb = if first == Some("please") { words.next() } else { first };
     matches!(
-        words.next(),
-        Some("صلّح" | "صلح" | "أصلح" | "اصلح" | "عدّل" | "عدل")
+        verb,
+        Some("صلّح" | "صلح" | "أصلح" | "اصلح" | "عدّل" | "عدل" | "fix" | "repair" | "edit" | "modify")
     ) && words.next().is_some()
 }
 

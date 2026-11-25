@@ -1031,8 +1031,14 @@ impl Agent {
                         });
                     break;
                 }
-                let answer = answer
-                    .unwrap_or_else(|| "ما في نتيجة نهائية مسجّلة للمهمة السابقة بهالجلسة.".into());
+                let answer = answer.unwrap_or_else(|| {
+                    if !prompt.chars().any(|c| ('\u{0600}'..='\u{06ff}').contains(&c)) {
+                        "No final result was recorded for the previous task in this session."
+                    } else {
+                        "ما في نتيجة نهائية مسجّلة للمهمة السابقة بهالجلسة."
+                    }
+                    .into()
+                });
                 self.session.user_turns.push(self.session.messages.len());
                 self.session
                     .messages
@@ -3543,9 +3549,14 @@ fn saved_response_alias_preserves_id_arguments_and_tool_visibility() {
 
 // Match a complete status-only utterance, never a status question followed by an action.
 fn status_only_question(prompt: &str) -> bool {
-    let compact: String = prompt
-        .trim()
-        .trim_end_matches(['؟', '?', '!', '.'])
+    let utterance = prompt.trim().trim_end_matches(['؟', '?', '!', '.']).trim_end();
+    if matches!(
+        utterance.to_ascii_lowercase().as_str(),
+        "what happened" | "what was the result" | "what's the status" | "what’s the status" | "what is the status" | "any update" | "status update"
+    ) {
+        return true;
+    }
+    let compact: String = utterance
         .chars()
         .filter(|c| !c.is_whitespace() && !matches!(c, '\u{064B}'..='\u{0652}' | 'ـ'))
         .collect();
@@ -3690,7 +3701,16 @@ fn system_prompt() -> &'static str {
 mod tests {
     use super::*;
     #[test]
-    fn ordinary_arabic_open_recovers_native_call_without_history_only_round() {
+    fn open_site_after_prior_turn_in_arabic_and_english() {
+        for prompt in [
+            "افتح الموقع ونزل ملف جافا واحفظو",
+            "Open the site and save the JavaScript file.",
+        ] {
+            open_site_after_prior_turn(prompt);
+        }
+    }
+
+    fn open_site_after_prior_turn(prompt: &str) {
         let envelope = r#"{"tool":"recall_context","args":{"message_index":18,"request_id":"all"}}
 {"tool":"browser","args":{"action":"wait_for_load"}}
 {"tool":"browser","args":{"action":"get_network_events"}}"#;
@@ -3702,7 +3722,7 @@ mod tests {
             completion(json!({"role":"assistant","content":"المتصفح غير متصل."})),
         ]);
         agent.turn("Inspect demo.txt").unwrap();
-        agent.turn("افتح الموقع ونزل ملف جافا واحفظو").unwrap();
+        agent.turn(prompt).unwrap();
         let requests = server.join().unwrap();
         assert!(requests[2]["tools"]
             .as_array()
@@ -4022,7 +4042,7 @@ mod tests {
         ];
         agent.session.last_report = json!({"finished":false,"error":"format failure"});
         let report = agent.session.last_report.clone();
-        for prompt in ["شوصارمعك", "إي شو صار معك؟"] {
+        for prompt in ["شوصارمعك", "إي شو صار معك؟", "What happened?", "Any update?"] {
             agent.turn(prompt).unwrap();
             assert_eq!(
                 agent.session.messages.last().unwrap()["content"],
@@ -4033,6 +4053,7 @@ mod tests {
         assert!(!work.path().join("unexpected.js").exists());
         assert!(server.join().unwrap().is_empty());
         assert!(!status_only_question("شو صار معك؟ وبعدها شغّل الاختبارات"));
+        assert!(!status_only_question("What happened? Then run the tests."));
     }
 
     #[test]
@@ -4099,7 +4120,16 @@ mod tests {
     }
 
     #[test]
-    fn arabic_edit_followup_after_failed_test_offers_an_approved_patch_and_reruns_once() {
+    fn edit_after_failed_test_in_arabic_and_english() {
+        for prompt in [
+            "صلّح بيانات الاختبار اللي فشل حتى يكون رصيد البداية مساوي تماماً لمبلغ التحويل مع عمولته. احسب العمولة من rules.py، وعدّل رصيد البداية فقط داخل الاختبار. بعدها شغّل الاختبارات الثلاثة مرة واحدة وفرجيني شو تغيّر والناتج الفعلي.",
+            "Please fix the failing test fixture. Read rules.py, edit the starting balance, then run the tests once.",
+        ] {
+            edit_after_failed_test(prompt);
+        }
+    }
+
+    fn edit_after_failed_test(prompt: &str) {
         let args = json!({"program":"python","args":["-B","-m","unittest","-v","test_wallet"]});
         let done = completion(json!({"role":"assistant","content":"Recorded the result."}));
         let (mut agent, root, _state, server) = scripted_agent(vec![
@@ -4136,7 +4166,7 @@ mod tests {
             }
         });
         agent.turn("شغّل الاختبارات مرة واحدة").unwrap();
-        agent.turn("صلّح بيانات الاختبار اللي فشل حتى يكون رصيد البداية مساوي تماماً لمبلغ التحويل مع عمولته. احسب العمولة من rules.py، وعدّل رصيد البداية فقط داخل الاختبار. بعدها شغّل الاختبارات الثلاثة مرة واحدة وفرجيني شو تغيّر والناتج الفعلي.").unwrap();
+        agent.turn(prompt).unwrap();
         approvals.join().unwrap();
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 7);
@@ -4156,7 +4186,16 @@ mod tests {
     }
 
     #[test]
-    fn arabic_create_file_followup_writes_after_approval() {
+    fn create_file_after_approval_in_arabic_and_english() {
+        for prompt in [
+            "اعمل demo.js يستورد الدالتين من prices.js",
+            "Create demo.js and import both functions from prices.js.",
+        ] {
+            create_file_after_approval(prompt);
+        }
+    }
+
+    fn create_file_after_approval(prompt: &str) {
         let demo = "const {total, discount} = require('./prices.js');\nfor (const [p,q] of [[25,3],[25,4],[50,3]]) console.log(discount(total(p,q)));\n";
         let (mut agent, root, _state, server) = scripted_agent(vec![
             tool_call("prior", "read_file", json!({"path":"prices.js"})),
@@ -4183,9 +4222,7 @@ mod tests {
                 .send(true)
                 .unwrap()
         });
-        agent
-            .turn("اعمل demo.js يستورد الدالتين من prices.js")
-            .unwrap();
+        agent.turn(prompt).unwrap();
         approval.join().unwrap();
         assert_eq!(
             std::fs::read_to_string(root.path().join("demo.js")).unwrap(),
@@ -4197,7 +4234,16 @@ mod tests {
     }
 
     #[test]
-    fn arabic_unittest_followup_invokes_command_once_after_file_inspection() {
+    fn run_unittest_after_file_inspection_in_arabic_and_english() {
+        for prompt in [
+            "شغّل python -m unittest -v test_wallet مرة واحدة من مجلد wallet-lab. انقل من ناتج هالتشغيل سطر Ran وسطر النتيجة النهائية. لا تعدّل أي ملف.",
+            "Run python -m unittest -v test_wallet once. Report the result. Do not edit files.",
+        ] {
+            run_unittest_after_file_inspection(prompt);
+        }
+    }
+
+    fn run_unittest_after_file_inspection(prompt: &str) {
         let (mut agent, root, _state, server) = scripted_agent(vec![
             tool_call("prior", "file_info", json!({"path":"demo.txt"})),
             completion(json!({"role":"assistant","content":"Checked file."})),
@@ -4219,7 +4265,7 @@ mod tests {
                 .send(true)
                 .unwrap()
         });
-        agent.turn("شغّل python -m unittest -v test_wallet مرة واحدة من مجلد wallet-lab. انقل من ناتج هالتشغيل سطر Ran وسطر النتيجة النهائية. لا تعدّل أي ملف.").unwrap();
+        agent.turn(prompt).unwrap();
         approval.join().unwrap();
         let requests = server.join().unwrap();
         assert!(requests[2]["tools"]
@@ -4666,6 +4712,15 @@ mod tests {
     }
     #[test]
     fn stalled_reads_before_first_edit_can_patch_then_run_tests() {
+        for prompt in [
+            "صلّح اختبار استنفاد الرصيد ثم شغّل اختبار المحفظة مرة واحدة",
+            "Fix the balance exhaustion test and run the wallet test once.",
+        ] {
+            check_stalled_edit_recovery(prompt);
+        }
+    }
+
+    fn check_stalled_edit_recovery(prompt: &str) {
         let test_path = "test_wallet.py";
         let run = json!({"program":"python","args":["-B","-m","unittest","-v","test_wallet"]});
         let mut replies = Vec::new();
@@ -4707,9 +4762,7 @@ mod tests {
                     .unwrap();
             }
         });
-        agent
-            .turn("صلّح اختبار استنفاد الرصيد ثم شغّل اختبار المحفظة مرة واحدة")
-            .unwrap();
+        agent.turn(prompt).unwrap();
         approvals.join().unwrap();
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 8);
