@@ -3346,6 +3346,23 @@ fn hold_structured_delta(state: &mut Option<bool>, delta: &str) -> bool {
 
 fn is_text_tool_envelope(text: &str) -> bool {
     let text = text.trim();
+    // Some models announce an action on one line before printing the tool envelope.
+    let text = match text.split_once('\n') {
+        Some((intro, body))
+            if intro.trim_end().ends_with([':', '：', '.', '。'])
+                && !intro.starts_with(['{', '`'])
+                && intro.split_whitespace().any(|word| {
+                    word.starts_with("سأ")
+                        || word.starts_with("سوف")
+                        || word == "رح"
+                        || word.eq_ignore_ascii_case("I'll")
+                        || word.eq_ignore_ascii_case("will")
+                }) =>
+        {
+            body.trim()
+        }
+        _ => text,
+    };
     let text = if let Some(fenced) = text
         .strip_prefix("```json")
         .or_else(|| text.strip_prefix("```"))
@@ -3512,6 +3529,24 @@ mod tests {
             .unwrap()
             .is_empty());
     }
+    #[test]
+    fn announced_command_is_retried_without_dispatching_the_printed_command() {
+        let envelope = r#"{"tool":"run_command","args":{"program":"python","args":["-m","unittest","-v"],"cwd":"wallet-lab"}}"#;
+        let first = completion(
+            json!({"role":"assistant","content":format!("سأشغّل الاختبارات الآن وأنقل الناتج الفعلي.\n{envelope}")}),
+        );
+        let second = completion(
+            json!({"role":"assistant","content":format!("سأشغّل الاختبارات الآن:\n{envelope}")}),
+        );
+        let (mut agent, _work, _state, server) = scripted_agent(vec![first, second]);
+        assert!(agent.run_once("شغّل الاختبارات").is_err());
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1]["tool_choice"], "required");
+        assert_eq!(agent.session.last_report["actions"], json!([]));
+        assert!(!is_text_tool_envelope(&format!("مثال توضيحي:\n{envelope}")));
+    }
+
     #[test]
     fn text_tool_envelope_pair_recovers_to_answer() {
         let envelope = r#"{"tool":"browser","args":{}}"#;
