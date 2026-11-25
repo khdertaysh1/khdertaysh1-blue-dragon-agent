@@ -94,3 +94,9 @@ oversized checkpoints preserve the last resumable version. Session locks are
 released on process exit; leftover `.lock` files need not be deleted.
 
 The [scoped audit workflow](SCOPE_AND_AUDIT.md) documents large-source caching, explicit scope, readiness/frames, coverage, hypotheses, controlled comparisons and reproduction limits.
+
+### Observing mission evidence
+
+In CLI chat or the TUI, enter `/mission` to inspect the most recent instrumented task. The observer reuses declared local acceptance checks. It records the tool step at which all of them had matching evidence, the latest command attempt and its exit status. A nonzero exit can confirm that a command ran. It cannot satisfy a criterion requiring exit zero. Without declared checks, the report leaves goal verification open. Compare this historical snapshot with the actual task outcome in `/report`.
+
+Each new instrumented turn starts a fresh observer. A status lookup can still refer to the previous task. Saved observations remain historical after restart. The observer does not send model requests, stop execution, change tool selection or grant permissions.

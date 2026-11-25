@@ -826,6 +826,12 @@ impl Agent {
         self.session.observations.push(observation);
         id
     }
+    pub fn mission_report(&self) -> Value {
+        self.session.mission.as_ref().map_or_else(
+            || json!({"mode":"observe_only","state":"no_recorded_mission"}),
+            crate::mission::Mission::report,
+        )
+    }
     pub fn check_status(&self) -> Value {
         self.session.task_checks.status(
             (!self.tools.has_active_jobs() && !self.code_index.fingerprint.is_empty())
@@ -1357,6 +1363,7 @@ impl Agent {
             .then(|| crate::reasoning::checkpoint::prior_dialogue(&self.session))
             .flatten();
         let turn_start = self.session.messages.len();
+        self.session.mission = Some(crate::mission::Mission::new(turn_start));
         self.session.user_turns.push(self.session.messages.len());
         self.session
             .messages
@@ -3098,6 +3105,11 @@ impl Agent {
                 {
                     // Report the command outcome, including a failed start, without replaying it.
                     report_recovery = true;
+                }
+                if let Some(mission) = &mut self.session.mission {
+                    let fingerprint = (!self.code_index.fingerprint.is_empty())
+                        .then_some(self.code_index.fingerprint.as_str());
+                    mission.observe(step + 1, &self.session.task_checks, fingerprint, name, &guard_args, &result);
                 }
                 actions.push(action);
                 self.session
@@ -4974,6 +4986,8 @@ mod tests {
             completion(json!({"role":"assistant","content":"File size verified."})),
         ]);
         agent.turn("Verify demo.txt size").unwrap();
+        assert_eq!(agent.mission_report()["checks_met_since_step"], 2);
+        assert_eq!(agent.mission_report()["declared_check_state"], "observed");
         assert_eq!(server.join().unwrap().len(), 3);
         assert_eq!(
             agent.session.last_report["task_status"],
