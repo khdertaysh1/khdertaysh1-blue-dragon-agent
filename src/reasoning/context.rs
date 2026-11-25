@@ -945,6 +945,18 @@ pub fn recall(history: &[Value], args: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn compact_literal_search_retains_numbered_matches() {
+        let result = json!({"search_mode":"literal","whole_file_searched":true,
+            "padding":"x".repeat(800),"matches":[
+                {"line":1,"line_text":"import symbol","line_complete":true,"byte_offset":7},
+                {"line":16,"line_text":"symbol()","line_complete":true,"byte_offset":550}]});
+        let page: serde_json::Value =
+            serde_json::from_str(&super::compact(&result.to_string(), 300, 7)).unwrap();
+        assert_eq!(page["matches"], result["matches"]);
+        assert_eq!(page["matches_omitted"], 0);
+    }
+
+    #[test]
     fn compacted_cached_excerpt_resumes_after_visible_characters() {
         let page = serde_json::json!({"ok":true,"untrusted_historical_data":true,
             "message_index":42,"reran_tool":false,"offset":10,"excerpt":"abcdefgh",

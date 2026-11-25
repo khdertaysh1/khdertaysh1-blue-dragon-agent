@@ -179,7 +179,11 @@ fn matching_line(file: &mut File, start: u64, size: u64) -> Result<Option<String
         None => return Ok(None),
     };
     let bytes = &buf[left..right];
-    let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+    let bytes = if buf.get(right) == Some(&b'\n') {
+        bytes.strip_suffix(b"\r").unwrap_or(bytes)
+    } else {
+        bytes
+    };
     Ok(if bytes.len() <= LIMIT {
         std::str::from_utf8(bytes).ok().map(str::to_owned)
     } else {
@@ -245,8 +249,10 @@ pub(crate) fn search_open(
             let start = base + (begin + index) as u64;
             let end = start + query.len() as u64;
             let line_text = matching_line(file, start, size)?;
-            hits.push(json!({"byte_offset":start,"end_byte_offset":end,"line":match_line,
-                "line_complete":line_text.is_some(),"line_text":line_text}));
+            hits.push(
+                json!({"byte_offset":start,"end_byte_offset":end,"line":match_line,
+                "line_complete":line_text.is_some(),"line_text":line_text}),
+            );
             last_end = end;
             if hits.len() == cap as usize {
                 next = Some(end);
