@@ -9,7 +9,10 @@ use crate::tools::{self, ToolBox};
 
 pub use crate::tools::ApprovalMode;
 
+pub type QuotaPicker = Box<dyn Fn(&[crate::models::ModelChoice]) -> Result<String> + Send>;
+
 pub struct Agent {
+    pub quota_picker: QuotaPicker,
     provider: Provider,
     synchronous_chat_input: bool,
     provider_routes: Vec<(crate::models::Selection, String)>,
@@ -149,6 +152,7 @@ impl Agent {
             Err(_) => None,
         };
         let mut agent = Self {
+            quota_picker: Box::new(crate::terminal_input::quota_choice),
             project_instructions,
             delegates,
             sources,
@@ -156,7 +160,7 @@ impl Agent {
             synchronous_chat_input: false,
             provider_routes: crate::models::fallback_providers(
                 &std::env::var("BLUE_DRAGON_FALLBACK_PROVIDERS")
-                    .unwrap_or_else(|_| "kilo,jarvis,openrouter".into()),
+                    .unwrap_or_else(|_| "kilo,jarvis".into()),
             )?,
             tools,
             settings,
@@ -283,14 +287,13 @@ impl Agent {
             anyhow::bail!("Use /model PROVIDER [MODEL_ID]");
         }
         let selection = crate::models::Selection::new(words[0], words.get(1).copied())?;
-        selection.require_key()?;
-        let provider = Provider::new(selection.base(), selection.model.clone(), selection.key())?
+        let provider = Provider::new(selection.base(), selection.model.clone(), None)?
             .coordinated(
-            self.settings
-                .sessions_dir
-                .parent()
-                .context("Missing provider budget directory")?,
-        )?;
+                self.settings
+                    .sessions_dir
+                    .parent()
+                    .context("Missing provider budget directory")?,
+            )?;
         crate::vision::enforce_destination(
             self.session.vision_destination.as_deref(),
             provider.vision_destination().as_deref(),
@@ -308,7 +311,7 @@ impl Agent {
         self.context_ceiling = None;
         self.settings.base_url = selection.base().into();
         self.settings.model = selection.model.clone();
-        self.settings.api_key = selection.key();
+        self.settings.api_key = None;
         self.rotation = crate::rotation::Rotation::new(
             self.settings.free_rotation
                 && selection.provider == "kilo"
@@ -465,39 +468,78 @@ impl Agent {
             return Ok(false);
         }
         tried.insert(current.clone());
+        let mut choices = Vec::new();
+        let mut destinations = std::collections::BTreeMap::new();
         for (selection, base) in &self.provider_routes {
-            if tried.contains(base) || selection.require_key().is_err() {
+            if tried.contains(base) {
                 continue;
             }
-            let key = selection.key();
-            let next = Provider::new(base, selection.model.clone(), key.clone())?.coordinated(
+            let probe = Provider::new(base, selection.model.clone(), None)?.coordinated(
                 self.settings
                     .sessions_dir
                     .parent()
                     .context("Missing provider budget directory")?,
             )?;
-            if next.cooldown()?.is_some() {
+            if probe.cooldown()?.is_some() {
                 continue;
             }
-            let from = self.settings.safe_endpoint();
-            self.settings.base_url = base.clone();
-            self.settings.api_key = key;
-            self.settings.model = selection.model.clone();
-            self.session.model = selection.model.clone();
-            self.rotation.enabled = selection.provider == "kilo";
-            self.rotation.history.push(json!({"from_provider":from,"to_provider":selection.provider,"to":selection.model,"http_status":429}));
-            self.provider = next;
-            self.context_ceiling = None;
-            self.last_successful_context = Value::Null;
-            self.persist()?;
-            self.output(AgentEvent::Notice(format!(
-                "HTTP 429: switching from {from} to {}. Continuing with existing tool results.",
-                self.settings.safe_endpoint()
-            )));
-            self.output(self.model_event());
-            return Ok(true);
+            let mut available = vec![crate::models::ModelChoice {
+                id: selection.model.clone(),
+                name: "Automatic route".into(),
+                context_length: 0,
+            }];
+            if base == crate::models::KILO_BASE {
+                if let Ok((catalog, _)) = self.kilo_models(false) {
+                    available.extend(catalog.into_iter().filter(|c| c.id != selection.model));
+                }
+            }
+            for mut model in available {
+                model.name = format!("{} · {}", selection.provider, model.name);
+                destinations.insert(model.id.clone(), (selection.provider.clone(), base.clone()));
+                choices.push(model);
+            }
         }
-        Ok(false)
+        if choices.is_empty() {
+            return Ok(false);
+        }
+        crate::models::rank_choices(&mut choices);
+        let picked = (self.quota_picker)(&choices)?;
+        anyhow::ensure!(
+            !self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+                && !crate::terminal_input::cancelled(),
+            "Provider selection cancelled"
+        );
+        let (provider, base) = destinations
+            .remove(&picked)
+            .context("No valid provider selection; task paused")?;
+        let selection = crate::models::Selection::new(&provider, Some(&picked))?;
+        let next = Provider::new(&base, selection.model.clone(), None)?.coordinated(
+            self.settings
+                .sessions_dir
+                .parent()
+                .context("Missing provider budget directory")?,
+        )?;
+        anyhow::ensure!(
+            next.cooldown()?.is_none(),
+            "Selected route is now cooling down; no request sent"
+        );
+        let from = self.settings.safe_endpoint();
+        self.settings.base_url = base.clone();
+        self.settings.api_key = None;
+        self.settings.model = selection.model.clone();
+        self.session.model = selection.model.clone();
+        self.rotation.enabled = selection.provider == "kilo";
+        self.rotation.history.push(json!({"from_provider":from,"to_provider":selection.provider,"to":selection.model,"http_status":429}));
+        self.provider = next;
+        self.context_ceiling = None;
+        self.last_successful_context = Value::Null;
+        self.persist()?;
+        self.output(AgentEvent::Notice(format!(
+            "HTTP 429: switching from {from} to {}. Continuing with existing tool results.",
+            self.settings.safe_endpoint()
+        )));
+        self.output(self.model_event());
+        Ok(true)
     }
     fn eligible_model_recovery(&self, failure: &crate::rotation::ProviderFailure) -> bool {
         self.session.vision_destination.is_none()
@@ -1805,7 +1847,7 @@ impl Agent {
                         }
                         // Once distinct providers have rejected the turn, do not cycle back
                         // through their models or repeat the final request.
-                        if failure.status == 429 && tried_providers.len() > 1 {
+                        if failure.status == 429 && !tried_providers.is_empty() {
                             return Err(error);
                         }
                         let model_recovery = self.eligible_model_recovery(failure);
@@ -5082,6 +5124,42 @@ mod tests {
         }
     }
     #[test]
+    fn declining_quota_picker_keeps_original_provider() {
+        let (mut agent, _root, _state, first) = free_recovery_fixture(vec![(
+            429,
+            "application/json",
+            r#"{"error":{"code":"PROMOTION_MODEL_LIMIT_REACHED"}}"#.into(),
+        )]);
+        let original = agent.settings.base_url.clone();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        agent.provider_routes = vec![
+            (
+                crate::models::Selection::new("kilo", None).unwrap(),
+                original.clone(),
+            ),
+            (
+                crate::models::Selection::new("jarvis", None).unwrap(),
+                format!("http://{}", listener.local_addr().unwrap()),
+            ),
+        ];
+        agent.quota_picker = Box::new(|choices| {
+            assert_eq!(choices.len(), 1);
+            anyhow::bail!("Provider selection cancelled")
+        });
+        assert!(agent
+            .turn("Hello")
+            .unwrap_err()
+            .to_string()
+            .contains("cancelled"));
+        assert_eq!(first.join().unwrap().len(), 1);
+        assert_eq!(agent.settings.base_url, original);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+    #[test]
     fn provider_429_moves_between_independent_endpoints_without_repeating_tools() {
         for second_limited in [false, true] {
             let quota = (
@@ -5117,6 +5195,11 @@ mod tests {
                     alt_url.clone(),
                 ),
             ];
+            agent.quota_picker = Box::new(|choices| {
+                assert_eq!(choices.len(), 1);
+                assert!(choices[0].name.starts_with("jarvis"));
+                Ok(choices[0].id.clone())
+            });
             agent.set_synchronous_chat_input();
             assert_eq!(
                 agent.turn("Read once.txt and summarize").is_ok(),

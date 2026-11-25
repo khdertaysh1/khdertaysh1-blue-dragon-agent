@@ -37,14 +37,9 @@ impl Selection {
         let default = match provider {
             "kilo" => KILO_MODEL,
             "jarvis" => FREE_MODEL,
-            "openrouter" => "openrouter/free",
-            "groq" => "llama-3.3-70b-versatile",
-            "gemini" => "gemini-4-hydrogen",
-            "openai" => "gpt-4o-mini",
-            "anthropic" => "claude-sonnet-4-5",
             "ollama" => "",
             _ => {
-                anyhow::bail!("Unknown provider. Use free/kilo, jarvis, openrouter, groq, gemini, openai, anthropic or ollama")
+                anyhow::bail!("Unknown provider. Use kilo, jarvis or ollama")
             }
         };
         let model = model.unwrap_or(default);
@@ -57,9 +52,6 @@ impl Selection {
         if provider == "jarvis" && model != FREE_MODEL {
             anyhow::bail!("The keyless free preset only permits auto/free; no paid routing");
         }
-        if provider == "openrouter" && model != "openrouter/free" && !model.ends_with(":free") {
-            anyhow::bail!("The OpenRouter preset only permits openrouter/free or a :free model");
-        }
         Ok(Self {
             provider: provider.into(),
             model: model.into(),
@@ -69,50 +61,13 @@ impl Selection {
         match self.provider.as_str() {
             "kilo" => KILO_BASE,
             "jarvis" => FREE_BASE,
-            "openrouter" => "https://openrouter.ai/api/v1",
-            "groq" => "https://api.groq.com/openai/v1",
-            "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai",
-            "anthropic" => "https://api.anthropic.com/v1",
             "ollama" => "http://127.0.0.1:11434/v1",
-            _ => "https://api.openai.com/v1",
+            _ => unreachable!("validated provider"),
         }
-    }
-    pub fn key(&self) -> Option<String> {
-        // Never forward an unrelated provider's key to an anonymous gateway.
-        let name = match self.provider.as_str() {
-            "openrouter" => "OPENROUTER_API_KEY",
-            "groq" => "GROQ_API_KEY",
-            "gemini" => "GEMINI_API_KEY",
-            "openai" => "OPENAI_API_KEY",
-            "anthropic" => "ANTHROPIC_API_KEY",
-            _ => return None,
-        };
-        std::env::var(name).ok().filter(|s| !s.is_empty())
-    }
-    pub fn require_key(&self) -> Result<()> {
-        if matches!(
-            self.provider.as_str(),
-            "openrouter" | "openai" | "anthropic" | "groq" | "gemini"
-        ) && self.key().is_none()
-        {
-            anyhow::bail!(
-                "{} needs its own API key environment variable; use /model free for keyless access",
-                self.provider
-            );
-        }
-        Ok(())
     }
 }
 
-pub const CLOUD_PROVIDERS: [&str; 7] = [
-    "kilo",
-    "jarvis",
-    "openrouter",
-    "groq",
-    "gemini",
-    "openai",
-    "anthropic",
-];
+pub const CLOUD_PROVIDERS: [&str; 2] = ["kilo", "jarvis"];
 
 pub fn fallback_providers(order: &str) -> Result<Vec<(Selection, String)>> {
     let mut routes = Vec::new();
@@ -150,6 +105,12 @@ pub fn load(home: &Path) -> Result<Option<Selection>> {
     }
     let saved: Selection =
         serde_json::from_slice(&bytes).context("Invalid saved model selection")?;
+    if matches!(
+        saved.provider.as_str(),
+        "openrouter" | "openai" | "anthropic" | "groq" | "gemini"
+    ) {
+        anyhow::bail!("Saved provider requires a key and has been removed. Choose blue-dragon model kilo or blue-dragon model jarvis.");
+    }
     Ok(Some(Selection::new(&saved.provider, Some(&saved.model))?))
 }
 
@@ -165,7 +126,7 @@ pub fn save(home: &Path, selection: &Selection) -> Result<()> {
 }
 
 pub fn menu() -> &'static str {
-    "Choose with /model PROVIDER [MODEL_ID] (saved for next launch).\nfree/blue-free/kilo   kilo-auto/free  Blue Free gateway automatic routing; no key\njarvis      auto/free       JarvisClaw anonymous free gateway; no key\nopenrouter  openrouter/free Free models; OPENROUTER_API_KEY required\ngroq        llama-3.3-70b-versatile GROQ_API_KEY required\ngemini      gemini-4-hydrogen GEMINI_API_KEY required\nollama      <installed-id>  Local server; no key\nopenai      <model-id>      OPENAI_API_KEY; may incur charges\nanthropic   <model-id>      ANTHROPIC_API_KEY; may incur charges\n/models lists Kilo free choices; /models refresh updates them. /models openrouter lists OpenRouter free metadata (key required to use).\nSwitching sends subsequent conversation context to the selected service. Free availability and quotas are provider-controlled. On HTTP 429, cloud chat continues at another configured provider with existing context. Default destinations: Kilo, JarvisClaw, then OpenRouter Free if configured. See /rotation and BLUE_DRAGON_FALLBACK_PROVIDERS. --no-rotation pins the route."
+    "Direct keyless providers: /model kilo or /model jarvis. Use /models to see free tool-capable Kilo models. Local: /model ollama INSTALLED_ID. On quota limits choose the destination before conversation context is sent."
 }
 
 fn zero(value: Option<&Value>) -> bool {
@@ -184,50 +145,6 @@ fn zero(value: Option<&Value>) -> bool {
     }
 }
 
-pub fn free_catalog(value: &Value) -> Vec<String> {
-    let mut ids = Vec::new();
-    for row in value["data"].as_array().into_iter().flatten().take(10_000) {
-        let Some(id) = row["id"].as_str() else {
-            continue;
-        };
-        let tool_capable = row["supported_parameters"]
-            .as_array()
-            .is_some_and(|p| p.iter().any(|v| v == "tools"));
-        let Some(pricing) = row["pricing"].as_object() else {
-            continue;
-        };
-        if !zero(pricing.get("prompt"))
-            || !zero(pricing.get("completion"))
-            || !pricing.values().all(|v| zero(Some(v)))
-            || !tool_capable
-            || Selection::new("openrouter", Some(id)).is_err()
-        {
-            continue;
-        }
-        ids.push(id.to_owned());
-    }
-    ids.sort();
-    ids.dedup();
-    ids.truncate(200);
-    ids
-}
-
-pub fn refresh() -> Result<String> {
-    type Entry = Option<(std::time::Instant, std::result::Result<String, String>)>;
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<Entry>> = std::sync::OnceLock::new();
-    let mut cache = CACHE
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap();
-    if let Some((stamp, result)) = cache.as_ref() {
-        if stamp.elapsed() < Duration::from_secs(if result.is_ok() { 3600 } else { 60 }) {
-            return result.clone().map_err(anyhow::Error::msg);
-        }
-    }
-    let result = refresh_openrouter().map_err(|e| e.to_string());
-    *cache = Some((std::time::Instant::now(), result.clone()));
-    result.map_err(anyhow::Error::msg)
-}
 fn catalog_get(url: &str) -> Result<reqwest::blocking::Response> {
     static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let id = format!(
@@ -257,27 +174,34 @@ fn catalog_get(url: &str) -> Result<reqwest::blocking::Response> {
     crate::provider_traffic::record(event);
     Ok(response?)
 }
-fn refresh_openrouter() -> Result<String> {
-    // Public metadata only; no credentials or conversation are sent.
-    let response = catalog_get("https://openrouter.ai/api/v1/models")?;
-    if !response.status().is_success() {
-        anyhow::bail!("Catalog returned HTTP {}", response.status().as_u16());
-    }
-    let mut bytes = Vec::new();
-    response.take(4_000_001).read_to_end(&mut bytes)?;
-    if bytes.len() > 4_000_000 {
-        anyhow::bail!("Model catalog exceeds limit");
-    }
-    let ids = free_catalog(&serde_json::from_slice(&bytes)?);
-    Ok(format!("OpenRouter zero-priced, tool-capable catalog (not an availability test; key required):\n{}", ids.join("\n")))
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelChoice {
     pub id: String,
     pub name: String,
     pub context_length: u64,
+}
+
+// Published SWE-bench Verified results, in hundredths of a percent. Unknown
+// model identities (including automatic routes) have no comparable score.
+fn coding_score(id: &str) -> Option<u16> {
+    match id.trim_end_matches(":free") {
+        "nvidia/nemotron-3-ultra-550b-a55b" => Some(7070),
+        "nvidia/nemotron-3.5-lightning" => Some(5156),
+        "liquid/lfm-3-1.7b" => Some(4340),
+        _ => None,
+    }
+}
+
+pub fn rank_choices(choices: &mut [ModelChoice]) {
+    choices.sort_by_key(|c| std::cmp::Reverse(coding_score(&c.id)));
+}
+
+pub fn rating(id: &str) -> String {
+    coding_score(id).map_or_else(
+        || "Unranked".into(),
+        |n| format!("SWE-bench Verified {:.2}%", f32::from(n) / 100.0),
+    )
 }
 
 /// Input choices must come from the free/tool-capable catalog filter.
@@ -394,7 +318,9 @@ fn write_cache(home: &Path, choices: &[ModelChoice]) -> Result<()> {
 }
 
 pub fn kilo_catalog(home: &Path, force: bool) -> Result<(Vec<ModelChoice>, String)> {
-    catalog_at(home, force, KILO_BASE)
+    let (mut choices, source) = catalog_at(home, force, KILO_BASE)?;
+    rank_choices(&mut choices);
+    Ok((choices, source))
 }
 fn catalog_at(home: &Path, force: bool, base: &str) -> Result<(Vec<ModelChoice>, String)> {
     // One cross-process fetch at a time, followed by a cache recheck. Force
@@ -508,7 +434,7 @@ pub fn validate_kilo_selection(home: &Path, model: &str) -> Result<()> {
 
 pub fn kilo_listing(home: &Path, force: bool) -> Result<String> {
     let (choices, source) = kilo_catalog(home, force)?;
-    Ok(format!("{source}\n{}\nSelect: /model kilo MODEL_ID. Prompts/tool results go to Kilo and upstreams, which may log and use them for improvement; no confidential data.", choices.iter().map(|c| format!("{} | {} | context {}", c.id, c.name, c.context_length)).collect::<Vec<_>>().join("\n")))
+    Ok(format!("{source}\n{}\nSelect: /model kilo MODEL_ID. Prompts/tool results go to Kilo and upstreams, which may log and use them for improvement; no confidential data.", choices.iter().map(|c| format!("{} | {} | {} | context {}", c.id, c.name, rating(&c.id), c.context_length)).collect::<Vec<_>>().join("\n")))
 }
 
 #[cfg(test)]
@@ -620,7 +546,6 @@ mod tests {
         .unwrap();
         assert_eq!(load(home.path()).unwrap().unwrap().provider, "jarvis");
         assert_eq!(Selection::new("free", None).unwrap().provider, "kilo");
-        assert_eq!(Selection::new("kilo", None).unwrap().key(), None);
     }
     #[test]
     fn cache_bounds_and_control_characters_are_rejected() {
@@ -635,7 +560,6 @@ mod tests {
     }
     #[test]
     fn keyless_preset_never_uses_any_environment_key_or_paid_alias() {
-        assert_eq!(Selection::new("free", None).unwrap().key(), None);
         assert!(Selection::new("free", Some("auto/paid")).is_err());
         assert!(Selection::new("openrouter", Some("vendor/paid")).is_err());
         assert!(Selection::new("ollama", None).is_err());
@@ -657,19 +581,27 @@ mod tests {
         assert!(load(home.path()).is_err());
     }
     #[test]
-    fn catalog_requires_all_known_prices_zero_and_tools() {
-        let row = json!({"id":"vendor/model:free","pricing":{"prompt":"0","completion":"0"},"supported_parameters":["tools"]});
-        let mut paid = row.clone();
-        paid["pricing"]["request"] = json!("0.1");
-        let mut unknown = row.clone();
-        unknown["pricing"]["completion"] = Value::Null;
-        let mut no_tools = row.clone();
-        no_tools["supported_parameters"] = json!([]);
-        let mut named_only = row.clone();
-        named_only["id"] = json!("vendor/paid");
-        assert_eq!(
-            free_catalog(&json!({"data":[row.clone(),paid,unknown,no_tools,named_only,row]})),
-            vec!["vendor/model:free"]
-        );
+    fn coding_rank_places_comparable_scores_first() {
+        let mut choices = [
+            "kilo-auto/free",
+            "liquid/lfm-3-1.7b:free",
+            "nvidia/nemotron-3-ultra-550b-a55b:free",
+        ]
+        .map(|id| ModelChoice {
+            id: id.into(),
+            name: id.into(),
+            context_length: 100,
+        });
+        rank_choices(&mut choices);
+        assert_eq!(choices[0].id, "nvidia/nemotron-3-ultra-550b-a55b:free");
+        assert_eq!(choices[2].id, KILO_MODEL);
+    }
+
+    #[test]
+    fn explicit_keyed_providers_are_rejected() {
+        for name in ["openai", "openrouter", "anthropic", "groq", "gemini"] {
+            assert!(Selection::new(name, None).is_err());
+            assert!(fallback_providers(name).is_err());
+        }
     }
 }

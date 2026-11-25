@@ -273,16 +273,7 @@ fn run() -> Result<()> {
         }
         Some(saved)
     } else {
-        // Preserve existing explicit key/model configurations; fresh installs start keyless.
-        let provider = if args.model.is_some()
-            || std::env::var_os("BLUE_DRAGON_API_KEY").is_some()
-            || std::env::var_os("OPENAI_API_KEY").is_some()
-        {
-            "openai"
-        } else {
-            "free"
-        };
-        Some(models::Selection::new(provider, args.model.as_deref())?)
+        Some(models::Selection::new("kilo", args.model.as_deref())?)
     };
 
     let root = args
@@ -301,21 +292,8 @@ fn run() -> Result<()> {
         .as_ref()
         .map(|s| s.model.clone())
         .or(args.model)
-        .unwrap_or_else(|| "gpt-4o-mini".into());
+        .unwrap_or_else(|| models::KILO_MODEL.into());
     let mut settings = Settings::new(root, base, model)?;
-    if let Some(selection) = selection {
-        if matches!(selection.provider.as_str(), "groq" | "gemini") {
-            selection.require_key()?;
-        }
-        settings.api_key = selection.key();
-        // Legacy global key is accepted only for OpenAI, never sent to free/local/other services.
-        if selection.provider == "openai" {
-            settings.api_key = std::env::var("BLUE_DRAGON_API_KEY")
-                .ok()
-                .filter(|k| !k.is_empty())
-                .or(settings.api_key);
-        }
-    }
     settings.mcp_config = args.mcp_config;
     settings.stream = !args.no_stream;
     settings.free_rotation = !args.no_rotation;
@@ -493,10 +471,6 @@ fn run() -> Result<()> {
                             }
                             "/models refresh" => {
                                 println!("{}", models::kilo_listing(&home, true)?);
-                                continue;
-                            }
-                            "/models openrouter" => {
-                                println!("{}", models::refresh()?);
                                 continue;
                             }
                             line if line.starts_with("/model ") => {

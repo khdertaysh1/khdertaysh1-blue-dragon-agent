@@ -38,22 +38,17 @@ This is a historical snapshot, not a permanent lineup. Runtime filtering require
 
 ## Cache, selection and compatibility
 
-Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. With rotation enabled, a cloud provider HTTP 429 tries another configured service first. Concurrent Kilo refreshes share a lock/cache with a 30-second forced-refresh coalescing interval and 60-second failure backoff. Use `--no-rotation` to pin the selected route. Destinations that can incur charges must be explicitly listed for automatic fallback. Use `/rotation` for status and see [FREE_ROTATION.md](FREE_ROTATION.md) for the complete retry/cooldown policy.
+Metadata is cached as `kilo-models.json` in application data for one hour, with bounds and validation. If refresh fails, cached choices are explicitly labeled; without a cache only Auto Free appears. Listing does not prove a model is currently serving requests. With rotation enabled, a cloud provider HTTP 429 opens a keyless destination picker. Concurrent Kilo refreshes share a lock/cache with a 30-second forced-refresh coalescing interval and 60-second failure backoff. Use `--no-rotation` to pin the selected route. Use `/rotation` for status and see [FREE_ROTATION.md](FREE_ROTATION.md) for the complete retry/cooldown policy.
 
-Selections are stored as provider/model names in `model.json`, never from repository config. Fresh installs use Kilo unless explicit legacy endpoint/model/key settings exist. Previously saved `{"provider":"free","model":"auto/free"}` migrates to **JarvisClaw** without silently changing its destination; `/model free` explicitly switches to Kilo.
+Selections are stored as provider/model names in `model.json`, never from repository config. Fresh installs use Kilo unless a different endpoint or supported provider was explicitly selected. Previously saved `{"provider":"free","model":"auto/free"}` migrates to **JarvisClaw** without silently changing its destination; `/model free` explicitly switches to Kilo.
 
 | Preset | Models | Key |
 |---|---|---|
 | `free` / `blue-free` / `kilo` | Blue Free or discovered eligible `:free` IDs | None |
 | `jarvis` | `auto/free` | None |
-| `openrouter` | `openrouter/free` or `:free` IDs | `OPENROUTER_API_KEY` |
-| `groq` | `llama-3.3-70b-versatile` or explicit ID | `GROQ_API_KEY` |
-| `gemini` | `gemini-4-hydrogen` or explicit ID | `GEMINI_API_KEY` |
 | `ollama` | Installed model with tools | None; local server required |
-| `openai` | Explicit ID or default | `OPENAI_API_KEY`; may incur charges |
-| `anthropic` | Explicit ID or default | `ANTHROPIC_API_KEY`; may incur charges |
 
-`/models openrouter` lists separate OpenRouter metadata, without claiming keyless inference. Existing custom `--base-url`, `--model`, `BLUE_DRAGON_API_KEY` configurations remain supported. Unset conflicting old `BLUE_DRAGON_BASE_URL` / `BLUE_DRAGON_MODEL` exports before a different preset. `--provider` cannot be combined with `--base-url`.
+Custom keyless endpoints can be selected with `--base-url` and `--model`. A saved selection for a removed provider prompts the operator to choose a keyless replacement.
 
 ## Data handling and validation
 

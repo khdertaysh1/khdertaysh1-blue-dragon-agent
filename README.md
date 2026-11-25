@@ -36,7 +36,7 @@ The release includes platform binaries, SHA-256 checksums and browser extensions
 
 | Area | What is currently available |
 |:--|:--|
-| **AI providers** | Keyless free gateway, saved provider/model selection, OpenRouter free catalog, local Ollama, OpenAI-compatible and native Anthropic |
+| **AI providers** | Direct keyless Kilo and JarvisClaw gateways, user-selected quota fallback, local Ollama |
 | **Workspace intelligence** | Tree-sitter symbols/imports/syntactic references for Rust, Python, JS and TS/TSX; bounded ranked local code search and exact file reads |
 | **Code changes** | Targeted exact-match edit and full text-file write, both behind diff approval |
 | **Git inspection** | Working-tree status and unstaged diff |

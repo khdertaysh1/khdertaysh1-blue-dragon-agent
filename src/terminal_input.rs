@@ -210,6 +210,66 @@ pub fn prepare_approval() -> Result<()> {
     }
     Ok(())
 }
+pub fn quota_choice(choices: &[crate::models::ModelChoice]) -> Result<String> {
+    use std::io::IsTerminal;
+    anyhow::ensure!(
+        interactive() && io::stdin().is_terminal(),
+        "Provider limit reached; choose a keyless provider interactively to continue"
+    );
+    prepare_approval()?;
+    let mut out = prompt_output();
+    writeln!(
+        out,
+        "Provider limit reached. Choose where to send this conversation and continue:"
+    )?;
+    for (i, c) in choices.iter().enumerate() {
+        writeln!(
+            out,
+            "{}. {} | {} | {}",
+            i + 1,
+            c.name,
+            c.id,
+            crate::models::rating(&c.id)
+        )?;
+    }
+    writeln!(out, "Type a number and press Enter, or Esc to stop.")?;
+    let mut digits = String::new();
+    loop {
+        anyhow::ensure!(!cancelled(), "Provider selection cancelled");
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
+        if let Event::Key(k) = event::read()? {
+            if k.kind == KeyEventKind::Release {
+                continue;
+            }
+            match k.code {
+                KeyCode::Esc => bail!("Provider selection cancelled"),
+                KeyCode::Char(c) if c.is_ascii_digit() && digits.len() < 4 => {
+                    digits.push(c);
+                    write!(out, "{c}")?;
+                }
+                KeyCode::Backspace if digits.pop().is_some() => write!(out, "\x08 \x08")?,
+                KeyCode::Enter => {
+                    if let Some(c) = digits
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|n| n.checked_sub(1))
+                        .and_then(|i| choices.get(i))
+                    {
+                        writeln!(out)?;
+                        return Ok(c.id.clone());
+                    }
+                    digits.clear();
+                    writeln!(out, "Choose a listed number or press Esc.")?;
+                }
+                _ => {}
+            }
+            out.flush()?;
+        }
+    }
+}
+
 pub fn approval() -> Result<bool> {
     if !interactive() {
         let mut s = String::new();

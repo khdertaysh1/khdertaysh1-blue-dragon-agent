@@ -86,6 +86,7 @@ struct Screen {
     busy: bool,
     followups: std::collections::VecDeque<String>,
     approval: Option<ApprovalRequest>,
+    quota_reply: Option<mpsc::Sender<String>>,
     picker: Option<ModelPicker>,
     approval_scroll: u16,
     scroll_up: usize,
@@ -114,6 +115,7 @@ impl Screen {
             busy: false,
             followups: Default::default(),
             approval: None,
+            quota_reply: None,
             picker: None,
             approval_scroll: 0,
             scroll_up: 0,
@@ -408,6 +410,8 @@ pub fn run(
 
     let (work_tx, work_rx) = mpsc::channel::<Work>();
     let (message_tx, message_rx) = mpsc::sync_channel::<AgentEvent>(256);
+    let (quota_tx, quota_rx) =
+        mpsc::channel::<(Vec<crate::models::ModelChoice>, mpsc::Sender<String>)>();
     let (approval_tx, approval_rx) = mpsc::channel::<ApprovalRequest>();
     if saved_resume.is_some() {
         app.log("System", "Continuing a saved conversation.");
@@ -431,6 +435,24 @@ pub fn run(
                 return;
             }
         };
+        let stop = cancellation.clone();
+        agent.quota_picker = Box::new(move |choices| {
+            let (reply, rx) = mpsc::channel();
+            quota_tx.send((choices.to_vec(), reply))?;
+            loop {
+                anyhow::ensure!(
+                    !stop.load(std::sync::atomic::Ordering::Relaxed),
+                    "Provider selection cancelled"
+                );
+                match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(id) => return Ok(id),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        anyhow::bail!("Provider selection cancelled")
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
+        });
         agent.set_cancellation(cancellation);
         agent.set_jobs(jobs);
         agent.set_output(message_tx.clone());
@@ -525,6 +547,17 @@ pub fn run(
                 }
             }
         }
+        if let Ok((choices, reply)) = quota_rx.try_recv() {
+            if app.busy && !app.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                app.quota_reply = Some(reply);
+                app.picker = Some(ModelPicker {
+                    choices,
+                    selected: 0,
+                    query: String::new(),
+                    source: "429 · Choose where to send this conversation and continue".into(),
+                });
+            }
+        }
         while let Ok(request) = approval_rx.try_recv() {
             if !app.busy || app.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                 drop(request);
@@ -610,6 +643,9 @@ pub fn run(
                     .store(true, std::sync::atomic::Ordering::Relaxed);
                 app.jobs.cancel_all();
                 app.approve(false);
+                if app.quota_reply.take().is_some() {
+                    app.picker = None;
+                }
                 app.status = "Cancellation requested; waiting for current I/O".into();
                 continue;
             }
@@ -621,6 +657,7 @@ pub fn run(
         if let Some(picker) = &mut app.picker {
             match key.code {
                 KeyCode::Esc => {
+                    app.quota_reply.take();
                     app.picker = None;
                     app.status = "Ready".into();
                 }
@@ -637,13 +674,25 @@ pub fn run(
                     picker.query.push(c);
                     picker.selected = 0;
                 }
-                KeyCode::Enter if !app.busy => {
+                KeyCode::Enter if !app.busy || app.quota_reply.is_some() => {
                     if let Some(id) = picker.current() {
                         app.picker = None;
+                        if let Some(reply) = app.quota_reply.take() {
+                            let _ = reply.send(id);
+                            app.status = "Continuing with selected model".into();
+                            continue;
+                        }
                         app.cancelled
                             .store(false, std::sync::atomic::Ordering::Relaxed);
                         if work_tx
-                            .send(Work::Slash(format!("/model kilo {id}")))
+                            .send(Work::Slash(format!(
+                                "/model {} {id}",
+                                if id == crate::models::FREE_MODEL {
+                                    "jarvis"
+                                } else {
+                                    "kilo"
+                                }
+                            )))
                             .is_ok()
                         {
                             app.busy = true;
@@ -722,7 +771,12 @@ pub fn run(
 
 fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -> Result<()> {
     if matches!(line, "/model" | "/models" | "/models refresh") {
-        let (choices, source) = agent.kilo_models(line == "/models refresh")?;
+        let (mut choices, source) = agent.kilo_models(line == "/models refresh")?;
+        choices.push(crate::models::ModelChoice {
+            id: crate::models::FREE_MODEL.into(),
+            name: "JarvisClaw automatic route".into(),
+            context_length: 0,
+        });
         let _ = tx.send(AgentEvent::ModelChoices(choices, source));
         return Ok(());
     }
@@ -736,7 +790,6 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         return agent.resume_file(line["/resume-file".len()..].trim());
     }
     let response = match line {
-        "/models openrouter" => crate::models::refresh()?,
         _ if line.starts_with("/model ") => {
             agent.select_model(line.trim_start_matches("/model "))?
         }
@@ -1068,7 +1121,14 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         let filtered = picker.filtered();
         let items: Vec<_> = filtered
             .iter()
-            .map(|c| ListItem::new(format!("{}\n{}", c.name, c.id)))
+            .map(|c| {
+                ListItem::new(format!(
+                    "{} · {}\n{}",
+                    c.name,
+                    crate::models::rating(&c.id),
+                    c.id
+                ))
+            })
             .collect();
         let empty = items.is_empty();
         let items = if empty {
@@ -1093,7 +1153,9 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
             regions[1],
             &mut state,
         );
-        let footer = if popup.width < 70 {
+        let footer = if app.quota_reply.is_some() {
+            "Enter continues task on selected service / Esc stops"
+        } else if popup.width < 70 {
             "Enter saves / Esc closes\nPrompts may be logged. Public only."
         } else {
             "Arrows: choose | Enter: select & save | Esc: close\nCatalog is not a live test. Kilo/upstreams may log prompts & tool results. No confidential data."

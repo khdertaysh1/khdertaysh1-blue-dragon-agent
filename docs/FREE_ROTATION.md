@@ -1,11 +1,7 @@
-# Blue Free gateway routing and quotas
+# Blue Free provider selection
 
-Select `/model blue-free` to start with `kilo-auto/free`. Blue Dragon uses the gateway’s limits by default. You can set a stricter local limit with `BLUE_DRAGON_RPM` or `BLUE_DRAGON_TPM`. Provider cooldowns are shared across local sessions and apply to the scope reported by the gateway.
+Kilo and JarvisClaw connect directly without API keys. On HTTP 429 the TUI offers eligible routes on the other service. Select with the arrows and Enter to send the conversation to that destination and resume the current task. Esc cancels. Terminal chat accepts a numbered selection. Unattended runs pause when selection is required. Use `--no-rotation` to disable the offer. Local Ollama stays local.
 
-On a pre-stream HTTP 429, cloud chat tries another eligible provider first. The default order is Kilo, JarvisClaw, then OpenRouter Free when its key is configured. The new provider receives the conversation and existing tool results. The current task continues there, and completed tools are not replayed. Each service is tried at most once on this path. No retry time is inferred when the upstream omits it.
+The picker sorts known model families by their published SWE-bench Verified scores, highest first. These are reference scores from model evaluations; hosted configurations can differ. Automatic routes and unscored models appear as Unranked. Reference model cards: [Nemotron Ultra](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16), [Nemotron Lightning](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16), [LFM3](https://huggingface.co/LiquidAI/LFM3-1.7B).
 
-Set `BLUE_DRAGON_FALLBACK_PROVIDERS=kilo,jarvis,openrouter,groq,gemini` to set the destination order explicitly. Groq and Gemini require their own keys and billing depends on your account. OpenAI and Anthropic are available as explicit destinations too. Providers missing a key or in a recorded cooldown are skipped. Use `--no-rotation` to keep the current endpoint and model. Local/custom endpoints and sessions pinned to a vision destination do not forward their history automatically.
-
-Use `/rotation` to inspect the configured destination order and switches. A switch changes the active session rather than the saved startup preference. If there is no independent destination, Kilo can still recover from an explicitly model-scoped limit using its validated free catalog.
-
-The estimated input target and maximum output per request are independent of rate limits. See [the provider capacity review](provider-capacity-review.md) for historical measurements.
+Provider cooldowns apply across local sessions. Use `/rotation` to inspect the destination list. A quota selection changes the active session; `/model` sets the startup preference.
