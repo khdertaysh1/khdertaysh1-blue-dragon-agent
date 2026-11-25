@@ -141,10 +141,26 @@ function blueDragonPage(action, args, transportEnvelope = false) {
     // Runs in MAIN/page world, never the privileged extension world.
     return (0, eval)(args.expression);
   }
-  const nodes = document.querySelectorAll(args.selector);
-  if (nodes.length !== 1) throw new Error('Selector must match exactly one element; inspect a fresh snapshot');
+  // These receipts are emitted only before invoking the requested DOM action.
+  // Exceptions during a setter, event dispatch, click or observation stay uncertain.
+  const formTarget = action === 'click' || action === 'fill';
+  const rejected = reason => ({precondition_failed:reason});
+  if (formTarget && (typeof args.selector !== 'string' || !args.selector.trim())) return rejected('missing_selector');
+  let nodes;
+  try { nodes = document.querySelectorAll(args.selector); }
+  catch (err) {
+    if (formTarget && err.name === 'SyntaxError') return rejected('invalid_selector');
+    throw err;
+  }
+  if (nodes.length !== 1) {
+    if (formTarget) return rejected(nodes.length ? 'multiple_matches' : 'no_match');
+    throw new Error('Selector must match exactly one element; inspect a fresh snapshot');
+  }
   const el = nodes[0];
-  if (!el.getClientRects().length || el.disabled || el.matches(':disabled')) throw new Error('Element is hidden or disabled');
+  if (!el.getClientRects().length || el.disabled || el.matches(':disabled')) {
+    if (formTarget) return rejected('hidden_or_disabled');
+    throw new Error('Element is hidden or disabled');
+  }
   if (action === 'set_checked') {
     if (el.tagName !== 'INPUT' || !['checkbox','radio'].includes(el.type) || typeof args.checked !== 'boolean') throw new Error('Expected checkbox/radio and boolean checked');
     if (el.type === 'radio' && !args.checked) throw new Error('Select another radio option instead of clearing a radio');
@@ -188,8 +204,9 @@ function blueDragonPage(action, args, transportEnvelope = false) {
     });
   }
   if (action === 'fill') {
-    if (!['INPUT','TEXTAREA','SELECT'].includes(el.tagName) || ['file','checkbox','radio','submit','button'].includes(el.type)) throw new Error('Use a text/select control');
-    if (typeof args.value !== 'string' || args.value.length > 16000) throw new Error('Invalid value');
+    if (!['INPUT','TEXTAREA','SELECT'].includes(el.tagName) || ['file','checkbox','radio','submit','button'].includes(el.type)) return rejected('unsupported_control');
+    if (typeof args.value !== 'string' || args.value.length > 16000) return rejected('invalid_value');
+    if (el.readOnly) return rejected('read_only');
     const prototype = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(prototype, 'value').set.call(el, args.value);
     el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));

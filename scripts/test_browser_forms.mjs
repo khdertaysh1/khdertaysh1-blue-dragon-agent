@@ -132,3 +132,33 @@ const compact=context.blueDragonPage('snapshot',{compact:true});
 assert.equal(compact.script_tags[0].src,'https://example.test/app.js');
 assert.equal(compact.script_tags[0].type,'module');
 console.log('Same-URL click receipts and script tag identity passed');
+
+// A target rejected before a mutation must be distinguishable from a lost receipt.
+context.document.querySelectorAll = () => element ? [element] : [];
+for (const action of ['click', 'fill']) {
+  element = null;
+  assert.equal(run(action,{value:'3'}).precondition_failed,'no_match');
+  assert.equal(run(action,{selector:'',value:'3'}).precondition_failed,'missing_selector');
+  element = {...common, tagName:'INPUT', type:'number', disabled:true};
+  assert.equal(run(action,{value:'3'}).precondition_failed,'hidden_or_disabled');
+}
+dispatched = 0;
+element = {...button, click(){dispatched++; throw Error('lost receipt');}};
+assert.throws(()=>run('click',{}),/lost receipt/);
+assert.equal(dispatched,1);
+context.document.querySelectorAll = () => [button,button];
+assert.equal(run('click',{}).precondition_failed,'multiple_matches');
+context.document.querySelectorAll = () => {throw new SyntaxError('invalid CSS');};
+assert.equal(run('fill',{value:'3'}).precondition_failed,'invalid_selector');
+class NumericInput {
+  get value(){return this.current;}
+  set value(v){this.current=String(v);}
+}
+context.HTMLInputElement=NumericInput;
+element=Object.assign(new NumericInput(),common,{type:'number',tagName:'INPUT',isConnected:true,current:'1'});
+context.document.querySelectorAll=selector => selector === '#quantity' ? [element] : [];
+events=[];
+assert.equal(run('fill',{selector:'#quantity',value:'3'}).matched,true);
+assert.equal(element.value,'3');
+assert.deepEqual(events,['input','change']);
+console.log('Pre-dispatch rejection, uncertain handler and numeric fill checks passed');

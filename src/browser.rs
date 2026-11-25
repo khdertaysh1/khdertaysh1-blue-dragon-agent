@@ -818,6 +818,9 @@ impl Browser {
             }
         }
         let mut result = action_result(action, value);
+        if result["execution_status"] == "unknown" {
+            self.uncertain_mutation = true;
+        }
         result["observation_kind"] = json!(if action == "snapshot" {
             "current_page_read"
         } else {
@@ -845,6 +848,26 @@ fn source_scope_check(
     policy.check(target, "read")
 }
 fn action_result(action: &str, value: Value) -> Value {
+    if matches!(action, "click" | "fill") {
+        if let Some(
+            reason @ ("missing_selector"
+            | "invalid_selector"
+            | "no_match"
+            | "multiple_matches"
+            | "hidden_or_disabled"
+            | "read_only"
+            | "unsupported_control"
+            | "invalid_value"),
+        ) = value["precondition_failed"].as_str()
+        {
+            return json!({"ok":false,"execution_status":"not_executed","category":"browser_precondition_failed","error":reason,"automatic_retry":false});
+        }
+        if (action == "click" && value["clicked"] != true)
+            || (action == "fill" && !value["matched"].is_boolean())
+        {
+            return json!({"ok":false,"execution_status":"unknown","error":"Missing action acknowledgement; inspect current state. No action replayed.","automatic_retry":false});
+        }
+    }
     if action == "wait_for" {
         return json!({"ok":value["matched"]==true,"untrusted_web_content":true,"result":value,"note":"Selector stability is bounded readiness evidence, not proof React or all network work finished."});
     }
@@ -1397,6 +1420,25 @@ mod form_action_tests {
             true
         );
         assert_eq!(action_result("set_checked", json!({}))["ok"], false);
+    }
+    #[test]
+    fn target_rejections_and_missing_acknowledgements_are_distinct() {
+        for action in ["click", "fill"] {
+            assert_eq!(
+                action_result(action, json!({"precondition_failed":"no_match"}))
+                    ["execution_status"],
+                "not_executed"
+            );
+            assert_eq!(
+                action_result(action, json!({}))["execution_status"],
+                "unknown"
+            );
+        }
+        assert_eq!(
+            action_result("fill", json!({"matched":false}))["execution_status"],
+            "executed_state_mismatch"
+        );
+        assert_eq!(action_result("click", json!({"clicked":true}))["ok"], true);
     }
     #[test]
     fn validates_form_actions_before_execution() {
