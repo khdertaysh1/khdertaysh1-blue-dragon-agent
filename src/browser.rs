@@ -584,7 +584,13 @@ impl Browser {
         if matches!(action, "open" | "navigate") {
             validate_url(args["url"].as_str().context("Missing URL")?)?;
         }
-        validate_form_action(action, args)?;
+        if let Err(error) = validate_form_action(action, args) {
+            if action == "fill" {
+                return Ok(json!({"ok":false,"execution_status":"not_executed",
+                    "category":"invalid_arguments","error":error.to_string()}));
+            }
+            return Err(error);
+        }
         if action == "scroll" {
             validate_scroll(args)?;
         }
@@ -877,14 +883,21 @@ fn validate_scroll(args: &Value) -> Result<()> {
 }
 
 fn validate_form_action(action: &str, args: &Value) -> Result<()> {
-    if !matches!(action, "select" | "set_checked") {
+    if !matches!(action, "fill" | "select" | "set_checked") {
         return Ok(());
     }
     let selector = args["selector"].as_str().context("Missing selector")?;
     if selector.is_empty() || selector.len() > 4000 {
         anyhow::bail!("Invalid selector length");
     }
-    if action == "select" {
+    if action == "fill" {
+        let value = args["value"]
+            .as_str()
+            .context("fill requires a string value")?;
+        if value.encode_utf16().count() > 16000 {
+            anyhow::bail!("Fill value exceeds limit");
+        }
+    } else if action == "select" {
         let value = args["value"]
             .as_str()
             .context("select requires an exact option value")?;
@@ -1387,6 +1400,10 @@ mod form_action_tests {
     }
     #[test]
     fn validates_form_actions_before_execution() {
+        assert!(validate_form_action("fill", &json!({"selector":"#quantity","value":"3"})).is_ok());
+        assert!(validate_form_action("fill", &json!({"selector":"#quantity","value":3})).is_err());
+        assert!(validate_form_action("fill", &json!({"value":"3"})).is_err());
+        assert!(validate_form_action("fill", &json!({"selector":"#quantity","value":""})).is_ok());
         assert!(
             validate_form_action("set_checked", &json!({"selector":"#a","checked":true})).is_ok()
         );
