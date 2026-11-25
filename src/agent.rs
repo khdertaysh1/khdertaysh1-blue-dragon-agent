@@ -1477,17 +1477,12 @@ impl Agent {
         let mut recall_report_due = false;
         let download_contract = !crate::file_receipts::download_targets(prompt).is_empty();
         let mut explain_first = origin != TurnOrigin::Queued
-            && !explicit_task_request(prompt)
+            && asks_about_prior_work(prompt)
             && !download_contract
             && self.session.fresh_source_requests.is_empty()
             && resumed.is_none()
             && prior_dialogue.is_some()
-            && actions.is_empty()
-            && (self.session.last_report["actions"]
-                .as_array()
-                .is_some_and(|a| !a.is_empty())
-                || self.session.last_report["task_status"] == "answered_from_history"
-                || self.session.last_report["finished"] == false);
+            && actions.is_empty();
         let mut budget_report = false;
         let mut initial_limit_retry = false;
         let step_limit = if structured {
@@ -3582,37 +3577,30 @@ fn saved_command_output_id(prompt: &str) -> Option<&str> {
     ids.next().is_none().then_some(id)
 }
 
-// An explicit imperative can start a normal tool-enabled turn immediately.
-// Keep questions and quoted instructions in the existing conversation router.
-fn explicit_task_request(prompt: &str) -> bool {
-    if crate::tool_selection::requests_local_edit(prompt)
-        || crate::tool_selection::requests_workspace_search(prompt)
-    {
-        return true;
-    }
-    let mut words = prompt.split_whitespace();
-    let verb = words.next();
-    let Some(object) = words.next() else {
-        return false;
-    };
-    match verb {
-        Some("افتح" | "افتحلي" | "افتحي" | "افتحوا" | "إفتح") => true,
-        Some("شغّل" | "شغل" | "شغلي" | "شغّللي") => {
-            matches!(object, "الاختبارات" | "اختبارات" | "الاختبار")
-                || (matches!(object.trim_matches('`'), "python" | "python3")
-                    && words.next() == Some("-m")
-                    && words
-                        .next()
-                        .is_some_and(|module| module.trim_end_matches('`') == "unittest"))
-        }
-        Some("اعمل" | "اعمللي" | "اعملي" | "اعملّي" | "أنشئ" | "انشئ" | "اكتب") => {
-            matches!(object, "ملف" | "ملفاً" | "ملفا")
-                || std::path::Path::new(object.trim_matches('`'))
-                    .extension()
-                    .is_some_and(|ext| !ext.is_empty())
-        }
-        _ => false,
-    }
+// Only clearly retrospective questions need the tool-free history phase.
+// Every other turn can answer in prose or request tools, with the prior dialogue
+// still available for references such as "in the same tab".
+fn asks_about_prior_work(prompt: &str) -> bool {
+    let question: String = prompt
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !matches!(c, '\u{064b}'..='\u{0652}' | 'ـ'))
+        .collect();
+    [
+        "شو صار",
+        "شو ظهر",
+        "شو سجلت",
+        "شو كان",
+        "شو طلعت",
+        "ليش وقفت",
+        "what happened",
+        "what did you",
+        "what was the",
+        "why did you",
+    ]
+    .iter()
+    .any(|prefix| question.starts_with(prefix))
 }
 
 // The provider assembles the complete reply independently of the live display.
@@ -3717,7 +3705,9 @@ mod tests {
         let actions = agent.session.last_report["actions"].as_array().unwrap();
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0]["browser_action"], "status");
-        assert!(!explicit_task_request("كيف افتح الموقع؟"));
+        assert!(!asks_about_prior_work(
+            "بنفس التبويب المفتوح، اضغط على الرابط"
+        ));
     }
 
     #[test]
@@ -4329,6 +4319,36 @@ mod tests {
             1
         );
     }
+    #[test]
+    fn completed_task_supports_a_detail_question_then_a_new_action() {
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            completion(
+                json!({"role":"assistant","content":"Read ORIGINAL_EVIDENCE_42 in demo.txt."}),
+            ),
+            completion(json!({"role":"assistant","content":"ORIGINAL_EVIDENCE_42"})),
+            tool_call("next", "read_file", json!({"path":"next.txt"})),
+            completion(json!({"role":"assistant","content":"NEXT_RESULT_17"})),
+        ]);
+        std::fs::write(root.path().join("next.txt"), "NEXT_RESULT_17").unwrap();
+        agent.turn("Read demo.txt").unwrap();
+        assert_eq!(agent.session.last_report["finished"], true);
+        agent.turn("شو كان النص اللي قرأته بالملف الأول؟").unwrap();
+        assert_eq!(agent.session.last_report["actions"], json!([]));
+        agent.turn("بنفس المجلد، عطيني محتوى next.txt").unwrap();
+        let requests = server.join().unwrap();
+        assert!(requests[2]["tools"].as_array().is_none_or(Vec::is_empty));
+        assert!(requests[2].to_string().contains("ORIGINAL_EVIDENCE_42"));
+        assert!(requests[3]["tools"]
+            .as_array()
+            .is_some_and(|t| !t.is_empty()));
+        assert!(requests[4].to_string().contains("NEXT_RESULT_17"));
+        let actions = agent.session.last_report["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["tool"], "read_file");
+        assert_eq!(agent.session.last_report["finished"], true);
+    }
+
     #[test]
     fn queued_task_starts_with_tools_after_unrelated_work() {
         let (mut agent, _root, _state, server) = scripted_agent(vec![
