@@ -71,6 +71,7 @@ pub struct Browser {
     inspection_grant: bool,
     page_read_grant: Option<(Option<u64>, Value)>,
     uncertain_mutation: bool,
+    pub(crate) remembered_form_actions: std::collections::BTreeSet<(String, String)>,
     preference: Option<ConnectionPreference>,
     latest_screenshot: Option<Vec<u8>>,
     latest_screenshot_path: Option<PathBuf>,
@@ -85,6 +86,7 @@ impl Browser {
             inspection_grant: false,
             page_read_grant: None,
             uncertain_mutation: false,
+            remembered_form_actions: Default::default(),
             preference: Self::load_preference(home),
             latest_screenshot: None,
             latest_screenshot_path: None,
@@ -242,6 +244,21 @@ impl Browser {
         self.clear_screenshot();
         self.inspection_grant = false;
     }
+    // A local form permission applies to the approved page and verb, never to
+    // evaluate, a different frame, a different port, or another website.
+    fn loopback_lab_url(raw: &str) -> bool {
+        let Ok(url) = reqwest::Url::parse(raw) else {
+            return false;
+        };
+        matches!(url.scheme(), "http" | "https")
+            && url.username().is_empty()
+            && url.password().is_none()
+            && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+            && !["%2f", "%5c", "%2e", "%25"]
+                .iter()
+                .any(|s| url.path().to_ascii_lowercase().contains(s))
+    }
+
     fn check_document_scope(&mut self, args: &Value, level: &str) -> Result<()> {
         let location = self.raw("evaluate", &json!({"expression":"location.href"}))?;
         self.scope.check(location.as_str().unwrap_or(""), level)?;
@@ -470,7 +487,12 @@ impl Browser {
                 "Request ID does not match the expected script URL; nothing saved"
             );
         }
-        self.scope.check(&url, "read")?;
+        // This is a retained same-origin response from an already readable
+        // local page. The following prompt authorizes both reading it and
+        // creating the exact new file. No URL is fetched or added to scope.
+        if !Self::loopback_lab_url(&url) {
+            self.scope.check(&url, "read")?;
+        }
         self.check_save_document_origin(&url)?;
         let epoch = self.status()["connection_epoch"].as_u64();
         if !tools.approve(
@@ -507,6 +529,7 @@ impl Browser {
         let mut result = tools.persist_browser_response(path, &bytes)?;
         result["request_id"] = json!(id);
         result["source_origin"] = json!(origin);
+        result["comparison_hint"] = json!("For a requested comparison with a workspace-relative path, compare both files on disk, e.g. with cmp. Do not convert the local path to a URL.");
         Ok(result)
     }
 
@@ -584,7 +607,13 @@ impl Browser {
         if matches!(action, "open" | "navigate") {
             validate_url(args["url"].as_str().context("Missing URL")?)?;
         }
-        validate_form_action(action, args)?;
+        if let Err(error) = validate_form_action(action, args) {
+            if action == "fill" {
+                return Ok(json!({"ok":false,"execution_status":"not_executed",
+                    "category":"invalid_arguments","error":error.to_string()}));
+            }
+            return Err(error);
+        }
         if action == "scroll" {
             validate_scroll(args)?;
         }
@@ -652,8 +681,27 @@ impl Browser {
                 self.scope.check(url, operation)?;
             }
         }
+        let mut form_doc = None;
         if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
-            self.check_document_scope(args, operation)?;
+            if matches!(action, "fill" | "click" | "select" | "set_checked")
+                && args.get("frame_selector").is_none()
+            {
+                let page = self.raw("evaluate", &json!({"expression":"location.href"}))?;
+                let url = page.as_str().context("Current tab URL unavailable")?;
+                if let Err(error) = self.scope.check(url, operation) {
+                    if !Self::loopback_lab_url(url) || self.scope.check(url, "read").is_err() {
+                        return Err(error);
+                    }
+                    let identity = self.raw("document_identity", &json!({}))?;
+                    anyhow::ensure!(
+                        identity[0] == page && identity[1].as_str().is_some_and(|s| !s.is_empty()),
+                        "Page changed before approval"
+                    );
+                    form_doc = Some((url.to_owned(), identity));
+                }
+            } else {
+                self.check_document_scope(args, operation)?;
+            }
         }
 
         let automatic_read = self.inspection_grant
@@ -682,7 +730,20 @@ impl Browser {
                 }
             }
         }
-        if !automatic_read && reused.is_none()
+        if let Some((url, identity)) = &form_doc {
+            let key = (url.clone(), action.to_owned());
+            if !self.remembered_form_actions.contains(&key) {
+                let remember = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let detail = format!("Page: {}\nAction: {}\nArguments: {}\nRemember permits future {} actions on this exact page in this session.", json!(url), action, args, action);
+                if !tools.approve_with_memory("Local browser form action", &detail, Some(remember.clone()))? {
+                    return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
+                }
+                anyhow::ensure!(self.raw("document_identity", &json!({}))? == *identity, "Page changed during approval; no action dispatched");
+                if remember.load(std::sync::atomic::Ordering::Relaxed) {
+                    self.remembered_form_actions.insert(key);
+                }
+            }
+        } else if !automatic_read && reused.is_none()
             && !tools.approve(
                 &if grouped { format!("Browser: {action} (allow snapshot, network and console reads on this page for this task)") } else { format!("Browser: {action}") },
                 &format!(
@@ -693,7 +754,12 @@ impl Browser {
         {
             return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
         }
-        if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
+        if let Some((_, identity)) = &form_doc {
+            anyhow::ensure!(
+                self.raw("document_identity", &json!({}))? == *identity,
+                "Page changed before dispatch; no action dispatched"
+            );
+        } else if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
             self.check_document_scope(args, operation)?;
         }
         if self.status()["ready"] != true && matches!(action, "open" | "navigate") {
@@ -710,9 +776,6 @@ impl Browser {
         }
         if action == "source" {
             self.check_source_scope(args)?;
-        }
-        if mutation {
-            self.uncertain_mutation = true;
         }
         let dispatch_epoch = self.status()["connection_epoch"].as_u64();
         if checked_epoch.is_some()
@@ -732,6 +795,10 @@ impl Browser {
                 json!({"ok":false,"execution_status":"not_executed","error":"Browser not configured; start or attach it before acting"}),
             );
         };
+        // Only a call handed to a transport can have an unconfirmed effect.
+        if mutation {
+            self.uncertain_mutation = true;
+        }
         let mut value = match outcome {
             Ok(value) => value,
             Err(_) => {
@@ -812,6 +879,9 @@ impl Browser {
             }
         }
         let mut result = action_result(action, value);
+        if result["execution_status"] == "unknown" {
+            self.uncertain_mutation = true;
+        }
         result["observation_kind"] = json!(if action == "snapshot" {
             "current_page_read"
         } else {
@@ -839,6 +909,26 @@ fn source_scope_check(
     policy.check(target, "read")
 }
 fn action_result(action: &str, value: Value) -> Value {
+    if matches!(action, "click" | "fill") {
+        if let Some(
+            reason @ ("missing_selector"
+            | "invalid_selector"
+            | "no_match"
+            | "multiple_matches"
+            | "hidden_or_disabled"
+            | "read_only"
+            | "unsupported_control"
+            | "invalid_value"),
+        ) = value["precondition_failed"].as_str()
+        {
+            return json!({"ok":false,"execution_status":"not_executed","category":"browser_precondition_failed","error":reason,"automatic_retry":false});
+        }
+        if (action == "click" && value["clicked"] != true)
+            || (action == "fill" && !value["matched"].is_boolean())
+        {
+            return json!({"ok":false,"execution_status":"unknown","error":"Missing action acknowledgement; inspect current state. No action replayed.","automatic_retry":false});
+        }
+    }
     if action == "wait_for" {
         return json!({"ok":value["matched"]==true,"untrusted_web_content":true,"result":value,"note":"Selector stability is bounded readiness evidence, not proof React or all network work finished."});
     }
@@ -877,14 +967,21 @@ fn validate_scroll(args: &Value) -> Result<()> {
 }
 
 fn validate_form_action(action: &str, args: &Value) -> Result<()> {
-    if !matches!(action, "select" | "set_checked") {
+    if !matches!(action, "fill" | "select" | "set_checked") {
         return Ok(());
     }
     let selector = args["selector"].as_str().context("Missing selector")?;
     if selector.is_empty() || selector.len() > 4000 {
         anyhow::bail!("Invalid selector length");
     }
-    if action == "select" {
+    if action == "fill" {
+        let value = args["value"]
+            .as_str()
+            .context("fill requires a string value")?;
+        if value.encode_utf16().count() > 16000 {
+            anyhow::bail!("Fill value exceeds limit");
+        }
+    } else if action == "select" {
         let value = args["value"]
             .as_str()
             .context("select requires an exact option value")?;
@@ -1057,6 +1154,86 @@ mod tests {
             .unwrap();
         assert_eq!(result["denied"], true);
         assert_eq!(result["execution_status"], "not_executed");
+    }
+    #[test]
+    fn loopback_form_consent_resumes_one_action_without_widening_scope() {
+        let url = "http://127.0.0.1:8765/bench.html";
+        let root = tempfile::tempdir().unwrap();
+        let mut browser = Browser::new(root.path());
+        browser.scope.command(&format!("allow {url} read")).unwrap();
+        browser.command("start 0").unwrap();
+        let identity = json!([url, "page1"]);
+        let worker = extension_fixture(
+            &browser,
+            vec![
+                ("evaluate", Some(json!(url))),
+                ("document_identity", Some(identity.clone())),
+                ("document_identity", Some(identity.clone())),
+                ("document_identity", Some(identity)),
+                ("fill", Some(json!({"filled":true,"matched":true}))),
+                ("evaluate", Some(json!(url))),
+            ],
+        );
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::Tui(tx));
+        let approval = std::thread::spawn(move || {
+            let request = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+            assert!(request.detail.contains(url));
+            assert!(request.remember.is_some());
+            request.respond_to.send(true).unwrap();
+        });
+        assert_eq!(
+            browser
+                .invoke(
+                    &tools,
+                    &json!({"action":"fill","selector":"#quantity","value":"3"})
+                )
+                .unwrap()["ok"],
+            true
+        );
+        approval.join().unwrap();
+        assert_eq!(
+            worker
+                .join()
+                .unwrap()
+                .iter()
+                .filter(|action| action.as_str() == "fill")
+                .count(),
+            1
+        );
+        assert!(browser.remembered_form_actions.is_empty());
+        assert!(browser.scope.check(url, "mutate").is_err());
+    }
+
+    #[test]
+    fn unconfigured_fill_does_not_block_an_authorized_fill_after_connecting() {
+        let root = tempfile::tempdir().unwrap();
+        let mut browser = Browser::new(root.path());
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::Tui(tx));
+        let approvals = std::thread::spawn(move || {
+            for _ in 0..2 {
+                rx.recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap()
+                    .respond_to
+                    .send(true)
+                    .unwrap();
+            }
+        });
+        let args = json!({"action":"fill","selector":"#quantity","value":"3"});
+        assert_eq!(
+            browser.invoke(&tools, &args).unwrap()["execution_status"],
+            "not_executed"
+        );
+        assert!(!browser.uncertain_mutation);
+        browser.command("start 0").unwrap();
+        let worker = extension_fixture(
+            &browser,
+            vec![("fill", Some(json!({"filled":true,"matched":true})))],
+        );
+        assert_eq!(browser.invoke(&tools, &args).unwrap()["ok"], true);
+        assert_eq!(worker.join().unwrap(), vec!["fill"]);
+        approvals.join().unwrap();
     }
     #[test]
     fn interrupted_scroll_is_unknown_and_identical_retry_is_blocked() {
@@ -1386,7 +1563,30 @@ mod form_action_tests {
         assert_eq!(action_result("set_checked", json!({}))["ok"], false);
     }
     #[test]
+    fn target_rejections_and_missing_acknowledgements_are_distinct() {
+        for action in ["click", "fill"] {
+            assert_eq!(
+                action_result(action, json!({"precondition_failed":"no_match"}))
+                    ["execution_status"],
+                "not_executed"
+            );
+            assert_eq!(
+                action_result(action, json!({}))["execution_status"],
+                "unknown"
+            );
+        }
+        assert_eq!(
+            action_result("fill", json!({"matched":false}))["execution_status"],
+            "executed_state_mismatch"
+        );
+        assert_eq!(action_result("click", json!({"clicked":true}))["ok"], true);
+    }
+    #[test]
     fn validates_form_actions_before_execution() {
+        assert!(validate_form_action("fill", &json!({"selector":"#quantity","value":"3"})).is_ok());
+        assert!(validate_form_action("fill", &json!({"selector":"#quantity","value":3})).is_err());
+        assert!(validate_form_action("fill", &json!({"value":"3"})).is_err());
+        assert!(validate_form_action("fill", &json!({"selector":"#quantity","value":""})).is_ok());
         assert!(
             validate_form_action("set_checked", &json!({"selector":"#a","checked":true})).is_ok()
         );

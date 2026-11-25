@@ -132,6 +132,65 @@ pub fn search(
     Ok(result)
 }
 
+fn newline_count(bytes: &[u8]) -> u64 {
+    bytes.iter().filter(|&&b| b == b'\n').count() as u64
+}
+
+// A nonzero search cursor can start in the middle of any line. Count only
+// actual LF bytes from the beginning and keep prefix verification bounded.
+fn first_search_line(file: &mut File, offset: u64, cancelled: &AtomicBool) -> Result<Option<u64>> {
+    if offset > SCAN {
+        return Ok(None);
+    }
+    file.seek(SeekFrom::Start(0))?;
+    let mut remaining = offset;
+    let mut line = 1;
+    let mut buf = [0; WINDOW];
+    while remaining > 0 {
+        if cancelled.load(Ordering::Relaxed) {
+            bail!("Search cancelled");
+        }
+        let count = remaining.min(WINDOW as u64) as usize;
+        file.read_exact(&mut buf[..count])?;
+        line += newline_count(&buf[..count]);
+        remaining -= count as u64;
+    }
+    Ok(Some(line))
+}
+
+// Only quote a complete source line. In particular, never label a clipped
+// minified line or a suffix from a byte window as the exact line.
+fn matching_line(file: &mut File, start: u64, size: u64) -> Result<Option<String>> {
+    const LIMIT: usize = 512;
+    let lo = start.saturating_sub(LIMIT as u64 + 1);
+    let hi = size.min(start.saturating_add(LIMIT as u64 + 2));
+    file.seek(SeekFrom::Start(lo))?;
+    let mut buf = vec![0; (hi - lo) as usize];
+    file.read_exact(&mut buf)?;
+    let at = (start - lo) as usize;
+    let left = match buf[..at].iter().rposition(|&b| b == b'\n') {
+        Some(i) => i + 1,
+        None if lo == 0 => 0,
+        None => return Ok(None),
+    };
+    let right = match buf[at..].iter().position(|&b| b == b'\n') {
+        Some(i) => at + i,
+        None if hi == size => buf.len(),
+        None => return Ok(None),
+    };
+    let bytes = &buf[left..right];
+    let bytes = if buf.get(right) == Some(&b'\n') {
+        bytes.strip_suffix(b"\r").unwrap_or(bytes)
+    } else {
+        bytes
+    };
+    Ok(if bytes.len() <= LIMIT {
+        std::str::from_utf8(bytes).ok().map(str::to_owned)
+    } else {
+        None
+    })
+}
+
 pub(crate) fn search_open(
     file: &mut File,
     size: u64,
@@ -157,6 +216,7 @@ pub(crate) fn search_open(
         bail!("Byte offset exceeds file size");
     }
     let stop = offset.saturating_add(budget).min(size);
+    let mut base_line = first_search_line(file, offset, cancelled)?;
     let mut pos = offset;
     let mut carry = String::new();
     let mut hits = Vec::new();
@@ -178,10 +238,21 @@ pub(crate) fn search_open(
         let joined = std::mem::take(&mut carry) + &text;
         pos += text.len() as u64;
         let begin = last_end.saturating_sub(base) as usize;
+        let mut match_line = base_line;
+        let mut counted = 0;
         for (index, _) in joined[begin..].match_indices(query) {
+            let at = begin + index;
+            if let Some(line) = &mut match_line {
+                *line += newline_count(&joined.as_bytes()[counted..at]);
+            }
+            counted = at;
             let start = base + (begin + index) as u64;
             let end = start + query.len() as u64;
-            hits.push(json!({"byte_offset":start,"end_byte_offset":end}));
+            let line_text = matching_line(file, start, size)?;
+            hits.push(
+                json!({"byte_offset":start,"end_byte_offset":end,"line":match_line,
+                "line_complete":line_text.is_some(),"line_text":line_text}),
+            );
             last_end = end;
             if hits.len() == cap as usize {
                 next = Some(end);
@@ -196,6 +267,9 @@ pub(crate) fn search_open(
         while !joined.is_char_boundary(tail) {
             tail -= 1;
         }
+        if let Some(line) = &mut base_line {
+            *line += newline_count(&joined.as_bytes()[..tail]);
+        }
         carry = joined[tail..].to_owned();
     }
     if next.is_none() && pos < size {
@@ -207,7 +281,7 @@ pub(crate) fn search_open(
         json!({"matches":hits,"byte_offset":offset,"scanned_end_byte_offset":pos,
         "file_bytes":size,"next_byte_offset":next,"stop_reason":reason,
         "search_mode":"literal","regex_supported":false,"complete_from_offset":next.is_none(),"whole_file_searched":offset==0 && next.is_none(),
-        "match_semantics":"exact, case-sensitive, non-overlapping UTF-8 matches; byte offsets, no line count",
+        "match_semantics":"exact, case-sensitive, non-overlapping UTF-8 matches; line is absolute and 1-based (null for cursors beyond the prefix verification limit); line_text is the complete starting line when available",
         "consistency":"live file; size/mtime checked during call, not an immutable snapshot"}),
     )
 }
@@ -222,6 +296,26 @@ mod tests {
         let (file, meta) = open(temp.path()).unwrap();
         std::fs::write(temp.path(), "changed length").unwrap();
         assert!(unchanged(&file, &meta).is_err());
+    }
+
+    #[test]
+    fn search_returns_absolute_lines_and_exact_text_after_resume() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let import = "import { formatQuote } from './format.js';";
+        let call = "    byId('result').textContent = formatQuote(quote.total);";
+        let filler = "// تفاصيل\r\n".repeat(14);
+        std::fs::write(temp.path(), format!("{import}\r\n{filler}{call}")).unwrap();
+        let cancelled = AtomicBool::new(false);
+        let search_at = |offset, cap| {
+            search(temp.path(), "formatQuote", offset, 1024, cap, &cancelled).unwrap()
+        };
+        let both = search_at(0, 80);
+        assert_eq!(both["matches"][0]["line"], 1);
+        assert_eq!(both["matches"][0]["line_text"], import);
+        assert_eq!(both["matches"][1]["line"], 16);
+        assert_eq!(both["matches"][1]["line_text"], call);
+        let cursor = search_at(0, 1)["next_byte_offset"].as_u64().unwrap();
+        assert_eq!(search_at(cursor, 80)["matches"][0], both["matches"][1]);
     }
 
     #[test]

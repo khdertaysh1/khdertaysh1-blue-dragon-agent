@@ -18,9 +18,26 @@ pub struct ProviderFailure {
 }
 impl std::fmt::Display for ProviderFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Provider HTTP {}; category={}; code={}; reason={}; request_id={}; cooldown={}s source={}; provider_layer_retries=0",
-            self.status, if self.context_exceeded {"context_limit"} else if self.status == 400 {"invalid_request"} else if self.model_specific {"explicit_model_failure"} else {"unclassified_scope"},
-            self.code.as_deref().unwrap_or("unreported"),self.reason.as_deref().unwrap_or("unreported"),self.request_id.as_deref().unwrap_or("unreported"),self.retry_after,self.retry_after_source)
+        let category = if self.context_exceeded {
+            "context_limit"
+        } else if self.status == 400 {
+            "invalid_request"
+        } else if self.model_specific {
+            "explicit_model_failure"
+        } else if self.status == 429
+            && self.code.as_deref() == Some("PROMOTION_MODEL_LIMIT_REACHED")
+        {
+            "free_promotion_limit"
+        } else {
+            "unclassified_scope"
+        };
+        let cooldown = if self.retry_after_source == "not_reported" {
+            "unspecified".to_owned()
+        } else {
+            format!("{}s", self.retry_after)
+        };
+        write!(f, "Provider HTTP {}; category={category}; code={}; reason={}; request_id={}; cooldown={cooldown} source={}; provider_layer_retries=0",
+            self.status, self.code.as_deref().unwrap_or("unreported"), self.reason.as_deref().unwrap_or("unreported"), self.request_id.as_deref().unwrap_or("unreported"), self.retry_after_source)
     }
 }
 impl std::error::Error for ProviderFailure {}
@@ -69,6 +86,8 @@ impl ProviderFailure {
             "provider_header"
         } else if error["retry_after_seconds"].as_u64().is_some() {
             "provider_body"
+        } else if status == 429 {
+            "not_reported"
         } else {
             "program_default"
         };
@@ -131,7 +150,7 @@ impl Rotation {
         failure: &ProviderFailure,
         candidates: &[String],
     ) -> Option<String> {
-        if current == crate::models::KILO_MODEL
+        if (current == crate::models::KILO_MODEL && failure.status != 429)
             || !self.enabled
             || !failure.model_specific
             || self.remaining == 0
@@ -164,7 +183,7 @@ impl Rotation {
         json!({"mode":if self.enabled {"Blue Free automatic"} else {"pinned / disabled"},"active_model":active,"gateway_auto_alias_preserved":active==crate::models::KILO_MODEL,
             "remaining_switches_this_turn":self.remaining,"max_switches_per_turn":3,"history":self.history,
             "cooldowns":self.cooldowns.iter().filter_map(|(id,until)| until.checked_duration_since(Instant::now()).map(|d|json!({"model":id,"seconds":d.as_secs()}))).collect::<Vec<_>>(),
-            "rules":"Same Kilo zero-priced tool-capable pool only. No paid/auth/IP/global-limit fallback; no retry after stream interruption; completed tools are never replayed."})
+            "rules":"Model rotation uses the Kilo free pool. Provider rotation on HTTP 429 uses the configured destination order. Completed tools are never replayed."})
     }
 }
 
@@ -195,7 +214,9 @@ mod tests {
         .map(str::to_owned);
         assert!(r.next("kilo-auto/free", &ip, &pool).is_none());
         assert!(r.next("kilo-auto/free", &unknown, &pool).is_none());
-        assert!(r.next("kilo-auto/free", &model, &pool).is_none());
+        assert!(Rotation::new(true)
+            .next("kilo-auto/free", &model, &pool)
+            .is_some());
         let one = r.next("a/start:free", &model, &pool).unwrap();
         let two = r.next(&one, &model, &pool).unwrap();
         let three = r.next(&two, &model, &pool).unwrap();
@@ -234,7 +255,7 @@ mod diagnostic_tests {
         assert!(!invalid.model_specific);
         let unspecified = ProviderFailure::from_response(429, None, "{}");
         assert_eq!(unspecified.retry_after, 0);
-        assert_eq!(unspecified.retry_after_source, "program_default");
+        assert_eq!(unspecified.retry_after_source, "not_reported");
         let body = ProviderFailure::from_response(
             429,
             None,

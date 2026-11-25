@@ -44,6 +44,7 @@ const MAX_LOG_LINES: usize = 600;
 
 enum Work {
     Prompt(String),
+    QueuedPrompt(String),
     Slash(String),
 }
 
@@ -86,6 +87,7 @@ struct Screen {
     busy: bool,
     followups: std::collections::VecDeque<String>,
     approval: Option<ApprovalRequest>,
+    quota_reply: Option<mpsc::Sender<String>>,
     picker: Option<ModelPicker>,
     approval_scroll: u16,
     scroll_up: usize,
@@ -114,6 +116,7 @@ impl Screen {
             busy: false,
             followups: Default::default(),
             approval: None,
+            quota_reply: None,
             picker: None,
             approval_scroll: 0,
             scroll_up: 0,
@@ -255,7 +258,7 @@ impl Screen {
         }
         if let Some(text) = self.followups.pop_front() {
             self.log("You:", &text);
-            if tx.send(Work::Prompt(text)).is_ok() {
+            if tx.send(Work::QueuedPrompt(text)).is_ok() {
                 self.busy = true;
                 self.status = "Working on queued follow-up".into();
             } else {
@@ -270,7 +273,14 @@ impl Screen {
             let _ = request.respond_to.send(accepted);
             self.log(
                 "Approval:",
-                if accepted && crate::browser::group_approval(&request.action) {
+                if accepted
+                    && request
+                        .remember
+                        .as_ref()
+                        .is_some_and(|v| v.load(std::sync::atomic::Ordering::Relaxed))
+                {
+                    "Approved and remembered for this session"
+                } else if accepted && crate::browser::group_approval(&request.action) {
                     "Approved page reads for this task"
                 } else if accepted {
                     "Approved one action"
@@ -408,6 +418,8 @@ pub fn run(
 
     let (work_tx, work_rx) = mpsc::channel::<Work>();
     let (message_tx, message_rx) = mpsc::sync_channel::<AgentEvent>(256);
+    let (quota_tx, quota_rx) =
+        mpsc::channel::<(Vec<crate::models::ModelChoice>, mpsc::Sender<String>)>();
     let (approval_tx, approval_rx) = mpsc::channel::<ApprovalRequest>();
     if saved_resume.is_some() {
         app.log("System", "Continuing a saved conversation.");
@@ -431,6 +443,24 @@ pub fn run(
                 return;
             }
         };
+        let stop = cancellation.clone();
+        agent.quota_picker = Box::new(move |choices| {
+            let (reply, rx) = mpsc::channel();
+            quota_tx.send((choices.to_vec(), reply))?;
+            loop {
+                anyhow::ensure!(
+                    !stop.load(std::sync::atomic::Ordering::Relaxed),
+                    "Provider selection cancelled"
+                );
+                match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(id) => return Ok(id),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        anyhow::bail!("Provider selection cancelled")
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
+        });
         agent.set_cancellation(cancellation);
         agent.set_jobs(jobs);
         agent.set_output(message_tx.clone());
@@ -442,6 +472,7 @@ pub fn run(
         for work in work_rx {
             let result = match work {
                 Work::Prompt(prompt) => agent.turn(&prompt),
+                Work::QueuedPrompt(prompt) => agent.queued_turn(&prompt),
                 Work::Slash(line) => run_slash(&mut agent, &message_tx, &line),
             };
             let status = result.map_err(|error| format!("{error:#}"));
@@ -523,6 +554,17 @@ pub fn run(
                 AgentEvent::ToolResult(summary) => {
                     app.log("Result:", &summary);
                 }
+            }
+        }
+        if let Ok((choices, reply)) = quota_rx.try_recv() {
+            if app.busy && !app.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                app.quota_reply = Some(reply);
+                app.picker = Some(ModelPicker {
+                    choices,
+                    selected: 0,
+                    query: String::new(),
+                    source: "429 · Choose where to send this conversation and continue".into(),
+                });
             }
         }
         while let Ok(request) = approval_rx.try_recv() {
@@ -610,6 +652,9 @@ pub fn run(
                     .store(true, std::sync::atomic::Ordering::Relaxed);
                 app.jobs.cancel_all();
                 app.approve(false);
+                if app.quota_reply.take().is_some() {
+                    app.picker = None;
+                }
                 app.status = "Cancellation requested; waiting for current I/O".into();
                 continue;
             }
@@ -621,6 +666,7 @@ pub fn run(
         if let Some(picker) = &mut app.picker {
             match key.code {
                 KeyCode::Esc => {
+                    app.quota_reply.take();
                     app.picker = None;
                     app.status = "Ready".into();
                 }
@@ -637,13 +683,25 @@ pub fn run(
                     picker.query.push(c);
                     picker.selected = 0;
                 }
-                KeyCode::Enter if !app.busy => {
+                KeyCode::Enter if !app.busy || app.quota_reply.is_some() => {
                     if let Some(id) = picker.current() {
                         app.picker = None;
+                        if let Some(reply) = app.quota_reply.take() {
+                            let _ = reply.send(id);
+                            app.status = "Continuing with selected model".into();
+                            continue;
+                        }
                         app.cancelled
                             .store(false, std::sync::atomic::Ordering::Relaxed);
                         if work_tx
-                            .send(Work::Slash(format!("/model kilo {id}")))
+                            .send(Work::Slash(format!(
+                                "/model {} {id}",
+                                if id == crate::models::FREE_MODEL {
+                                    "jarvis"
+                                } else {
+                                    "kilo"
+                                }
+                            )))
                             .is_ok()
                         {
                             app.busy = true;
@@ -657,6 +715,18 @@ pub fn run(
         }
         if app.approval.is_some() {
             match key.code {
+                KeyCode::Char('r' | 'R')
+                    if app
+                        .approval
+                        .as_ref()
+                        .and_then(|r| r.remember.as_ref())
+                        .is_some() =>
+                {
+                    if let Some(flag) = app.approval.as_ref().and_then(|r| r.remember.as_ref()) {
+                        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    app.approve(true);
+                }
                 KeyCode::Char('y' | 'Y') => app.approve(true),
                 KeyCode::Char('n' | 'N') => app.approve(false),
                 KeyCode::Esc => {
@@ -722,7 +792,12 @@ pub fn run(
 
 fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -> Result<()> {
     if matches!(line, "/model" | "/models" | "/models refresh") {
-        let (choices, source) = agent.kilo_models(line == "/models refresh")?;
+        let (mut choices, source) = agent.kilo_models(line == "/models refresh")?;
+        choices.push(crate::models::ModelChoice {
+            id: crate::models::FREE_MODEL.into(),
+            name: "JarvisClaw automatic route".into(),
+            context_length: 0,
+        });
         let _ = tx.send(AgentEvent::ModelChoices(choices, source));
         return Ok(());
     }
@@ -736,7 +811,6 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         return agent.resume_file(line["/resume-file".len()..].trim());
     }
     let response = match line {
-        "/models openrouter" => crate::models::refresh()?,
         _ if line.starts_with("/model ") => {
             agent.select_model(line.trim_start_matches("/model "))?
         }
@@ -1068,7 +1142,14 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         let filtered = picker.filtered();
         let items: Vec<_> = filtered
             .iter()
-            .map(|c| ListItem::new(format!("{}\n{}", c.name, c.id)))
+            .map(|c| {
+                ListItem::new(format!(
+                    "{} · {}\n{}",
+                    c.name,
+                    crate::models::rating(&c.id),
+                    c.id
+                ))
+            })
             .collect();
         let empty = items.is_empty();
         let items = if empty {
@@ -1093,7 +1174,9 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
             regions[1],
             &mut state,
         );
-        let footer = if popup.width < 70 {
+        let footer = if app.quota_reply.is_some() {
+            "Enter continues task on selected service / Esc stops"
+        } else if popup.width < 70 {
             "Enter saves / Esc closes\nPrompts may be logged. Public only."
         } else {
             "Arrows: choose | Enter: select & save | Esc: close\nCatalog is not a live test. Kilo/upstreams may log prompts & tool results. No confidential data."
@@ -1136,7 +1219,9 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
             regions[0],
         );
         frame.render_widget(
-            Paragraph::new(if crate::browser::group_approval(&request.action) {
+            Paragraph::new(if request.remember.is_some() {
+                "[Y] once · [R] remember for session · [N/Esc] deny"
+            } else if crate::browser::group_approval(&request.action) {
                 "[Y] allow page reads this task · [N/Esc] deny\nUp/Down scroll details"
             } else {
                 "[Y] approve one · [N/Esc] deny\nUp/Down scroll details"
@@ -1386,6 +1471,7 @@ mod tests {
                 action: "Write demo".into(),
                 detail: "Only this change".into(),
                 respond_to: tx,
+                remember: None,
             });
             terminal.draw(|frame| draw(frame, &app)).unwrap();
             let rendered = terminal
@@ -1440,6 +1526,7 @@ mod tests {
             action: "Write file".into(),
             detail: "Long change details\n".repeat(100),
             respond_to: tx,
+            remember: None,
         });
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
         for scroll in [0, 30, u16::MAX] {
@@ -1516,9 +1603,9 @@ mod tests {
         app.submit(&tx);
         app.input = "unsent draft".into();
         app.dispatch_followup(&tx);
-        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "draft"));
+        assert!(matches!(rx.try_recv(), Ok(Work::QueuedPrompt(s)) if s == "draft"));
         app.dispatch_followup(&tx);
-        assert!(matches!(rx.try_recv(), Ok(Work::Prompt(s)) if s == "second"));
+        assert!(matches!(rx.try_recv(), Ok(Work::QueuedPrompt(s)) if s == "second"));
         assert_eq!(app.input, "unsent draft");
         assert!(rx.try_recv().is_err());
     }
@@ -1531,6 +1618,7 @@ mod tests {
             action: "Write file".into(),
             detail: "demo".into(),
             respond_to: tx,
+            remember: None,
         });
         app.approve(false);
         assert!(!rx.recv().unwrap());

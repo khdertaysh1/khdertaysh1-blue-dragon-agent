@@ -62,6 +62,10 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
             if shown_count < excerpt.chars().count() {
                 page["next_offset"] = json!(offset.saturating_add(shown_count as u64));
             }
+            if page.get("resume_offset").is_some() {
+                page.as_object_mut().unwrap().remove("already_read_pages");
+                page["resume_offset"] = page["next_offset"].clone();
+            }
             page["projection_excerpted"] = json!(shown_count < excerpt.chars().count());
             page["original_recall_result_index"] = json!(index);
             page["projection_note"]=json!("Historical original slice; continue message_index at next_offset. Do not recall this recall-result wrapper. Original result remains saved; no replay.");
@@ -105,6 +109,33 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
                     value.clone()
                 },
             );
+        }
+    }
+    // Keep complete literal-search hits together when raw JSON is too long.
+    // A clipped byte window cannot supply an absolute line number.
+    if parsed["search_mode"] == "literal" {
+        if let Some(matches) = parsed["matches"].as_array() {
+            let mut rows = Vec::new();
+            let mut remaining = cap;
+            for hit in matches {
+                let row = json!({"line":hit["line"],"line_text":hit["line_text"],
+                    "byte_offset":hit["byte_offset"],"line_complete":hit["line_complete"]});
+                let length = row.to_string().len();
+                if length > remaining {
+                    break;
+                }
+                remaining -= length;
+                rows.push(row);
+            }
+            selected.insert("matches_omitted".into(), json!(matches.len() - rows.len()));
+            selected.insert("matches".into(), json!(rows));
+            selected.insert(
+                "whole_file_searched".into(),
+                parsed["whole_file_searched"].clone(),
+            );
+            selected.insert("original_message_index".into(), json!(index));
+            selected.insert("omitted_details".into(), json!("Recall omitted matches from the original result. Report only verified absolute line numbers."));
+            return Value::Object(selected).to_string();
         }
     }
     if parsed["untrusted_web_content"] == true && parsed["ok"] == true {
@@ -913,6 +944,29 @@ pub fn recall(history: &[Value], args: &Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn compact_literal_search_retains_numbered_matches() {
+        let result = json!({"search_mode":"literal","whole_file_searched":true,
+            "padding":"x".repeat(800),"matches":[
+                {"line":1,"line_text":"import symbol","line_complete":true,"byte_offset":7},
+                {"line":16,"line_text":"symbol()","line_complete":true,"byte_offset":550}]});
+        let page: serde_json::Value =
+            serde_json::from_str(&super::compact(&result.to_string(), 300, 7)).unwrap();
+        assert_eq!(page["matches"], result["matches"]);
+        assert_eq!(page["matches_omitted"], 0);
+    }
+
+    #[test]
+    fn compacted_cached_excerpt_resumes_after_visible_characters() {
+        let page = serde_json::json!({"ok":true,"untrusted_historical_data":true,
+            "message_index":42,"reran_tool":false,"offset":10,"excerpt":"abcdefgh",
+            "next_offset":18,"already_read_pages":[{"excerpt":"ijk"}],"resume_offset":21});
+        let projected: serde_json::Value =
+            serde_json::from_str(&super::compact(&page.to_string(), 4, 9)).unwrap();
+        assert_eq!(projected["excerpt"], "abcd");
+        assert_eq!(projected["resume_offset"], 14);
+        assert!(projected.get("already_read_pages").is_none());
+    }
     #[test]
     fn reported_usage_tightens_only_same_model_projection_target() {
         let metrics = json!({"usage_reported":true,"requested_model":"fixture","actual_model":"fixture","estimated_message_tokens":3000,"estimated_tool_tokens":1000,"usage":{"prompt_tokens":8000}});

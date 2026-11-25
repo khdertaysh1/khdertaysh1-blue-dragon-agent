@@ -44,17 +44,7 @@ impl Settings {
             root,
             base_url,
             model,
-            api_key: std::env::var("BLUE_DRAGON_API_KEY")
-                .ok()
-                .filter(|x| !x.is_empty())
-                .or_else(|| {
-                    let key_name = if parsed.host_str() == Some("api.anthropic.com") {
-                        "ANTHROPIC_API_KEY"
-                    } else {
-                        "OPENAI_API_KEY"
-                    };
-                    std::env::var(key_name).ok().filter(|x| !x.is_empty())
-                }),
+            api_key: None,
             sessions_dir,
             mcp_config: None,
             stream: true,

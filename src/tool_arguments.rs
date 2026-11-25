@@ -373,6 +373,14 @@ pub fn diagnostic_view(tool: &str, result: &Value) -> Value {
             out[key] = result[key].clone();
         }
     }
+    if tool == "run_command"
+        && matches!(
+            result["spawn_reason"].as_str(),
+            Some("not_found" | "permission_denied" | "other")
+        )
+    {
+        out["spawn_reason"] = result["spawn_reason"].clone();
+    }
     if tool == "browser" {
         for key in [
             "ready",
@@ -828,10 +836,18 @@ pub fn summary(result: &Value) -> String {
         return "Denied by user; not executed".into();
     }
     match result["command_outcome"].as_str() {
-        Some("spawn_failure") => format!(
-            "Spawn failure (OS code {}); no process started",
-            result["os_error_code"]
-        ),
+        Some("spawn_failure") => {
+            let reason = match result["spawn_reason"].as_str() {
+                Some("not_found") => "required path not found",
+                Some("permission_denied") => "permission denied",
+                _ => "unable to start process",
+            };
+            let code = result["os_error_code"]
+                .as_i64()
+                .map(|n| format!(" (OS code {n})"))
+                .unwrap_or_default();
+            format!("Spawn failure: {reason}{code}; no process started")
+        }
         Some("timeout") => "Timeout; partial effects possible, do not replay".into(),
         Some("cancelled") if result["execution_status"] == "not_executed" => {
             "Cancelled; no process started".into()

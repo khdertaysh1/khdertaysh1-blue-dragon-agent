@@ -15,6 +15,7 @@ pub struct ApprovalRequest {
     pub action: String,
     pub detail: String,
     pub respond_to: std::sync::mpsc::Sender<bool>,
+    pub remember: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 #[derive(Debug, Clone)]
@@ -446,6 +447,15 @@ impl ToolBox {
             .swap(false, std::sync::atomic::Ordering::Relaxed)
     }
     pub fn approve(&self, action: &str, detail: &str) -> Result<bool> {
+        self.approve_with_memory(action, detail, None)
+    }
+
+    pub(crate) fn approve_with_memory(
+        &self,
+        action: &str,
+        detail: &str,
+        remember: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Result<bool> {
         self.user_declined
             .store(false, std::sync::atomic::Ordering::Relaxed);
         if self.is_cancelled() {
@@ -464,6 +474,7 @@ impl ToolBox {
                     action: action.to_owned(),
                     detail: detail.to_owned(),
                     respond_to,
+                    remember,
                 })
                 .context("Terminal UI closed while requesting approval")?;
             loop {
@@ -807,9 +818,19 @@ impl ToolBox {
         let mut child = match command.spawn() {
             Ok(c) => c,
             Err(e) => {
-                return Ok(
-                    json!({"ok":false,"command_outcome":"spawn_failure","category":"spawn_failure","execution_status":"not_executed","error":e.to_string(),"exit_code":null,"stdout":"","stderr":""}),
-                )
+                let mut result = json!({"ok":false,"command_outcome":"spawn_failure","category":"spawn_failure","execution_status":"not_executed","os_error_code":e.raw_os_error(),
+                    "spawn_reason":match e.kind() {
+                        std::io::ErrorKind::NotFound => "not_found",
+                        std::io::ErrorKind::PermissionDenied => "permission_denied",
+                        _ => "other",
+                    },"error":e.to_string(),"exit_code":null,"stdout":"","stderr":""});
+                if program == "which"
+                    && args == ["node"]
+                    && e.kind() == std::io::ErrorKind::NotFound
+                {
+                    result["runtime_hint"] = json!("The which lookup did not start. Node availability is unknown. If the user requested a Node script, request approval to run node with the script path directly; do not repeat which or rewrite the script.");
+                }
+                return Ok(result);
             }
         };
         let execution = (|| -> Result<Value> {
@@ -934,7 +955,7 @@ pub fn definitions() -> Value {
         {"type":"function","function":{"name":"read_file","description":"Read one UTF-8 project file, up to 128KiB, excluding secret paths.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"file_outline","description":"Inspect syntactic declarations/imports/calls in exactly one allowed UTF-8 source file up to 128000 bytes using the existing parser. No workspace scan. Supports Rust/Python/JS/TS/TSX. Not semantic resolution; check parse/limit flags. Paginated calls require previous source_sha256 as expected_sha256.","parameters":{"type":"object","properties":{"path":{"type":"string"},"kind":{"type":"string","enum":["declarations","imports","calls"]},"query":{"type":"string","maxLength":100},"offset":{"type":"integer","minimum":0,"maximum":2000},"limit":{"type":"integer","minimum":1,"maximum":40},"expected_sha256":{"type":"string"}},"required":["path"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"read_file_window","description":"Read a bounded UTF-8 window of a large local project file. Byte offsets must be character boundaries. Follow next_byte_offset. window_sha256 is NOT a whole-file edit hash. Live file, not cached snapshot.","parameters":{"type":"object","properties":{"path":{"type":"string"},"byte_offset":{"type":"integer","minimum":0},"byte_count":{"type":"integer","minimum":1,"maximum":16384}},"required":["path","byte_offset","byte_count"],"additionalProperties":false}}},
-        {"type":"function","function":{"name":"search_file","description":"Literal substring search (not regex). Stream exact non-overlapping UTF-8 matches in one local file with bounded memory and scan budget. Follow next_byte_offset; incomplete scans do not establish absence. Returns byte offsets for read_file_window, not line numbers.","parameters":{"type":"object","properties":{"path":{"type":"string"},"query":{"type":"string"},"byte_offset":{"type":"integer","minimum":0},"scan_bytes":{"type":"integer","minimum":1024,"maximum":8388608},"max_matches":{"type":"integer","minimum":1,"maximum":80}},"required":["path","query","byte_offset","scan_bytes","max_matches"],"additionalProperties":false}}},
+        {"type":"function","function":{"name":"search_file","description":"Literal substring search (not regex). Stream exact non-overlapping UTF-8 matches in one local file with bounded memory and scan budget. Follow next_byte_offset; incomplete scans do not establish absence. Report matches using the returned absolute line and exact line_text. A null field is unverified; never infer a line number from a byte window.","parameters":{"type":"object","properties":{"path":{"type":"string"},"query":{"type":"string"},"byte_offset":{"type":"integer","minimum":0},"scan_bytes":{"type":"integer","minimum":1024,"maximum":8388608},"max_matches":{"type":"integer","minimum":1,"maximum":80}},"required":["path","query","byte_offset","scan_bytes","max_matches"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"search_files","description":"Find exact string occurrences across listed project text files up to 128KiB each; larger files are skipped. Use search_file for a selected large file.","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"project_map","description":"Generate a bounded language and manifest overview of the current project (heuristic; does not read source contents).","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
         {"type":"function","function":{"name":"git_status","description":"Read Git working tree status, including untracked files.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},

@@ -3,7 +3,14 @@ use serde_json::{json, Value};
 
 pub fn scrub(value: &str, key: Option<&str>, messages: &[Value]) -> String {
     let mut text = value.to_string();
-    if let Some(key) = key.filter(|k| !k.is_empty()) {
+    // A keyless route may still receive an echo of a credential present in
+    // the environment. Use it only for local redaction.
+    let ambient = std::env::var("BLUE_DRAGON_API_KEY").ok();
+    for key in [key, ambient.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|k| !k.is_empty())
+    {
         text = text.replace(key, "[credential redacted]");
     }
     // Error messages sometimes echo the rejected private content/arguments.

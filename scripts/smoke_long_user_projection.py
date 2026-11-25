@@ -136,7 +136,7 @@ def trial(binary,language,baseline,distinct=False,structured=False,marked=False)
     results={m['tool_call_id']:json.loads(m['content']) for m in saved['messages'] if m['role']=='tool'}
     assert results['t4']['window_sha256']==hashlib.sha256(data[1098:1130]).hexdigest()
     assert results['t29']['content']==results['t4']['content']
-    assert results['t9']['matches']==[{'byte_offset':1100,'end_byte_offset':1106}]
+    assert results['t9']['matches']==[{'byte_offset':1100,'end_byte_offset':1106,'line':1,'line_text':None,'line_complete':False}]
     assert results['t14']['ready'] is False
     assert results['t19'].get('denied') is True or results['t19'].get('ok') is False
     assert results['t24']['matches']==[] and results['t24']['whole_file_searched'] is False

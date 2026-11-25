@@ -170,10 +170,74 @@ pub(crate) fn source_path(word: &str) -> Option<&str> {
     let extension = std::path::Path::new(word).extension()?.to_str()?;
     suffixes.contains(&extension).then_some(word)
 }
+// File-like names in a browser trace are lookup keys, not workspace paths.
+// If a request also asks for a disk read, run the ordinary detector only on
+// that instruction so byte ranges and filename case survive unchanged.
+fn network_record_instruction(clause: &str) -> bool {
+    let lower = clause.to_lowercase().replace('ّ', "");
+    [
+        "network log",
+        "network tab",
+        "network panel",
+        "network capture",
+        "network record",
+        "network trace",
+        "network_events",
+        "saved network",
+        "browser network",
+        "network requests",
+        "سجل network",
+        "سجل الـnetwork",
+        "سجل الشبكة",
+        "تبويب الشبكة",
+        "طلبات الشبكة",
+    ]
+    .iter()
+    .any(|marker| {
+        lower.match_indices(marker).any(|(i, matched)| {
+            let after = &lower[i + matched.len()..];
+            !after.starts_with(|c: char| c.is_alphanumeric() || matches!(c, '_' | '/'))
+                && !(after.starts_with('.') && after[1..].starts_with(char::is_alphanumeric))
+        })
+    })
+}
+
 pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     if prompt.len() > 25_000 {
         return vec![];
     }
+    if network_record_instruction(prompt) {
+        // Split at instruction boundaries, never at a dot inside a filename.
+        let separated = prompt
+            .replace(". ", "\n")
+            .replace(" ثم ", "\n")
+            .replace(" واقرأ ", "\nاقرأ ")
+            .replace(" وأعد قراءة ", "\nأعد قراءة ")
+            .replace(" and then ", "\n")
+            .replace(" then ", "\n")
+            .replace(" and read ", "\nread ")
+            .replace(" and recheck ", "\nrecheck ")
+            .replace(" and review ", "\nreview ");
+        let local = separated
+            .split(['\n', ';', '؛'])
+            .filter(|clause| !network_record_instruction(clause))
+            .filter(|clause| {
+                let clause = clause.trim().to_lowercase();
+                clause.contains("اقرأ")
+                    || clause.contains("أعد قراءة")
+                    || clause.starts_with("read ")
+                    || clause.contains("recheck")
+                    || clause.contains("fresh read")
+                    || clause.contains("read again")
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        return detect_local(local.trim(), session);
+    }
+    detect_local(prompt, session)
+}
+
+fn detect_local(prompt: &str, session: &Session) -> Vec<Request> {
     let text = prompt.to_lowercase();
     if [
         "do not read",
@@ -188,24 +252,9 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
     {
         return vec![];
     }
-    let historical_network = [
-        "network_events",
-        "saved network",
-        "network capture",
-        "سجل الشبكة المحفوظ",
-    ]
-    .iter()
-    .any(|marker| text.contains(marker));
     // A filename like bundle-01.js supplies a target, not a byte offset.
     let range_text = prompt
         .split_whitespace()
-        .filter(|word| {
-            // A stored network event offset selects a history page.
-            let cursor = word
-                .trim_end_matches(['.', ',', '،'])
-                .strip_prefix("offset=");
-            !(historical_network && cursor.is_some_and(|value| value.parse::<u64>().is_ok()))
-        })
         .map(|word| {
             if source_path(word).is_some() {
                 "<file>"
@@ -253,7 +302,7 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
         ]
         .iter()
         .any(|phrase| text.contains(phrase));
-    if (historical_network || historical_result)
+    if historical_result
         && paths.is_empty()
         && !bounded_only
         && ![
@@ -388,6 +437,34 @@ pub fn status(requests: &[Request], session: &Session, tools: &ToolBox) -> Value
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn network_lookup_targets_do_not_create_disk_reads() {
+        let session = crate::session::new(std::path::Path::new("."), "fixture");
+        for prompt in [
+            "بنفس التبويب، اقرأ سجلّ Network الحالي وابحث فيه عن GET للمسار /data/catalog.json. لا تطلب الملف مباشرة.",
+            "Read the network log for POST /api/Quote.json and report the status",
+            "اقرأ سجل الشبكة وابحث عن assets/App.js",
+            "Read the network capture for https://example.test/style.css",
+        ] {
+            assert!(detect(prompt, &session).is_empty(), "{prompt}");
+        }
+        assert_eq!(
+            detect("Read network_events.rs", &session)[0]
+                .path
+                .as_deref(),
+            Some("network_events.rs")
+        );
+        for prompt in [
+            "Read the network log for /api/items.json and then read Local.JSON.txt",
+            "اقرأ سجل الشبكة للمسار /api/items.json ثم اقرأ الملف المحلي Local.JSON.txt",
+            "Read Local.JSON.txt and review saved network evidence for /app/index.js",
+        ] {
+            let requests = detect(prompt, &session);
+            assert_eq!(requests.len(), 1, "{prompt}");
+            assert_eq!(requests[0].path.as_deref(), Some("Local.JSON.txt"));
+        }
+    }
+
     #[test]
     fn historical_network_question_does_not_request_local_source() {
         let session = crate::session::new(std::path::Path::new("."), "fixture");

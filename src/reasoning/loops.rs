@@ -109,11 +109,56 @@ impl Guard {
         self.saving_file
     }
 
+    // Recover immutable pages from this turn. Include already-read adjacent
+    // pages only when their contents fit; resume at the first undelivered page.
+    fn saved_pages(&self, args: &Value) -> Option<Value> {
+        let mut cursor = args.clone();
+        let read = |cursor: &Value| -> Option<Value> {
+            let seen = self.seen.get(&Self::key("recall_context", cursor))?;
+            let page: Value = serde_json::from_str(&seen.result).ok()?;
+            (page["ok"] == true).then_some(page)
+        };
+        let mut result = read(&cursor)?;
+        let mut next = result["next_offset"].as_u64();
+        let mut pages = Vec::new();
+        let mut tokens = super::context::estimate(&result.to_string());
+        while let Some(offset) = next {
+            if offset <= cursor["offset"].as_u64().unwrap_or(0) {
+                break;
+            }
+            cursor["offset"] = json!(offset);
+            let Some(page) = read(&cursor) else { break };
+            tokens += super::context::estimate(&page.to_string());
+            if tokens > 3500 {
+                break;
+            }
+            next = page["next_offset"].as_u64();
+            pages.push(page);
+        }
+        result["cached_result"] = json!(true);
+        result["reran_tool"] = json!(false);
+        result["resume_offset"] = json!(next);
+        result["already_read_pages"] = json!(pages);
+        result["paging_hint"] = json!("Use the returned contents, including already_read_pages. For an unfinished review, continue this same saved record and filters at resume_offset; null means end.");
+        Some(result)
+    }
+
     pub fn before(&mut self, name: &str, args: &Value) -> Option<Value> {
         if matches!(name, "job_status" | "job_output") {
             return None;
         }
         let key = Self::key(name, args);
+        if name == "recall_context" {
+            if let Some(page) = self.saved_pages(args) {
+                if self.last == key {
+                    self.consecutive_cached += 1;
+                } else {
+                    self.consecutive_cached = 1;
+                }
+                self.last = key;
+                return Some(page);
+            }
+        }
         if name == "recall_context" && (self.recall_reads >= 8 || self.seen.contains_key(&key)) {
             self.blocked += 1;
             self.consecutive_blocks += 1;
@@ -296,8 +341,11 @@ impl Guard {
         self.last = key;
         redundant || old.unchanged >= 2
     }
-    pub fn stalled(&self) -> bool {
+    pub fn repeated_file_reads(&self) -> bool {
         self.redundant_reads >= 3
+    }
+    pub fn stalled(&self) -> bool {
+        self.repeated_file_reads()
             || self.consecutive_blocks >= 3
             || self.repetitions >= 8
             || self.consecutive_cached >= 3
@@ -363,6 +411,36 @@ mod tests {
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.stalled());
+    }
+    #[test]
+    fn saved_pages_preserve_contents_filters_and_resume_at_first_gap() {
+        let mut guard = Guard::default();
+        for (offset, next) in [(3, 7), (7, 11), (13, 15)] {
+            let args =
+                json!({"message_index":47,"offset":offset,"network_events":true,"request_id":"r1"});
+            guard.after(
+                "recall_context",
+                &args,
+                &json!({"ok":true,"offset":offset,"next_offset":next,"events":[offset]}),
+            );
+        }
+        let mut args =
+            json!({"message_index":47,"offset":3,"network_events":true,"request_id":"r1"});
+        let got = guard.before("recall_context", &args).unwrap();
+        assert_eq!(got["events"], json!([3]));
+        assert_eq!(got["already_read_pages"][0]["events"], json!([7]));
+        assert_eq!(got["resume_offset"], 11);
+        args["request_id"] = json!("r2");
+        assert!(guard.before("recall_context", &args).is_none());
+        let text = json!({"message_index":66,"offset":0,"count":20});
+        guard.after(
+            "recall_context",
+            &text,
+            &json!({"ok":true,"excerpt":"last text","next_offset":null}),
+        );
+        let last = guard.before("recall_context", &text).unwrap();
+        assert_eq!(last["excerpt"], "last text");
+        assert!(last["resume_offset"].is_null());
     }
     #[test]
     fn retry_reports_original_evidence_and_cause() {
