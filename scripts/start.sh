@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the pinned release and launch its interactive terminal.
 set -euo pipefail
-tag=v1.1.14.2
+tag=v1.1.14.3
 assets="https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/download/$tag"
 if [[ ${PREFIX:-} == */com.termux/files/usr ]]; then
   [[ $(uname -m) == aarch64 ]] || { echo 'Android ARM64 required' >&2; exit 1; }

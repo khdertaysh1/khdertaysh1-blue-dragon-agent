@@ -2,7 +2,7 @@
 
 | I want to… | Start here |
 |---|---|
-| See what changed in 1.1.14.2 | [Release highlights](../README.md#whats-new-in-11142) · [Full release notes](RELEASE_NOTES.md) |
+| See what changed in 1.1.14.3 | [Release highlights](../README.md#whats-new-in-11143) · [Full release notes](RELEASE_NOTES.md) |
 | Install a release or try a small project | [Install and start](../README.md#quick-start) · [First session on Termux](FIRST_SESSION.md) |
 | Reopen the installed app or select an older release | [Install, update and rollback](INSTALL.md) |
 | Choose a hosted or local model | [Models and provider configuration](MODELS.md) · [Free routing and rate limits](FREE_ROTATION.md) |

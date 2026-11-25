@@ -8,27 +8,27 @@ Blue Dragon is a Rust coding agent for the terminal. Open it in your project to 
 
 ## Quick Start
 
-Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.2** and verify the executable's SHA-256 and reported version.
+Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.3** and verify the executable's SHA-256 and reported version.
 
 **Linux x64, macOS on Apple Silicon, or Android ARM64 in Termux** (Bash and curl)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/start.sh | bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.3/scripts/start.sh | bash
 ```
 
 **Windows x64** (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.2/scripts/start.ps1').Content))
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.3/scripts/start.ps1').Content))
 ```
 
-The release includes platform binaries, SHA-256 checksums and browser extensions. For a first session on your phone, follow the Termux walkthrough. [Downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.2) · [Termux walkthrough](docs/FIRST_SESSION.md) · [Install and update](docs/INSTALL.md)
+The release includes platform binaries, SHA-256 checksums and browser extensions. For a first session on your phone, follow the Termux walkthrough. [Downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.3) · [Termux walkthrough](docs/FIRST_SESSION.md) · [Install and update](docs/INSTALL.md)
 
-## What's new in 1.1.14.2
+## What's new in 1.1.14.3
 
-- The session footer shows your active model and provider, including on narrow phone screens.
-- You can ask the agent to open a site in Arabic, for example `افتح الموقع` after sharing a URL. If the provider prints an action as JSON, the agent requests a corrected tool call. A repeated formatting failure gets a plain-language explanation.
-- If the browser can no longer save a response, the interruption report identifies recent actions and attempted filenames. A repeated lookup of missing browser history identifies the message the agent checked.
+- Local file search reports verified line numbers and exact matching lines when available, including in compact context.
+- The terminal can approve a local form interaction inline and remember consent on that page.
+- Browser precondition failures distinguish an action that never ran from an uncertain outcome.
 
 [Full release notes](docs/RELEASE_NOTES.md) · [Documentation](docs/README.md)
 

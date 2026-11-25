@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.1.14.3
+
+- Local file search reports verified line numbers and exact matching lines when available, including in compact context.
+- The terminal can approve a local form interaction inline and remember consent on that page.
+- Browser precondition failures distinguish an action that never ran from an uncertain outcome.
+
 ## 1.1.14.2
 
 - Show the active model and provider in the terminal session footer, including on phone-sized screens.
