@@ -3351,6 +3351,9 @@ fn saved_command_output_id(prompt: &str) -> Option<&str> {
 // An explicit imperative can start a normal tool-enabled turn immediately.
 // Keep questions and quoted instructions in the existing conversation router.
 fn explicit_task_request(prompt: &str) -> bool {
+    if crate::tool_selection::requests_local_edit(prompt) {
+        return true;
+    }
     let mut words = prompt.split_whitespace();
     let verb = words.next();
     let Some(object) = words.next() else {
@@ -3737,6 +3740,63 @@ mod tests {
             !crate::tool_arguments::summary(&json!({"command_outcome":"spawn_failure"}))
                 .contains("null")
         );
+    }
+
+    #[test]
+    fn arabic_edit_followup_after_failed_test_offers_an_approved_patch_and_reruns_once() {
+        let args = json!({"program":"python","args":["-B","-m","unittest","-v","test_wallet"]});
+        let done = completion(json!({"role":"assistant","content":"Recorded the result."}));
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("first-run", "run_command", args.clone()),
+            done.clone(),
+            completion(
+                json!({"role":"assistant","content":r#"{"tool":"read_file","args":{"path":"rules.py"}}"#}),
+            ),
+            tool_call("rules", "read_file", json!({"path":"rules.py"})),
+            tool_call(
+                "edit",
+                "edit_file",
+                json!({"path":"test_wallet.py","find":"balance = 105","replace":"balance = 104"}),
+            ),
+            tool_call("retest", "run_command", args),
+            done,
+        ]);
+        agent.selected_tools = Some(crate::tool_selection::core());
+        std::fs::write(
+            root.path().join("rules.py"),
+            "def fee(n): return max(2, n // 10)\n",
+        )
+        .unwrap();
+        std::fs::write(root.path().join("test_wallet.py"), "import unittest\nfrom rules import fee\nclass TestWallet(unittest.TestCase):\n    def test_fee(self):\n        balance = 105\n        self.assertEqual(balance - 95 - fee(95), 0)\n").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let approvals = std::thread::spawn(move || {
+            for _ in 0..3 {
+                rx.recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap()
+                    .respond_to
+                    .send(true)
+                    .unwrap();
+            }
+        });
+        agent.turn("شغّل الاختبارات مرة واحدة").unwrap();
+        agent.turn("صلّح بيانات الاختبار اللي فشل حتى يكون رصيد البداية مساوي تماماً لمبلغ التحويل مع عمولته. احسب العمولة من rules.py، وعدّل رصيد البداية فقط داخل الاختبار. بعدها شغّل الاختبارات الثلاثة مرة واحدة وفرجيني شو تغيّر والناتج الفعلي.").unwrap();
+        approvals.join().unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 7);
+        assert!(requests[1]["messages"]
+            .to_string()
+            .contains("FAILED (failures=1)"));
+        assert!(requests[2]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["function"]["name"] == "edit_file"));
+        assert_eq!(requests[3]["tool_choice"], "required");
+        assert!(requests[6]["messages"].to_string().contains("OK"));
+        assert!(std::fs::read_to_string(root.path().join("test_wallet.py"))
+            .unwrap()
+            .contains("balance = 104"));
     }
 
     #[test]

@@ -20,9 +20,22 @@ pub fn core() -> BTreeSet<String> {
     .map(str::to_owned)
     .collect()
 }
+/// Recognize an imperative to edit local code, including follow-ups with an implicit file.
+pub fn requests_local_edit(prompt: &str) -> bool {
+    let mut words = prompt.split_whitespace();
+    matches!(
+        words.next(),
+        Some("صلّح" | "صلح" | "أصلح" | "اصلح" | "عدّل" | "عدل")
+    ) && words.next().is_some()
+}
+
 /// Advertise browser capability for URL-bearing tasks without granting access.
 pub fn for_prompt(prompt: &str) -> BTreeSet<String> {
     let mut selected = core();
+    if requests_local_edit(prompt) {
+        selected.insert("read_file".into());
+        selected.insert("edit_file".into());
+    }
     if prompt
         .split_whitespace()
         .any(|w| !w.contains("://") && crate::intelligence::fresh::source_path(w).is_some())
