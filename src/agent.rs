@@ -1795,7 +1795,7 @@ impl Agent {
                 };
                 self.context_stats["provider_request_metrics"] = self.provider.metrics();
                 match response {
-                    Ok(message) => {
+                    Ok(mut message) => {
                         self.last_successful_context = self.context_stats.clone();
                         let native_calls = message["tool_calls"]
                             .as_array()
@@ -1834,10 +1834,41 @@ impl Agent {
                         }
                         let invalid_routing_reply =
                             explain_first && (native_calls || looks_like_text_tool_call(&reply));
-                        if (!report_recovery && invalid_routing_reply)
+                        let malformed_reply = (!report_recovery && invalid_routing_reply)
                             || parsed.is_some()
-                            || (!native_calls && is_text_tool_envelope(&reply))
-                        {
+                            || (!native_calls && is_text_tool_envelope(&reply));
+                        if malformed_reply && text_tool_retry_used && explain_first {
+                            let report = &self.session.last_report;
+                            let count = report["actions"].as_array().map_or(0, Vec::len);
+                            let arabic = prompt
+                                .chars()
+                                .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+                            let mut summary = if arabic {
+                                format!("عدد إجراءات الأدوات المسجّلة بالطلب السابق: {count}.")
+                            } else {
+                                format!("The previous request recorded {count} tool actions.")
+                            };
+                            if let Some(start) = prior_start.filter(|_| count > 0) {
+                                let steps = report["actions"]
+                                    .as_array()
+                                    .and_then(|a| a.last())
+                                    .and_then(|a| a["step"].as_u64())
+                                    .unwrap_or(0);
+                                summary.push('\n');
+                                summary.push_str(&progress_receipt(
+                                    prompt,
+                                    &self.session,
+                                    start,
+                                    steps as usize,
+                                    step_limit,
+                                ));
+                            }
+                            if let Some(reason) = report["error"].as_str() {
+                                summary.push('\n');
+                                summary.push_str(reason);
+                            }
+                            message = json!({"role":"assistant","content":summary});
+                        } else if malformed_reply {
                             if text_tool_retry_used {
                                 if let Some(reason) = format_hint {
                                     anyhow::bail!("Tool format correction failed: {reason} No action executed.");
@@ -1864,9 +1895,11 @@ impl Agent {
                                 correction.push(' ');
                                 correction.push_str(&reason);
                             }
-                            self.output(AgentEvent::Notice(
-                                "Requesting one corrected reply; no action executed.".into(),
-                            ));
+                            if !explain_first {
+                                self.output(AgentEvent::Notice(
+                                    "Requesting one corrected reply; no action executed.".into(),
+                                ));
+                            }
                             continue;
                         }
                         text_tool_retry_used = false;
@@ -4060,6 +4093,31 @@ mod tests {
         assert!(requests[3].to_string().contains("Format correction"));
         assert!(!root.path().join("unexpected.js").exists());
         assert_eq!(agent.session.last_report["actions"], json!([]));
+    }
+
+    #[test]
+    fn status_after_two_malformed_replies_uses_recorded_actions() {
+        let invalid =
+            completion(json!({"role":"assistant","content":r#"{"tool":"write_file","args":{}}"#}));
+        let (mut agent, _work, _state, server) = scripted_agent(vec![
+            tool_call("prior", "file_info", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"Checked file."})),
+            invalid.clone(),
+            invalid,
+        ]);
+        agent.turn("Inspect demo.txt").unwrap();
+        agent.turn("شوصار معك").unwrap();
+        assert_eq!(server.join().unwrap().len(), 4);
+        assert_eq!(
+            agent.session.last_report["task_status"],
+            "answered_from_history"
+        );
+        assert_eq!(agent.session.last_report["actions"], json!([]));
+        let reply = agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(reply.contains("file_info") && reply.contains("demo.txt"));
+        assert!(!reply.contains("write_file"));
     }
 
     #[test]
