@@ -22,6 +22,10 @@ pub fn select(session: &crate::session::Session, prompt: &str) -> Value {
                     .and_then(|(url,path)|path.map(|p|json!({"destination_argument":p,"requested_url_sha256":crate::intelligence::code::hash(url.as_bytes()),"exit_code":0}))),
                 "file_info" if r["saved_to_disk"]==true => Some(json!({"observed_disk_path":r["path"],"bytes":r["bytes"]})),
                 "write_file"|"edit_file" if r["saved_to_disk"]==true => Some(json!({"written_path":r["path"],"bytes":r["bytes"],"sha256":r["sha256"]})),
+                "browser" if args["action"]=="save_response" && r["storage"]=="disk"
+                    && r["saved_to_disk"]==true && r["complete_browser_body"]==true
+                    && r["path"].is_string() && r["path"]==args["path"] =>
+                    Some(json!({"written_path":r["path"],"request_id":r["request_id"],"bytes":r["bytes"],"sha256":r["sha256"],"source":"browser.save_response"})),
                 "web_fetch" if r["first_script_urls"].is_array() || r["script_url_hashes"].is_array() => Some(script_receipt(&r)),
                 _=>None
             };
@@ -82,6 +86,37 @@ pub fn select(session: &crate::session::Session, prompt: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn save_location_uses_only_verified_disk_receipts_in_both_languages() {
+        let root = tempfile::tempdir().unwrap();
+        let mut s = crate::session::new(root.path(), "fixture");
+        let args = json!({"action":"save_response","path":"actual.js"});
+        let result = json!({"ok":true,"storage":"disk","saved_to_disk":true,
+            "complete_browser_body":true,"path":"actual.js","bytes":84,"request_id":"4.2"});
+        for (id, a, r) in [
+            ("network", json!({"action":"network"}), json!({"ok":true,"storage":"session_only","saved_to_disk":false})),
+            ("save", args.clone(), result),
+            ("denied", args, json!({"ok":false,"denied":true})),
+        ] {
+            s.messages.push(json!({"role":"assistant","tool_calls":[{"id":id,"type":"function","function":{"name":"browser","arguments":a.to_string()}}]}));
+            let mut obs = crate::reasoning::observe(s.messages.len(), "browser", &r);
+            obs.request_sha256 = Some(crate::intelligence::code::hash(a.to_string().as_bytes()));
+            s.observations.push(obs);
+            s.messages.push(json!({"role":"tool","tool_call_id":id,"content":r.to_string()}));
+            for prompt in ["وين انحفظ الملف؟", "Where was the file saved?"] {
+                let memory = select(&s, prompt);
+                let receipts = memory["file_receipts"].as_array().unwrap();
+                if id == "network" {
+                    assert!(receipts.is_empty());
+                } else {
+                    assert_eq!(receipts.len(), 1);
+                    assert_eq!(receipts[0]["written_path"], "actual.js");
+                    assert_eq!(receipts[0]["request_id"], "4.2");
+                }
+            }
+        }
+    }
+
     #[test]
     fn pinned_capture_survives_projection_and_reload_but_tampering_does_not() {
         let root = tempfile::tempdir().unwrap();
