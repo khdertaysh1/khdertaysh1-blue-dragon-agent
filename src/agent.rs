@@ -1697,7 +1697,19 @@ impl Agent {
                 });
                 advertised_definitions = definitions.clone();
                 let mut structured_prefix = None;
-                let response = if self.settings.stream {
+                let require_tool = text_tool_correction.is_some()
+                    && !explain_first
+                    && !report_recovery
+                    && actions.is_empty()
+                    && definitions
+                        .as_array()
+                        .is_some_and(|tools| !tools.is_empty());
+                let response = if require_tool {
+                    self.provider
+                        .request_tool(&request_messages, definitions, || {
+                            token.load(std::sync::atomic::Ordering::Relaxed)
+                        })
+                } else if self.settings.stream {
                     self.provider.stream(
                         &request_messages,
                         definitions,
@@ -3306,6 +3318,9 @@ fn explicit_task_request(prompt: &str) -> bool {
     };
     match verb {
         Some("افتح" | "افتحلي" | "افتحي" | "افتحوا" | "إفتح") => true,
+        Some("شغّل" | "شغل" | "شغلي" | "شغّللي") => {
+            matches!(object, "الاختبارات" | "اختبارات" | "الاختبار")
+        }
         Some("اعمل" | "اعمللي" | "اعملي" | "اعملّي" | "أنشئ" | "انشئ" | "اكتب") => {
             matches!(object, "ملف" | "ملفاً" | "ملفا")
                 || std::path::Path::new(object.trim_matches('`'))
@@ -3463,6 +3478,24 @@ mod tests {
     }
 
     #[test]
+    fn arabic_test_run_after_a_read_offers_tools_on_first_request() {
+        let done = completion(json!({"role":"assistant","content":"Done."}));
+        let (mut agent, _work, _state, server) = scripted_agent(vec![
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            done.clone(),
+            done,
+        ]);
+        agent.turn("Read demo.txt").unwrap();
+        agent
+            .turn("شغّل الاختبارات الموجودة بمجلد wallet-lab")
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert!(requests[2]["tools"]
+            .as_array()
+            .is_some_and(|tools| !tools.is_empty()));
+    }
+
+    #[test]
     fn text_tool_envelope_does_not_complete_a_turn() {
         let message =
             json!({"role":"assistant","content":r#"{"tool":"list_files","args":{"path":"."}}"#});
@@ -3470,7 +3503,10 @@ mod tests {
             scripted_agent(vec![completion(message.clone()), completion(message)]);
         let result = agent.run_once("List files in the current directory");
         assert!(result.unwrap_err().to_string().contains("ordinary text"));
-        assert_eq!(server.join().unwrap().len(), 2);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0]["tool_choice"], "auto");
+        assert_eq!(requests[1]["tool_choice"], "required");
         assert!(agent.session.last_report["actions"]
             .as_array()
             .unwrap()

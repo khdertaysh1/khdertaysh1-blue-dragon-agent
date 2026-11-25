@@ -299,7 +299,7 @@ impl Provider {
         &self.model
     }
     pub fn complete(&self, messages: &[Value], tools: Value) -> Result<Value> {
-        self.request(messages, tools, false, |_| {}, || false)
+        self.request(messages, tools, false, false, |_| {}, || false)
     }
     pub fn stream(
         &self,
@@ -308,13 +308,22 @@ impl Provider {
         delta: impl FnMut(&str),
         cancelled: impl FnMut() -> bool,
     ) -> Result<Value> {
-        self.request(messages, tools, true, delta, cancelled)
+        self.request(messages, tools, true, false, delta, cancelled)
+    }
+    pub fn request_tool(
+        &self,
+        messages: &[Value],
+        tools: Value,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<Value> {
+        self.request(messages, tools, false, true, |_| {}, cancelled)
     }
     fn request(
         &self,
         messages: &[Value],
         tools: Value,
         stream: bool,
+        require_tool: bool,
         delta: impl FnMut(&str),
         cancelled: impl FnMut() -> bool,
     ) -> Result<Value> {
@@ -322,7 +331,7 @@ impl Provider {
         let before = self.metrics()["provider_instance_requests_sent"]
             .as_u64()
             .unwrap_or(0);
-        let result = self.request_inner(messages, tools, stream, delta, cancelled);
+        let result = self.request_inner(messages, tools, stream, require_tool, delta, cancelled);
         let mut event = self.metrics();
         let sent = event["provider_instance_requests_sent"]
             .as_u64()
@@ -386,6 +395,7 @@ impl Provider {
         messages: &[Value],
         tools: Value,
         stream: bool,
+        require_tool: bool,
         delta: impl FnMut(&str),
         cancelled: impl FnMut() -> bool,
     ) -> Result<Value> {
@@ -401,6 +411,13 @@ impl Provider {
                 "temperature": 0.2
             })
         };
+        if require_tool {
+            payload["tool_choice"] = if self.anthropic {
+                json!({"type":"any"})
+            } else {
+                json!("required")
+            };
+        }
         if tools.as_array().is_some_and(Vec::is_empty)
             && (self.url.starts_with("https://api.groq.com/")
                 || self
@@ -667,6 +684,7 @@ mod reliability_tests {
                         &[json!({"role":"user","content":"bounded fixture"})],
                         tools(),
                         stream,
+                        false,
                         |_| {},
                         || false,
                     )
