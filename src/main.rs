@@ -12,6 +12,7 @@ mod edit_proposals;
 mod exact_file;
 mod file_receipts;
 mod file_review;
+mod gui;
 mod intelligence;
 mod jobs;
 mod lab_report;
@@ -148,6 +149,12 @@ enum Command {
     Chat,
     /// Full-screen terminal with live answers and per-action approvals
     Tui,
+    /// Open the local graphical workspace in the system browser
+    Gui {
+        /// Print the private launch URL without opening a browser
+        #[arg(long)]
+        no_open: bool,
+    },
     /// Execute one task; approval is still required for writes/commands
     Run {
         task: String,
@@ -415,6 +422,7 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
+        Some(Command::Gui { no_open }) => gui::run(settings, args.read_only, args.resume, !no_open),
         Some(Command::Tui) => tui::run(
             settings,
             args.read_only,

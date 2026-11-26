@@ -8,6 +8,8 @@ import sys
 import tempfile
 import threading
 
+from test_gui import check_gui
+
 
 def main(binary):
     packets = []
@@ -48,6 +50,7 @@ def main(binary):
         assert any(r.get('event') == 'answer' for r in rows)
         session = json.loads((Path(env['BLUE_DRAGON_HOME']) / 'sessions' / (single['session'] + '.json')).read_text())
         assert session['compact_context'] and session['last_report']['context']['projection_level'] >= 1
+        check_gui(cli, env, single["session"])
         server.shutdown()
         print('JSON, NDJSON, project conventions and resumed compact projection passed')
 

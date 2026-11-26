@@ -11,6 +11,7 @@ name = "blue-dragon"
 path = "src/main.rs"
 
 [dependencies]
+httparse = "1"
 libc = "0.2"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }

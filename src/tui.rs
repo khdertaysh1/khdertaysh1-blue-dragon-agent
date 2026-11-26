@@ -790,7 +790,11 @@ pub fn run(
     Ok(())
 }
 
-fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -> Result<()> {
+pub(crate) fn run_slash(
+    agent: &mut Agent,
+    tx: &mpsc::SyncSender<AgentEvent>,
+    line: &str,
+) -> Result<()> {
     if matches!(line, "/model" | "/models" | "/models refresh") {
         let (mut choices, source) = agent.kilo_models(line == "/models refresh")?;
         choices.push(crate::models::ModelChoice {
