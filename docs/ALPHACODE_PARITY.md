@@ -24,7 +24,7 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Model selection / free gateway | Searchable picker of keyless Kilo free models, Blue Free bounded automatic rotation, pinned concrete choices, one-hour catalog cache, saved selections. JarvisClaw retained; OpenRouter requires own key |
 | Native installer candidates | CI packaging for Debian/Ubuntu amd64 and macOS arm64 (unsigned pkg). Candidate artifacts are separate from the published one-command installers. |
 | Editor integration | ACP v1 stdio adapter over the existing agent. Neovim with the agentic.nvim ACP client, tested headless, covers a source lookup and a rejected edit. |
-| Native desktop GUI | Not implemented |
+| Native desktop GUI | Windows, macOS and Linux native workspace, project picker, session restoration and source-line previews. Android uses the Termux TUI. |
 
 Next milestones: wider MCP and device verification, resolved cross-file indexing, isolated patch worktrees, signed extension distribution, richer structured test reports, crash recovery, native installers.
 

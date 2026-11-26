@@ -156,7 +156,7 @@ enum Command {
     Acp,
     /// Full-screen terminal with live answers and per-action approvals
     Tui,
-    /// Open the local graphical workspace in the system browser
+    /// Open the graphical workspace (terminal on Android)
     Gui {
         /// Print the private launch URL without opening a browser
         #[arg(long)]
@@ -432,6 +432,14 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
+        #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+        Some(Command::Gui { no_open: false }) => gui::desktop::run(
+            settings,
+            args.read_only,
+            args.resume,
+            args.root.is_some(),
+            args.new_session,
+        ),
         Some(Command::Gui { no_open }) if !cfg!(target_os = "android") => {
             gui::run(settings, args.read_only, args.resume, !no_open)
         }

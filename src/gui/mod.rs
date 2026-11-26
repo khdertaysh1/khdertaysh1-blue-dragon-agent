@@ -1,4 +1,6 @@
-//! A loopback-only graphical client for the same interactive agent as the terminal.
+//! Graphical clients for the same interactive agent as the terminal.
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+pub(crate) mod desktop;
 mod http;
 
 use crate::agent::{Agent, AgentEvent, ApprovalMode};
@@ -62,12 +64,25 @@ enum Request {
 enum Work {
     Open(String, Option<String>),
     Send(String),
+    Stop,
 }
 
 struct Client {
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+    worker: Option<thread::JoinHandle<()>>,
     work: mpsc::Sender<Work>,
     view: Shared,
     sessions: std::path::PathBuf,
+}
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.cancel
+            .store(true, std::sync::atomic::Ordering::Release);
+        let _ = self.work.send(Work::Stop);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 impl Client {
     fn api(&self, request: Request) -> Result<Value> {
@@ -161,6 +176,15 @@ pub fn run(
     resume: Option<String>,
     launch: bool,
 ) -> Result<()> {
+    http::serve(start(settings, read_only, resume, false)?, launch)
+}
+
+fn start(
+    settings: Settings,
+    read_only: bool,
+    resume: Option<String>,
+    desktop: bool,
+) -> Result<Client> {
     let sessions = settings.sessions_dir.clone();
     let view = Shared::default();
     let (work, rx) = mpsc::channel();
@@ -177,7 +201,9 @@ pub fn run(
         }
     });
     let display = view.clone();
-    thread::spawn(move || {
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let token = cancel.clone();
+    let worker = thread::spawn(move || {
         let mode = if read_only {
             ApprovalMode::ReadOnly
         } else {
@@ -190,15 +216,18 @@ pub fn run(
                 return;
             }
         };
+        agent.set_cancellation(token.clone());
         let _ = ready.send(Ok(()));
         for task in rx {
             let result = match task {
+                Work::Stop => break,
                 Work::Open(path, id) => (|| {
                     let mut next = settings.clone();
                     next.root = std::path::Path::new(&path).canonicalize()?;
                     ensure!(next.root.is_dir(), "Choose a workspace directory");
                     if id.as_deref() != Some(agent.session_id()) || next.root != agent.root() {
                         agent = open(&next, &mode, id.as_deref(), &display)?;
+                        agent.set_cancellation(token.clone());
                     }
                     Ok(())
                 })(),
@@ -241,6 +270,8 @@ pub fn run(
                         });
                         let result = if text.trim_start().starts_with('/') {
                             crate::tui::run_slash(&mut agent, &tx, text.trim())
+                        } else if desktop && !read_only {
+                            agent.terminal_task(&text, false)
                         } else {
                             agent.turn(&text)
                         };
@@ -260,12 +291,11 @@ pub fn run(
         }
     });
     started.recv()??;
-    http::serve(
-        Client {
-            work,
-            view,
-            sessions,
-        },
-        launch,
-    )
+    Ok(Client {
+        cancel,
+        worker: Some(worker),
+        work,
+        view,
+        sessions,
+    })
 }
