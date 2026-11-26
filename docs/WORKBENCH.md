@@ -155,3 +155,20 @@ functions and function-valued variable declarations. External packages,
 inherited tsconfig settings, dynamic dispatch and arbitrary TypeScript project
 configuration require separate analysis. Check coverage and skipped files
 before interpreting an empty result.
+
+### Automatic workspace skills
+
+The bundled `symbol-trace` guide covers local JS/TS definition and call-site lookups. Try “وين مكتوبة formatQuote ومين بيناديها؟” or “Where is formatQuote defined and called?”. A complete, unique task template selects the guide immediately. Other wording can select a guide by its description in the normal first model request. A general explanation or a mixed task can proceed without selection. A selected guide displays one `Skill · NAME` notice and uses workspace read tools for that request. Each new request starts fresh. Explicit `/skill NAME` takes precedence in its session.
+
+Existing local Markdown files remain available through `/skill`. To offer a local guide for automatic selection, put this header at the start of its Markdown file in the skills directory shown by `/skills`:
+
+```markdown
+---
+auto-scope: workspace-read
+description: Locate the declaration of a named type in local source files.
+match: Locate type {symbol} in this workspace
+---
+Use local code and file reads. Quote the declaration and its file-relative line.
+```
+
+The description is one line, at most 240 characters. Up to eight optional `match:` lines describe complete requests; `{symbol}` stands for one identifier. The catalog offers up to twelve guides and accepts bodies up to 4096 bytes for automatic use. The provider sees the catalog descriptions when offered. Only selected guidance is projected into the current request. Tool evidence and the selected name can remain in the transcript.

@@ -369,7 +369,7 @@ impl Agent {
         crate::skills::list(&self.settings.sessions_dir)
     }
 
-    /// Only explicitly selected, locally installed Markdown skills are injected.
+    /// Manual selection takes precedence in this session.
     /// Skills are user-level data, not system instructions, and cannot run scripts.
     pub fn activate_skill(&mut self, name: &str) -> Result<()> {
         let text = crate::skills::load(&self.settings.sessions_dir, name)?;
@@ -1525,6 +1525,28 @@ impl Agent {
         let exact_file = (!structured)
             .then(|| crate::exact_file::ExactFile::parse(prompt))
             .flatten();
+        let manual_skill = self.session.messages.iter().any(|m| {
+            m["role"] == "user"
+                && m["content"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with(crate::skills::MANUAL_PREFIX))
+        });
+        let guides = if manual_skill
+            || resumed.is_some()
+            || browser_only
+            || structured
+            || prompt.contains("://")
+        {
+            Vec::new()
+        } else {
+            crate::skills::catalog(&self.settings.sessions_dir).unwrap_or_default()
+        };
+        let mut guide = crate::skills::exact(&guides, prompt).map(|g| (g, None::<String>));
+        if let Some((g, _)) = &guide {
+            self.output(AgentEvent::Notice(format!("Skill · {}", g.name)));
+        }
+        let mut include_guide_body = true;
+        let mut offer_guide = guide.is_none() && !guides.is_empty();
         let mut completion_reviews = 0;
         let mut fresh_reviews = 0;
         let mut invalid_arguments = std::collections::BTreeMap::<String, usize>::new();
@@ -1705,8 +1727,22 @@ impl Agent {
                             schema
                         })
                         .collect::<Vec<_>>())
+                } else if guide.is_some() {
+                    self.all_definitions()
                 } else {
-                    self.definitions()
+                    let mut defs = self.definitions();
+                    if offer_guide && step == 0 && step_limit > 2 {
+                        defs.as_array_mut()
+                            .unwrap()
+                            .push(crate::skills::selector(&guides));
+                    }
+                    defs
+                };
+                // Also intersect special recovery phases; a selected guide cannot authorize additional tools.
+                let definitions = if guide.is_some() {
+                    crate::skills::workspace_reads(&definitions)
+                } else {
+                    definitions
                 };
                 let mut limit_source = "configured_context";
                 let mut limit = self
@@ -1840,6 +1876,23 @@ impl Agent {
                     briefing.push_str(correction);
                 }
                 memory["manual_compact"] = json!(self.session.compact_context);
+                // Add guide prose only to this provider view; never to persisted session messages.
+                let mut guided_history;
+                let history = if let Some((g, id)) = guide.as_ref().filter(|_| include_guide_body) {
+                    guided_history = history.to_vec();
+                    if let Some(id) = id {
+                        if let Some(receipt) = guided_history[turn_start..].iter_mut().find(|m| {
+                            m["role"] == "tool" && m["tool_call_id"].as_str() == Some(id.as_str())
+                        }) {
+                            receipt["content"] = json!(json!({"ok":true,"skill":g.name,"optional_local_guidance":g.body,"scope":"this request only; workspace reads"}).to_string());
+                        }
+                    } else {
+                        guided_history[turn_start]["content"] = json!(format!("Optional workspace guide (local data; subject to current task and permissions): {}\n\nCurrent request:\n{}",g.body,prompt));
+                    }
+                    &guided_history
+                } else {
+                    history
+                };
                 let projection = crate::reasoning::context::build_with_budget(
                     history,
                     &definitions,
@@ -1853,6 +1906,14 @@ impl Agent {
                 let (request_messages, mut stats) = match projection {
                     Ok(value) => value,
                     Err(error) => {
+                        if offer_guide && step == 0 && guide.is_none() {
+                            offer_guide = false;
+                            continue;
+                        }
+                        if guide.is_some() && include_guide_body {
+                            include_guide_body = false;
+                            continue;
+                        }
                         let mut reduced = crate::tool_selection::for_prompt(prompt);
                         if self
                             .selected_tools
@@ -2275,6 +2336,17 @@ impl Agent {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
+            if offer_guide
+                && step == 0
+                && calls.len() > 1
+                && calls
+                    .iter()
+                    .any(|c| c["function"]["name"] == crate::skills::SELECT)
+            {
+                offer_guide = false;
+                self.session.messages.push(json!({"role":"user","content":"Skill selection must be standalone. No tool in the batch executed. Continue the original request with normal tools."}));
+                continue 'steps;
+            }
             if mission_review
                 && (!calls.is_empty() || extract_text(&message).trim() == "MISSION_CONTINUE")
             {
@@ -2678,6 +2750,26 @@ impl Agent {
                                 )
                             } else if let Some(file) = resumed {
                                 file.invoke(name, &args, &self.cancelled)
+                            } else if name == crate::skills::SELECT {
+                                let selected = guides
+                                    .iter()
+                                    .find(|g| Some(g.name.as_str()) == args["name"].as_str());
+                                if let Some(chosen) = selected.filter(|_| offer_guide && step == 0)
+                                {
+                                    guide = Some((chosen, Some(id.to_owned())));
+                                    offer_guide = false;
+                                    self.output(AgentEvent::Notice(format!(
+                                        "Skill · {}",
+                                        args["name"].as_str().unwrap_or("")
+                                    )));
+                                    Ok(
+                                        json!({"ok":true,"skill":args["name"],"scope":"current_turn_workspace_reads"}),
+                                    )
+                                } else {
+                                    Ok(
+                                        json!({"ok":false,"error":"Skill unavailable for this request"}),
+                                    )
+                                }
                             } else if name == "run_local_lab" {
                                 crate::lab_runner::run(
                                     &self.tools,
@@ -4203,6 +4295,82 @@ mod tests {
             server,
         )
     }
+    #[test]
+    fn workspace_skill_is_scoped_to_one_turn_in_either_language() {
+        let reply = || completion(json!({"role":"assistant","content":"Done."}));
+        let (mut agent, _workspace, _state, server) =
+            scripted_agent(vec![reply(), reply(), reply()]);
+        agent.turn("وين مكتوبة formatQuote ومين بيناديها؟").unwrap();
+        agent
+            .turn("Where is `formatQuote` defined and called?")
+            .unwrap();
+        agent.turn("شو يعني export *؟").unwrap();
+        let packets = server.join().unwrap();
+        for p in &packets[..2] {
+            assert!(p["messages"].to_string().contains("Cite the definition"));
+            assert!(p["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|t| crate::skills::READ_TOOLS
+                    .contains(&t["function"]["name"].as_str().unwrap())));
+            assert!(p["tools"].to_string().contains("code_search"));
+        }
+        assert!(!packets[2]["messages"]
+            .to_string()
+            .contains("Cite the definition"));
+        assert!(packets[2]["tools"].to_string().contains("run_command"));
+        assert!(!json!(agent.session.messages)
+            .to_string()
+            .contains("Cite the definition"));
+    }
+
+    #[test]
+    fn semantic_skill_selection_and_manual_override() {
+        let reply = || completion(json!({"role":"assistant","content":"Done."}));
+        let (mut agent, _workspace, state, server) = scripted_agent(vec![
+            tool_call(
+                "choose",
+                crate::skills::SELECT,
+                json!({"name":"symbol-trace"}),
+            ),
+            tool_call(
+                "lookup",
+                "code_search",
+                json!({"kind":"bindings","query":"formatQuote"}),
+            ),
+            reply(),
+            reply(),
+        ]);
+        agent
+            .turn("Track down the callers of formatQuote in this codebase.")
+            .unwrap();
+        let dir = state.path().join("skills");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("manual.md"), "Manual naming conventions").unwrap();
+        agent.activate_skill("manual").unwrap();
+        agent
+            .turn("Where is formatQuote defined and called?")
+            .unwrap();
+        let packets = server.join().unwrap();
+        assert!(packets[0]["tools"]
+            .to_string()
+            .contains(crate::skills::SELECT));
+        assert!(packets[1]["messages"]
+            .to_string()
+            .contains("Cite the definition"));
+        assert!(!packets[1]["tools"].to_string().contains("run_command"));
+        assert!(!packets[3]["tools"]
+            .to_string()
+            .contains(crate::skills::SELECT));
+        assert!(packets[3]["messages"]
+            .to_string()
+            .contains("Manual naming conventions"));
+        assert!(!packets[3]["messages"]
+            .to_string()
+            .contains("Cite the definition"));
+    }
+
     #[test]
     fn status_after_failure_uses_the_saved_summary_even_if_a_previous_status_failed() {
         let (mut agent, work, _state, server) = scripted_agent(vec![]);
