@@ -1,6 +1,7 @@
 //! Local, on-demand search of saved Blue Dragon sessions.
 //! Query tokenization, coverage threshold and relevance formula adapted from
 //! AlphaCode v1.1.20 (MIT, see third_party/AlphaCode-LICENSE).
+use super::semantic;
 use super::{read_session, read_session_bounded, validate_id, Session, MAX_SESSION_BYTES};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -86,7 +87,7 @@ fn minimum_session_search_term_matches(term_count: usize) -> usize {
 // Index byte trigrams so a substring such as "quant" can find "quantity".
 // Collisions only add candidates. Short terms always pass the filter.
 const WORDS: usize = 128;
-const CACHE: &str = ".session-search-v1.cache";
+const CACHE: &str = ".session-search-v2.cache";
 const CACHE_LIMIT: u64 = 16 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
@@ -94,6 +95,7 @@ struct Entry {
     modified: std::time::SystemTime,
     size: u64,
     bits: Vec<u64>,
+    concepts: u64,
 }
 
 fn bit(bytes: &[u8]) -> (usize, u64) {
@@ -206,6 +208,12 @@ fn visit(session: &Session, mut row: impl FnMut(&str, Value)) {
                 && !text.starts_with("The user requested inspection of the URL above. Blue Dragon automatically collected") => (),
             _ => continue,
         }
+        // A retrieval answer refers to a different session; do not rank the lookup itself.
+        if text.starts_with("Historical session references only:")
+            || (message["role"] == "user" && semantic::past_question(text))
+        {
+            continue;
+        }
         row(text, json!({"role":message["role"],"message_index":index}));
     }
     for obs in
@@ -219,7 +227,11 @@ fn visit(session: &Session, mut row: impl FnMut(&str, Value)) {
         let Some(action) = args["action"].as_str() else {
             continue;
         };
-        let selector = args["selector"].as_str().unwrap_or("");
+        let count = semantic::observed_count(&args, &result);
+        let selector = count
+            .as_deref()
+            .or_else(|| args["selector"].as_str())
+            .unwrap_or("");
         let outcome = match result["execution_status"].as_str() {
             Some("unknown") => "unknown",
             Some("not_executed") => "not_executed",
@@ -246,6 +258,7 @@ pub fn search(dir: &Path, words: &str) -> Result<Value> {
         terms,
         phrase,
     };
+    let wanted = semantic::features(&query.phrase);
     let cache = dir.join(CACHE);
     let mut previous = load_index(&cache).unwrap_or_default();
     let mut next = Index::new();
@@ -273,7 +286,9 @@ pub fn search(dir: &Path, words: &str) -> Result<Value> {
             .remove(id)
             .filter(|e| Some(e.modified) == modified && e.size == meta.len());
         if let Some(ref e) = entry {
-            if !candidates(&e.bits, &query.terms, query.minimum) {
+            if !candidates(&e.bits, &query.terms, query.minimum)
+                && semantic::similarity(wanted, e.concepts).is_none()
+            {
                 next.insert(id.to_owned(), entry.unwrap());
                 continue;
             }
@@ -292,8 +307,9 @@ pub fn search(dir: &Path, words: &str) -> Result<Value> {
             }
         };
         let mut bits = entry.is_none().then(|| vec![0; WORDS]);
+        let mut concepts = 0;
         let mut best: Option<(f64, Value)> = None;
-        let mut evidence = None;
+        let mut evidence: Option<(f64, Value)> = None;
         visit(&session, |text, mut row| {
             let lower = text.to_lowercase();
             if let Some(bits) = bits.as_mut() {
@@ -302,10 +318,26 @@ pub fn search(dir: &Path, words: &str) -> Result<Value> {
                     bits[word] |= mask;
                 }
             }
-            if let Some((score, pos)) = query.score(&lower) {
+            let row_concepts = semantic::features(&lower);
+            concepts |= row_concepts;
+            let lexical = query.score(&lower);
+            let related = semantic::similarity(wanted, row_concepts);
+            if lexical.is_some() || related.is_some() {
+                let (lexical_score, pos) = lexical.unwrap_or_else(|| {
+                    let pos = semantic::first_hit(&lower, wanted);
+                    (0.0, pos)
+                });
+                let score = lexical_score + related.unwrap_or(0.0);
+                row["match_kind"] = json!(if lexical.is_some() {
+                    "text"
+                } else {
+                    "concepts"
+                });
                 row["excerpt"] = json!(excerpt(text, pos));
-                if row.get("evidence_id").is_some() && evidence.is_none() {
-                    evidence = Some(row.clone());
+                if row.get("evidence_id").is_some()
+                    && evidence.as_ref().is_none_or(|(old, _)| score > *old)
+                {
+                    evidence = Some((score, row.clone()));
                 }
                 if best.as_ref().is_none_or(|(old, _)| score > *old) {
                     best = Some((score, row));
@@ -313,7 +345,7 @@ pub fn search(dir: &Path, words: &str) -> Result<Value> {
             }
         });
         if let Some((score, hit)) = best {
-            records.push((score,session.updated_at,session.id.clone(),json!({"id":id,"workspace":session.workspace,"updated_at":session.updated_at,"match":hit,"evidence":evidence})));
+            records.push((score,session.updated_at,session.id.clone(),json!({"id":id,"workspace":session.workspace,"updated_at":session.updated_at,"match":hit,"historical":true,"evidence":evidence.map(|x|x.1)})));
         }
         if let Some(e) = entry {
             next.insert(id.to_owned(), e);
@@ -325,6 +357,7 @@ pub fn search(dir: &Path, words: &str) -> Result<Value> {
                     size: meta.len(),
                     modified,
                     bits,
+                    concepts,
                 },
             );
         }
@@ -416,6 +449,52 @@ mod tests {
         );
         fs::remove_file(dir.join(format!("{}.json", first.id))).unwrap();
         assert!(search(dir, "quantity").unwrap()["sessions"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn cross_language_lookup_selects_verified_count_and_keeps_live_questions_separate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut session = fixture(tmp.path(), true);
+        let args =
+            json!({"action":"evaluate","expression":"document.querySelector('#quantity').value"});
+        let result = json!({"ok":true,"result":"1"});
+        session.messages[1]["tool_calls"][0]["function"]["arguments"] = json!(args.to_string());
+        session.messages[2]["content"] = json!(result.to_string());
+        let mut obs = crate::reasoning::observe(2, "browser", &result);
+        obs.request_sha256 = Some(crate::intelligence::code::hash(args.to_string().as_bytes()));
+        session.observations = vec![obs];
+        super::super::save(tmp.path(), &mut session).unwrap();
+        for prompt in [
+            "بأي جلسة ضلّ العدد واحد بعد ما حاولنا نغيّره؟",
+            "Which session had the count stuck at one?",
+        ] {
+            assert!(semantic::past_question(prompt));
+            let found = search(tmp.path(), prompt).unwrap();
+            let row = &found["sessions"][0];
+            assert_eq!(row["id"], session.id);
+            assert_eq!(row["historical"], true);
+            assert_eq!(row["evidence"]["evidence_id"], "E000002");
+            assert!(row["evidence"]["excerpt"]
+                .as_str()
+                .unwrap()
+                .contains("#quantity value 1"));
+        }
+        assert!(!semantic::past_question("وشو قيمته هلّق؟"));
+        assert!(
+            search(tmp.path(), "بأي جلسة ضل العدد ثلاثة؟").unwrap()["sessions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        let unrelated =
+            json!({"action":"evaluate","expression":"document.querySelector('#pin').value"});
+        assert!(semantic::observed_count(&unrelated, &result).is_none());
+        session.messages[2]["content"] = json!(r#"{"ok":true,"result":"2"}"#);
+        super::super::save(tmp.path(), &mut session).unwrap();
+        assert!(search(tmp.path(), "العدد واحد").unwrap()["sessions"]
             .as_array()
             .unwrap()
             .is_empty());

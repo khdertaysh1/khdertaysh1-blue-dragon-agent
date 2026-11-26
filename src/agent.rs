@@ -1063,6 +1063,60 @@ impl Agent {
         origin: TurnOrigin,
     ) -> Result<()> {
         if resumed.is_none() && !structured {
+            if crate::session::semantic::past_question(prompt) {
+                let found = crate::session::indexed::search(&self.settings.sessions_dir, prompt)?;
+                let hits: Vec<_> = found["sessions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .take(3)
+                    .collect();
+                let arabic = prompt
+                    .chars()
+                    .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+                let mut answer = String::from(if hits.is_empty() {
+                    if arabic {
+                        "ما لقيت جلسة محفوظة مطابقة."
+                    } else {
+                        "No matching saved session found."
+                    }
+                } else if arabic {
+                    "نتائج تاريخية من الجلسات المحفوظة:"
+                } else {
+                    "Historical matches from saved sessions:"
+                });
+                // Display excerpts locally. Only native session/evidence references enter
+                // subsequent model context, never text copied from other conversations.
+                let mut references = Vec::new();
+                for hit in hits {
+                    let id = hit["id"].as_str().unwrap_or("");
+                    let matched = &hit["match"];
+                    let evidence = &hit["evidence"];
+                    answer.push_str(&format!(
+                        "\n{} · {} · {}",
+                        id,
+                        matched["role"].as_str().unwrap_or(""),
+                        matched["excerpt"].as_str().unwrap_or("")
+                    ));
+                    if let Some(eid) = evidence["evidence_id"].as_str() {
+                        answer.push_str(&format!(
+                            "\n  {eid} · {}",
+                            evidence["excerpt"].as_str().unwrap_or("")
+                        ));
+                        references.push(json!({"session":id,"historical_evidence_id":eid}));
+                    } else {
+                        references.push(json!({"session":id}));
+                    }
+                }
+                self.session.user_turns.push(self.session.messages.len());
+                self.session
+                    .messages
+                    .push(json!({"role":"user","content":prompt}));
+                self.session.messages.push(json!({"role":"assistant","content":format!("Historical session references only: {}",json!(references))}));
+                self.persist()?;
+                self.output(AgentEvent::Answer(answer));
+                return Ok(());
+            }
             if status_only_question(prompt) {
                 let mut end = self.session.messages.len();
                 let mut answer = None;
@@ -4295,6 +4349,25 @@ mod tests {
             server,
         )
     }
+    #[test]
+    fn historical_question_uses_local_search_and_keeps_foreign_excerpts_out_of_model_history() {
+        let (mut agent, workspace, _state, server) = scripted_agent(vec![]);
+        let mut past = crate::session::new(workspace.path(), "fixture");
+        past.messages
+            .push(json!({"role":"user","content":"test failed historical-only-marker"}));
+        crate::session::save(&agent.settings.sessions_dir, &mut past).unwrap();
+        agent.turn("بأي جلسة فشل الاختبار؟").unwrap();
+        let answer = agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(answer.contains(&past.id));
+        assert!(!answer.contains("historical-only-marker"));
+        assert!(server.join().unwrap().is_empty());
+        assert!(!crate::session::semantic::past_question(
+            "بأي جلسة فشل الاختبار وشو وضعه هلّق؟"
+        ));
+    }
+
     #[test]
     fn workspace_skill_is_scoped_to_one_turn_in_either_language() {
         let reply = || completion(json!({"role":"assistant","content":"Done."}));

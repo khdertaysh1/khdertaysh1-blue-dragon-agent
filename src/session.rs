@@ -1,4 +1,5 @@
 pub mod indexed;
+pub(crate) mod semantic;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};

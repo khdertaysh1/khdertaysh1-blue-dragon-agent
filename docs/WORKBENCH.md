@@ -172,3 +172,19 @@ Use local code and file reads. Quote the declaration and its file-relative line.
 ```
 
 The description is one line, at most 240 characters. Up to eight optional `match:` lines describe complete requests; `{symbol}` stands for one identifier. The catalog offers up to twelve guides and accepts bodies up to 4096 bytes for automatic use. The provider sees the catalog descriptions when offered. Only selected guidance is projected into the current request. Tool evidence and the selected name can remain in the transcript.
+
+### Search saved sessions by meaning
+
+In chat, ask `بأي جلسة ضلّ العدد واحد بعد ما حاولنا نغيّره؟` or
+`Which session had the count stuck at one?`. For other phrasings use
+`/sessions search WORDS`. Both routes combine the existing text search with
+a small offline Arabic/English engineering vocabulary. Search uses local
+saved sessions and does not contact a model or open a browser. Results
+identify the original session. Tool evidence IDs are local to that session.
+A conversation excerpt alone is not a verified tool observation.
+
+Direct successful reads of small counts (0–10) on quantity controls can be
+matched to the saved browser receipt. Arbitrary expressions, form values,
+and response bodies are not added to the concept index. A historical read
+describes that point in the session; a question about the live page still
+requires a fresh observation. Search does not infer why a value was unchanged.
