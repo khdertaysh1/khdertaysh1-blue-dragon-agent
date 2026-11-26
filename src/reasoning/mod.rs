@@ -4,6 +4,7 @@ pub mod claims;
 pub mod context;
 pub mod evidence_memory;
 pub mod loops;
+pub(crate) mod turn_evidence;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
