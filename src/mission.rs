@@ -1,4 +1,4 @@
-//! Passive telemetry about local task evidence. Never consulted by the dispatcher.
+//! Turn-local evidence and the bounded transition to a completion review.
 use crate::intelligence::checks::Contract;
 use crate::reasoning::claims;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,8 @@ pub struct Mission {
     pub checks_met_since_step: Option<usize>,
     pub last_command_attempt: Option<Value>,
     pub latest_step: usize,
+    #[serde(default)]
+    completion_review_started: bool,
 }
 
 impl Mission {
@@ -81,13 +83,23 @@ impl Mission {
         }
     }
 
+    pub fn begin_completion_review(&mut self, saved_body_read: bool) -> bool {
+        if self.completion_review_started
+            || (self.checks_met_since_step.is_none() && !saved_body_read)
+        {
+            return false;
+        }
+        self.completion_review_started = true;
+        true
+    }
+
     pub fn report(&self) -> Value {
-        json!({"mode":"observe_only","turn_message_index":self.turn_message_index,
+        json!({"mode":"completion_review","completion_review_started":self.completion_review_started,"turn_message_index":self.turn_message_index,
             "latest_tool_step":self.latest_step,"declared_criteria":self.latest_proofs.len(),
             "declared_check_state":if self.latest_proofs.is_empty() {"not_declared"} else if self.checks_met_since_step.is_some() {"observed"} else {"unverified"},
             "checks_met_since_step":self.checks_met_since_step,"last_matching_evidence_ids":self.latest_proofs,
             "last_command_attempt":self.last_command_attempt,
-            "limits":"Historical observations at tool dispatch. Declared checks cover bounded native metadata. Command execution, successful exit, and delivery of the user's whole request are distinct. No automatic stop."})
+            "limits":"Historical observations at tool dispatch. Declared checks cover bounded native metadata. Command execution, successful exit, and delivery of the user's whole request are distinct. A completion review can finish with an answer or return to remaining work."})
     }
 }
 

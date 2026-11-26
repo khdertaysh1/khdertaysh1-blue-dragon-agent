@@ -86,20 +86,25 @@ def test_save(binary):
                 name, args = "browser", {"action": "save_response", "request_id": "script", "path": "capture-report.js"}
             elif count == 3:
                 name, args = "read_file_window", {"path": "capture-report.js", "byte_offset": len(BODY)-13, "byte_count": 13}
-            elif count == 4:
-                name, args = "browser", {"action": "network"}
             else:
-                notes = next(json.loads(m["content"].split("\n", 1)[1])
-                             for m in packet["messages"] if "current_turn_saved_bodies" in (m.get("content") or "")
-                             and (m.get("content") or "").startswith("Blue Dragon working notes"))
-                receipt = notes["current_turn_saved_bodies"][0]
+                notes = next((json.loads(m["content"].split("\n", 1)[1])
+                              for m in packet["messages"] if "current_turn_saved_bodies" in (m.get("content") or "")
+                              and (m.get("content") or "").startswith("Blue Dragon working notes")), None)
+                if notes:
+                    receipt = notes["current_turn_saved_bodies"][0]
+                    read = receipt["later_read"]
+                    assert read["excerpt"] == "const x = 1;\n"
+                else:
+                    results = [json.loads(m["content"]) for m in packet["messages"] if m["role"] == "tool"]
+                    receipt = next(r for r in results if r.get("saved_to_disk"))
+                    read = next(r for r in results if r.get("content") == "const x = 1;\n")
                 assert receipt["source_url"] == PAGE + "test.js" and receipt["http_status"] == 200
-                assert receipt["later_read"]["excerpt"] == "const x = 1;\n"
-                if count == 5:
+                assert not packet.get("tools"), packet
+                if count == 4:
                     response = "No script body was available."
                 else:
-                    assert count == 6 and not packet.get("tools"), packet
-                    response = "const x = 1; declares x. " + receipt["later_read"]["evidence_id"]
+                    assert count == 5 and not packet.get("tools"), packet
+                    response = "const x = 1; declares x. " + read["evidence_id"]
                 return web.json_response({"choices": [{"message": {"role": "assistant", "content": response},
                                                        "finish_reason": "stop"}]})
         elif mode == "good" and phase["requests"] == 1:
@@ -316,8 +321,8 @@ def test_save(binary):
             phase.update(mode="capture-report", requests=0)
             report = chat([f"/browser attach {websocket_port[0]}",
                            "Save the retained script response with request ID script as capture-report.js. Read its last line and report it with the evidence ID. Do not reload.",
-                           "y", "y", "/exit"])
-            assert "const x = 1; declares x. E" in report and phase["requests"] == 6, report
+                           "y", "/exit"])
+            assert "const x = 1; declares x. E" in report and phase["requests"] == 5, report
             assert (work / "capture-report.js").read_bytes() == BODY
             return {"passed": True, "transport": "loopback CDP protocol fixture",
                     "bytes": len(BODY), "sha256": digest, "body_reads": len(retrieved),

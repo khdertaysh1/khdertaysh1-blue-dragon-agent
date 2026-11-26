@@ -863,7 +863,7 @@ impl Agent {
     }
     pub fn mission_report(&self) -> Value {
         let Some(mission) = &self.session.mission else {
-            return json!({"mode":"observe_only","state":"no_recorded_mission"});
+            return json!({"mode":"completion_review","state":"no_recorded_mission"});
         };
         let mut view = mission.report();
         view["criteria"] = json!(self.session.task_checks.checks);
@@ -1609,6 +1609,43 @@ impl Agent {
                 )}));
                 self.persist()?;
             }
+            // Reserve room to resume normal dispatch if a deliverable still needs tools.
+            let mission_review = !report_recovery
+                && exact_file.is_none()
+                && !explain_first
+                && !structured
+                && resumed.is_none()
+                && step + 2 < step_limit
+                && !user_denied_action
+                && unresolved_arguments.is_empty()
+                && !self.tools.has_active_jobs()
+                && (self.session.fresh_source_requests.is_empty()
+                    || crate::intelligence::fresh::status(
+                        &self.session.fresh_source_requests,
+                        &self.session,
+                        &self.tools,
+                    )["all_observed"]
+                        == true)
+                && self
+                    .session
+                    .plan
+                    .steps
+                    .iter()
+                    .all(|s| s.status == "completed")
+                && self.session.mission.as_mut().is_some_and(|m| {
+                    m.begin_completion_review(
+                        self.session.task_checks.checks.is_empty()
+                            && self
+                                .loop_guard
+                                .saved_responses()
+                                .iter()
+                                .any(|r| r["later_read"].is_object()),
+                    )
+                });
+            if mission_review {
+                self.session.messages.push(json!({"role":"user","content":
+                    "Mission completion review. Compare the original request, including every requested deliverable, with current-turn evidence. If the evidence suffices, return the requested final answer now, including requested quotations, explanations and evidence IDs. If another action is genuinely required, reply with exactly MISSION_CONTINUE. A passing check alone does not establish completion. No tools are available in this decision round."}));
+            }
             let mut emitted = false;
             let mut stream_received = false;
             let buffer_for_review = download_contract
@@ -1633,7 +1670,7 @@ impl Agent {
                     self.session.vision_destination.as_deref(),
                     self.provider.vision_destination().as_deref(),
                 )?;
-                let definitions = if report_recovery || explain_first {
+                let definitions = if report_recovery || explain_first || mission_review {
                     json!([])
                 } else if user_denied_action {
                     if denied_artifact_read {
@@ -1894,6 +1931,8 @@ impl Agent {
                 let token = self.cancelled.clone();
                 self.context_stats["request_phase"] = json!(if explain_first {
                     "conversation_only"
+                } else if mission_review {
+                    "mission_review"
                 } else if report_recovery {
                     "report_only"
                 } else {
@@ -1949,6 +1988,14 @@ impl Agent {
                         let parsed = (!native_calls)
                             .then(|| crate::agent_tool_reply::parse(&reply))
                             .flatten();
+                        if mission_review
+                            && (native_calls
+                                || parsed.is_some()
+                                || looks_like_text_tool_call(&reply))
+                        {
+                            // A proposed action means more work is needed. Never dispatch it from a tool-free round.
+                            break json!({"role":"assistant","content":"MISSION_CONTINUE"});
+                        }
                         let mut format_hint = None;
                         if !explain_first
                             && !report_recovery
@@ -2228,6 +2275,13 @@ impl Agent {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
+            if mission_review
+                && (!calls.is_empty() || extract_text(&message).trim() == "MISSION_CONTINUE")
+            {
+                self.session.messages.push(json!({"role":"user","content":
+                    "Resume the outstanding part of the original task. No action was executed during the completion review. Use existing results for completed steps."}));
+                continue 'steps;
+            }
             if calls.is_empty() && is_text_tool_envelope(&extract_text(&message)) {
                 anyhow::bail!(
                     "Provider returned a tool request as ordinary text; no tool executed"
@@ -5083,7 +5137,10 @@ mod tests {
         agent.turn("Verify demo.txt size").unwrap();
         assert_eq!(agent.mission_report()["checks_met_since_step"], 2);
         assert_eq!(agent.mission_report()["declared_check_state"], "observed");
-        assert_eq!(server.join().unwrap().len(), 3);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[2]["tools"].as_array().is_none_or(Vec::is_empty));
+        assert_eq!(agent.mission_report()["completion_review_started"], true);
         assert_eq!(
             agent.session.last_report["task_status"],
             "declared_checks_observed"
@@ -5208,6 +5265,7 @@ mod tests {
         let (mut agent, workspace, _state, server) = scripted_agent(vec![
             tool_call("c1", "set_task_checks", checks),
             tool_call("r1", "file_info", json!({"path":"demo.txt"})),
+            completion(json!({"role":"assistant","content":"MISSION_CONTINUE"})),
             tool_call(
                 "w1",
                 "write_file",
@@ -5234,7 +5292,7 @@ mod tests {
             .turn("Edit demo.txt after checking its original size")
             .unwrap();
         approval.join().unwrap();
-        assert_eq!(server.join().unwrap().len(), 5);
+        assert_eq!(server.join().unwrap().len(), 6);
         assert_eq!(
             std::fs::read_to_string(workspace.path().join("demo.txt")).unwrap(),
             "edited"
