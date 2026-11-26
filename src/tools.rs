@@ -570,6 +570,16 @@ impl ToolBox {
         Ok(answer)
     }
 
+    pub(crate) fn missing_response_parent(&self, relative: &str) -> Result<Option<String>> {
+        let rel = Self::validated_parts(relative)?;
+        let Some(parent) = rel.parent().filter(|p| !p.as_os_str().is_empty()) else {
+            return Ok(None);
+        };
+        let parent = parent.to_str().context("Invalid destination directory")?;
+        let resolved = self.resolve(parent, true)?;
+        Ok((!resolved.exists()).then(|| parent.to_owned()))
+    }
+
     pub(crate) fn check_browser_save_destination(&self, relative: &str) -> Result<()> {
         let path = self.resolve(relative, true)?;
         anyhow::ensure!(!path.exists(), "Destination already exists");

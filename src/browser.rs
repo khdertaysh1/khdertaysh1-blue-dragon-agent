@@ -510,7 +510,6 @@ impl Browser {
             ),
             "Destination must end in .js or .mjs"
         );
-        tools.check_browser_save_destination(path)?;
         let (url, status) = cdp.javascript_response(&id)?;
         let url = url.to_owned();
         validate_url(&url)?;
@@ -527,6 +526,15 @@ impl Browser {
             self.scope.check(&url, "read")?;
         }
         self.check_save_document_origin(&url)?;
+        let local_page = Self::loopback_lab_url(&url);
+        let missing_parent = if local_page {
+            tools.missing_response_parent(path)?
+        } else {
+            None
+        };
+        if missing_parent.is_none() {
+            tools.check_browser_save_destination(path)?;
+        }
         let epoch = self.status()["connection_epoch"].as_u64();
         if !tools.approve_task_step(
             "Save observed JavaScript response to workspace",
@@ -559,7 +567,19 @@ impl Browser {
                     == (url.as_str(), status),
             "Browser response or connection changed; nothing saved"
         );
+        if let Some(parent) = missing_parent {
+            let created = tools.create_directory(&parent)?;
+            if created["denied"] == true {
+                return Ok(created);
+            }
+            self.check_save_document_origin(&url)?;
+        }
         let mut result = tools.persist_browser_response(path, &bytes)?;
+        if local_page {
+            result["local_read"] = json!({"tool":"read_file_window","arguments":{
+                "path":result["path"],"byte_offset":0,"byte_count":bytes.len().min(4096)
+            }});
+        }
         result["request_id"] = json!(id);
         result["source_origin"] = json!(origin);
         result["source_url"] = json!(url);

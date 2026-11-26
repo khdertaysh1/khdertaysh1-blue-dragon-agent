@@ -2692,6 +2692,15 @@ impl Agent {
                 let name = call["function"]["name"]
                     .as_str()
                     .context("Tool name missing")?;
+                if name == "recall_context" && recall_report_due {
+                    // Every provider call ID needs a response, including skipped batch entries.
+                    let skipped = json!({"ok":false,"category":"history_read_skipped","execution_status":"not_executed"});
+                    self.session.messages.push(
+                        json!({"role":"tool","tool_call_id":id,"content":skipped.to_string()}),
+                    );
+                    self.persist()?;
+                    continue;
+                }
                 let args = serde_json::from_str::<Value>(
                     call["function"]["arguments"]
                         .as_str()
@@ -3383,6 +3392,10 @@ impl Agent {
                             && !crate::reasoning::claims::is_historical(&result)
                     );
                     if a == "save_response" {
+                        if let Some(error) = result["error"].as_str() {
+                            action["save_error"] =
+                                json!(crate::reasoning::context::clip(error, 240));
+                        }
                         action["save_target"] = guard_args["path"].clone();
                         action["saved_to_disk"] = result["saved_to_disk"].clone();
                     }
@@ -3728,7 +3741,15 @@ fn browser_outcomes(actions: &[Value], arabic: bool) -> Vec<String> {
                 (true, "source") => "قراءة المصدر",
                 _ => name,
             };
-            entries.push(format!("{name}{path} ({id})"));
+            let error = if success {
+                None
+            } else {
+                action["save_error"].as_str()
+            };
+            let detail = error
+                .map(|s| format!(" — {}", s.escape_debug()))
+                .unwrap_or_default();
+            entries.push(format!("{name}{path} ({id}){detail}"));
             if entries.len() == 3 {
                 break;
             }
@@ -6065,6 +6086,9 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
+        replies[8]["choices"][0]["message"]["tool_calls"].as_array_mut().unwrap().push(
+            json!({"id":"extra_recall","type":"function","function":{"name":"recall_context","arguments":json!({"message_index":0,"offset":900,"count":100}).to_string()}}),
+        );
         replies.push(completion(
             json!({"role":"assistant","content":"Partial evidence only."}),
         ));
@@ -6080,6 +6104,14 @@ mod tests {
             )
             .unwrap();
         let requests = server.join().unwrap();
+        assert!(agent
+            .session
+            .messages
+            .iter()
+            .any(|m| m["tool_call_id"] == "extra_recall"
+                && m["content"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("history_read_skipped"))));
         assert_eq!(requests.len(), 10);
         assert!(requests[9]["tools"].as_array().is_none_or(Vec::is_empty));
         assert!(agent.session.messages.iter().any(|m| m["role"] == "tool"

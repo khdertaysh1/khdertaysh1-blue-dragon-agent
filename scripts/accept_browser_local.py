@@ -7,7 +7,7 @@ def fixture_env(home):
  return env
 p=argparse.ArgumentParser();p.add_argument('binary',type=pathlib.Path);p.add_argument('--chromium',default='/usr/bin/chromium');a=p.parse_args();binary=a.binary.resolve()
 with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
- root=pathlib.Path(td);work=root/'work';work.mkdir();packets=[];gets=[];sequence=0
+ root=pathlib.Path(td);work=root/'work';work.mkdir();packets=[];gets=[];sequence=0;capture_id=None;read_done=False
  script=(b'/* loopback test */\n'*14000)+b'const fixtureValue = 1;\n'
  assert len(script)>128_000
 
@@ -21,16 +21,27 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
    body=(b'<title>After</title><h1>Reached</h1>' if self.path=='/done' else b'<title>Before</title><h1>Start</h1><input id="name"><button id="preview" onclick="document.querySelector(&quot;output&quot;).textContent=document.querySelector(&quot;#name&quot;).value">Preview</button><output>Waiting</output><a id="next" href="/done">Next</a><script src="/fixture.js"></script>')
    self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(body)
   def do_POST(self):
-   global sequence
+   global sequence,read_done
    q=json.loads(self.rfile.read(int(self.headers['Content-Length'])));packets.append(q)
    calls=[('snapshot',{'compact':True}),('click',{'selector':'#next'}),('wait_for',{'selector':'h1','text':'Reached'}),('snapshot',{'compact':True,'selector':'h1'})]
    m={'role':'assistant','content':'Observed final page: After, heading Reached. No further interaction.'}
-   if sequence<len(calls):
+   if capture_id is None and sequence<len(calls):
     action,args=calls[sequence];args['action']=action
     advertised={t['function']['name'] for t in q.get('tools',[])}
     name='browser' if 'browser' in advertised else 'discover_tools'
     m={'role':'assistant','content':None,'tool_calls':[{'id':'b'+str(len(packets)),'type':'function','function':{'name':name,'arguments':json.dumps(args if name=='browser' else {'names':['browser']})}}]}
     if name=='browser':sequence+=1
+   if capture_id is not None:
+    if read_done:
+     m={'role':'assistant','content':'Read the local fixture: /* loopback test */.'}
+    else:
+     tool_results=[json.loads(msg['content']) for msg in q['messages'] if msg.get('role')=='tool']
+     receipt=next((r['local_read'] for r in reversed(tool_results) if r.get('request_id')==capture_id and r.get('saved_to_disk') and 'local_read' in r),None)
+     name,args=('browser',dict(action='save_response',request_id=capture_id,path='capture/saved.js')) if receipt is None else (receipt['tool'],receipt['arguments'])
+     advertised={t['function']['name'] for t in q.get('tools',[])}
+     if name not in advertised:name,args='discover_tools',{'names':[name]}
+     m={'role':'assistant','content':None,'tool_calls':[{'id':'capture'+str(len(packets)),'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]}
+     read_done=name=='read_file_window'
    body=json.dumps({'choices':[{'message':m,'finish_reason':'tool_calls' if m.get('tool_calls') else 'stop'}]}).encode()
    self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
  server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Local);threading.Thread(target=server.serve_forever,daemon=True).start();site=f'http://127.0.0.1:{server.server_port}'
@@ -81,11 +92,13 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
   row=next(r for r in rows if r['event']=='response' and r['url']==site+'/fixture.js')
   denied=result(browser_do('save_response','deny',request_id=row['request_id'],path='denied.js'))
   assert denied['denied'] is True and not (work/'denied.js').exists()
-  saved=result(browser_do('save_response',True,request_id=row['request_id'],path='saved.js'))
-  assert saved['bytes']==len(script) and saved['sha256']==hashlib.sha256(script).hexdigest()
-  assert saved['complete_browser_body'] and (work/'saved.js').read_bytes()==script
-  denied_overwrite=browser_do('save_response',request_id=row['request_id'],path='saved.js')
-  assert 'Destination already exists' in denied_overwrite and (work/'saved.js').read_bytes()==script
+  capture_id=row['request_id']
+  (work/'sample.js').write_text('/* stale file */')
+  send('Save the observed local fixture script in capture/saved.js and read its first comment from disk.',True)
+  capture_id=None
+  assert read_done and (work/'capture/saved.js').read_bytes()==script
+  denied_overwrite=browser_do('save_response',request_id=row['request_id'],path='capture/saved.js')
+  assert 'Destination already exists' in denied_overwrite and (work/'capture/saved.js').read_bytes()==script
   assert gets.count('/fixture.js')==1,gets
   field=result(browser_do('fill',True,selector='#name',value='Cedar-72'))
   assert field['ok'] and field['result']['matched'],field
@@ -100,6 +113,13 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
   assert home['ok'] and home['result']['url']==site+'/start' and home['result']['h1']==['Start'],home
   agent.stdin.write(b'/exit\n');agent.stdin.flush();agent.wait(timeout=5)
   s=json.loads(next((root/'state/sessions').glob('*.json')).read_text())
+  read=next(o for o in s['observations'] if o['tool']=='read_file_window')
+  window=json.loads(s['messages'][read['message_index']]['content'])
+  assert window['path']=='capture/saved.js' and window['content'].encode()==script[:4096]
+  saved_values=[json.loads(s['messages'][o['message_index']]['content']) for o in s['observations'] if o['tool']=='browser']
+  saved=next(r for r in saved_values if r.get('saved_to_disk') and r.get('path')=='capture/saved.js')
+  assert saved['sha256']==hashlib.sha256(script).hexdigest() and saved['complete_browser_body']
+  assert saved['evidence_id']!=read['id'] and saved['request_id']==row['request_id']
   observations=[o for o in s['observations'] if o['tool']=='browser'];values=[json.loads(s['messages'][o['message_index']]['content']) for o in observations]
   calls=[c for m in s['messages'][s['user_turns'][-1]:] for c in m.get('tool_calls',[]) if c['function']['name']=='browser']
   assert sum(json.loads(c['function']['arguments'])['action']=='click' for c in calls)==1
