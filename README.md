@@ -45,7 +45,7 @@ The release includes platform binaries, SHA-256 checksums and browser extensions
 | **Skills** | Opt-in local Markdown workflows, without running bundled scripts |
 | **Safety controls** | `--read-only`, protected-path checks and deny-by-default noninteractive approvals |
 | **Terminal** | Full-screen `tui`, streamed responses, approval overlay, cancellation, plan pane; CLI `chat`, `run` and diagnostics |
-| **MCP** | Connect a stdio server explicitly, approve tool calls, and list or read its text resources. [MCP guide](docs/MCP_RESOURCE_CONTEXT.md) |
+| **MCP** | Connect a stdio or Streamable HTTP server, approve tool calls, read text resources, and preview server prompts. [MCP guide](docs/MCP_RESOURCE_CONTEXT.md) |
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
 | **Real browser** | Connect via CDP or a paired Firefox/Chromium extension to inspect page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |

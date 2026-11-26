@@ -1,4 +1,6 @@
-//! Opt-in stdio MCP. Server processes and every remote call require approval.
+//! Explicitly connected stdio and Streamable HTTP MCP servers.
+mod http;
+mod prompts;
 use crate::{mcp_protocol::JsonRpcRequest, tools::ToolBox};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -21,7 +23,10 @@ use std::{
 #[serde(deny_unknown_fields)]
 pub struct ServerConfig {
     pub name: String,
+    #[serde(default)]
     pub command: String,
+    pub url: Option<String>,
+    pub bearer_env: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
     /// Environment variable NAMES only; values are read from the launching shell.
@@ -50,9 +55,16 @@ fn load(path: &Path) -> Result<Vec<ServerConfig>> {
     }
     let mut names = std::collections::BTreeSet::new();
     for s in &config.servers {
+        if let Some(url) = &s.url {
+            http::endpoint(url)?;
+        }
         if !valid_name(&s.name)
             || !names.insert(s.name.clone())
-            || s.command.is_empty()
+            || (s.command.is_empty() != s.url.is_some())
+            || (s.url.is_some() && (!s.args.is_empty() || !s.env.is_empty()))
+            || s.bearer_env
+                .as_ref()
+                .is_some_and(|v| s.url.is_none() || !valid_name(v))
             || s.command.len() > 1000
             || s.args.len() > 30
             || s.args.iter().any(|a| a.len() > 2000)
@@ -63,6 +75,33 @@ fn load(path: &Path) -> Result<Vec<ServerConfig>> {
         }
     }
     Ok(config.servers)
+}
+
+#[derive(Debug)]
+struct RemoteError(i64);
+impl std::fmt::Display for RemoteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MCP server returned JSON-RPC error {}", self.0)
+    }
+}
+impl std::error::Error for RemoteError {}
+
+fn reject_rpc_error(value: &Value) -> Result<()> {
+    if let Some(error) = value.get("error") {
+        let code = error["code"].as_i64().context("Malformed MCP error code")?;
+        anyhow::ensure!(
+            error["message"].is_string() && value.get("result").is_none(),
+            "Malformed MCP error response"
+        );
+        return Err(RemoteError(code).into());
+    }
+    Ok(())
+}
+
+fn remote_error(error: &anyhow::Error) -> Option<Value> {
+    error.downcast_ref::<RemoteError>().map(
+        |e| json!({"ok":false,"category":"mcp_rpc_error","rpc_code":e.0,"automatic_retry":false}),
+    )
 }
 
 struct Client {
@@ -202,9 +241,7 @@ impl Client {
             if value["id"].as_u64() != Some(id) {
                 bail!("MCP response ID mismatch");
             }
-            if value.get("error").is_some() {
-                bail!("MCP server returned a JSON-RPC error (details suppressed)");
-            }
+            reject_rpc_error(&value)?;
             return value.get("result").cloned().context("MCP result missing");
         }
     }
@@ -299,13 +336,37 @@ fn resource_text(value: &Value, uri: &str) -> Result<Value> {
     )
 }
 
+enum Connection {
+    Stdio(Client),
+    Http(http::Transport),
+}
+impl Connection {
+    fn request(&mut self, method: &str, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(c) => c.request(method, params),
+            Self::Http(c) => c.request(method, params),
+        }
+    }
+    fn initialized(&mut self, version: &str) -> Result<()> {
+        let message = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
+        match self {
+            Self::Stdio(c) => c.send(&message),
+            Self::Http(c) => {
+                c.version = Some(version.into());
+                c.exchange(message)?;
+                Ok(())
+            }
+        }
+    }
+}
 pub struct Registry {
     config: Vec<ServerConfig>,
     root: PathBuf,
-    clients: BTreeMap<String, Client>,
+    clients: BTreeMap<String, Connection>,
     tools: BTreeMap<String, (String, String, Value)>,
     cancelled: Arc<AtomicBool>,
     resources: BTreeMap<String, Resources>,
+    prompts: BTreeMap<String, prompts::Catalog>,
 }
 impl Registry {
     pub fn new(path: Option<&Path>, root: &Path, cancelled: Arc<AtomicBool>) -> Result<Self> {
@@ -318,20 +379,24 @@ impl Registry {
             clients: BTreeMap::new(),
             tools: BTreeMap::new(),
             resources: BTreeMap::new(),
+            prompts: BTreeMap::new(),
             cancelled,
         })
     }
     pub fn set_cancellation(&mut self, token: Arc<AtomicBool>) {
         self.cancelled = token.clone();
         for client in self.clients.values_mut() {
-            client.cancelled = token.clone();
+            match client {
+                Connection::Stdio(c) => c.cancelled = token.clone(),
+                Connection::Http(c) => c.cancelled = token.clone(),
+            }
         }
     }
     pub fn list(&self) -> Value {
         json!(self
             .config
             .iter()
-            .map(|c| json!({"name":c.name,"connected":self.clients.contains_key(&c.name),"resources_available":self.resources.contains_key(&c.name)}))
+            .map(|c| json!({"name":c.name,"connected":self.clients.contains_key(&c.name),"resources_available":self.resources.contains_key(&c.name),"prompts_available":self.prompts.contains_key(&c.name)}))
             .collect::<Vec<_>>())
     }
     pub fn connect(&mut self, name: &str, approval: &ToolBox) -> Result<Value> {
@@ -343,20 +408,42 @@ impl Registry {
             .iter()
             .find(|c| c.name == name)
             .context("No configured MCP server with this name")?;
-        if !approval.approve("Launch configured MCP server",&format!("{}\nProgram: {}\nArgs: {:?}\nThis process runs with your OS permissions, not in a sandbox.",name,config.command,config.args))?{return Ok(json!({"ok":false,"status":"denied"}));}
-        let mut client = Client::launch(config, &self.root, self.cancelled.clone())?;
-        let initialized=client.request("initialize",json!({"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"blue-dragon","version":env!("BLUE_DRAGON_PUBLIC_VERSION")}}))?;
+        let mut client = if let Some(raw) = &config.url {
+            let url = http::endpoint(raw)?;
+            if !approval.approve(
+                "Connect configured MCP server",
+                &format!(
+                    "{} at {}{} via Streamable HTTP",
+                    name,
+                    url.origin().ascii_serialization(),
+                    url.path()
+                ),
+            )? {
+                return Ok(json!({"ok":false,"status":"denied"}));
+            }
+            Connection::Http(http::Transport::new(config, self.cancelled.clone())?)
+        } else {
+            if !approval.approve("Launch configured MCP server",&format!("{}\nProgram: {}\nArgs: {:?}\nThis process runs with your OS permissions, not in a sandbox.",name,config.command,config.args))?{return Ok(json!({"ok":false,"status":"denied"}));}
+            Connection::Stdio(Client::launch(config, &self.root, self.cancelled.clone())?)
+        };
+        let requested_version = if config.url.is_some() {
+            "2025-06-18"
+        } else {
+            "2025-03-26"
+        };
+        let initialized=client.request("initialize",json!({"protocolVersion":requested_version,"capabilities":{},"clientInfo":{"name":"blue-dragon","version":env!("BLUE_DRAGON_PUBLIC_VERSION")}}))?;
         if !matches!(
             initialized["protocolVersion"].as_str(),
             Some("2024-11-05" | "2025-03-26" | "2025-06-18")
         ) {
             bail!("Unsupported MCP protocol version");
         }
-        client.send(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}))?;
+        client.initialized(initialized["protocolVersion"].as_str().unwrap())?;
         let has_tools = initialized["capabilities"]["tools"].is_object();
         let has_resources = initialized["capabilities"]["resources"].is_object();
-        if !has_tools && !has_resources {
-            bail!("MCP server has no supported tools/resources capability");
+        let has_prompts = initialized["capabilities"]["prompts"].is_object();
+        if !has_tools && !has_resources && !has_prompts {
+            bail!("MCP server has no supported tools/resources/prompts capability");
         }
         let mut pending = BTreeMap::new();
         let mut cursor: Option<String> = None;
@@ -402,10 +489,16 @@ impl Registry {
         let count = pending.len();
         self.tools.extend(pending);
         self.clients.insert(name.to_owned(), client);
+        if has_prompts {
+            self.prompts
+                .insert(name.into(), prompts::Catalog::default());
+        }
         if has_resources {
             self.resources.insert(name.into(), Resources::default());
         }
-        Ok(json!({"connected":name,"tools":count,"resources_available":has_resources}))
+        Ok(
+            json!({"connected":name,"tools":count,"resources_available":has_resources,"prompts_available":has_prompts}),
+        )
     }
     pub fn resource_context(&mut self, args: &Value, approval: &ToolBox) -> Result<Value> {
         if self.cancelled.load(Ordering::Relaxed) {
@@ -462,10 +555,11 @@ impl Registry {
             .request(method, params.clone());
         let value = match response {
             Ok(v) => v,
-            Err(_) => {
-                self.clients.remove(server);
-                self.resources.remove(server);
-                self.tools.retain(|_, (s, _, _)| s != server);
+            Err(e) => {
+                if let Some(result) = remote_error(&e) {
+                    return Ok(result);
+                }
+                self.disconnect(server);
                 return Ok(
                     json!({"ok":false,"execution_status":"unknown","automatic_retry":false,"disconnected":true,"error":"Resource request outcome unknown; connection/catalog discarded. No reconnect or replay performed."}),
                 );
@@ -497,6 +591,12 @@ impl Registry {
             }
         }
     }
+    fn disconnect(&mut self, server: &str) {
+        self.clients.remove(server);
+        self.resources.remove(server);
+        self.prompts.remove(server);
+        self.tools.retain(|_, (s, _, _)| s != server);
+    }
     pub fn definitions(&self) -> Vec<Value> {
         self.tools.values().map(|(_, _, v)| v.clone()).collect()
     }
@@ -518,11 +618,14 @@ impl Registry {
             .request("tools/call", json!({"name":remote,"arguments":args}));
         let result = match response {
             Ok(v) => v,
-            Err(error) => {
-                self.clients.remove(&server);
-                self.resources.remove(&server);
-                self.tools.retain(|_, (s, _, _)| s != &server);
-                return Err(error);
+            Err(e) => {
+                if let Some(result) = remote_error(&e) {
+                    return Ok(result);
+                }
+                self.disconnect(&server);
+                return Ok(
+                    json!({"ok":false,"execution_status":"unknown","disconnected":true,"automatic_retry":false,"error":"MCP call outcome unknown; connection discarded"}),
+                );
             }
         };
         if result["isError"] == true {
@@ -576,11 +679,99 @@ mod tests {
         assert_eq!(r["text_bytes"], 9);
         assert_eq!(r["instructions_are_authority"], false);
     }
+    #[test]
+    fn http_session_prompts_resources_sse_and_lost_reply_use_real_transport() {
+        struct Fixture(Child);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let log = tmp.path().join("rpc.log");
+        let mut child = Fixture(
+            Command::new("python")
+                .arg(
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mcp_http_server.py"),
+                )
+                .arg(&log)
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let mut line = String::new();
+        BufReader::new(child.0.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let port = line.trim().parse::<u16>().unwrap();
+        let config = tmp.path().join("servers.json");
+        fs::write(&config,json!({"servers":[{"name":"docs","url":format!("http://127.0.0.1:{port}/mcp")},{"name":"templates","url":format!("http://127.0.0.1:{port}/prompts-only")}]}).to_string()).unwrap();
+        let mut reg =
+            Registry::new(Some(&config), tmp.path(), Arc::new(AtomicBool::new(false))).unwrap();
+        let (approve, thread) = approve_all(tmp.path());
+        assert_eq!(
+            reg.connect("templates", &approve).unwrap()["prompts_available"],
+            true
+        );
+        assert_eq!(reg.connect("docs", &approve).unwrap()["tools"], 1);
+        assert!(reg
+            .prompt_command("prompt docs lesson {}", &approve)
+            .is_err());
+        assert_eq!(
+            reg.prompt_command("prompts docs", &approve).unwrap()["next_cursor"],
+            "p2"
+        );
+        assert!(reg
+            .prompt_command("prompts docs invalid", &approve)
+            .is_err());
+        assert_eq!(
+            reg.prompt_command("prompts docs p2", &approve).unwrap()["catalog_complete"],
+            true
+        );
+        assert!(reg
+            .prompt_command("prompt docs lesson {}", &approve)
+            .is_err());
+        let prompt = reg
+            .prompt_command(r#"prompt docs lesson {"topic":"اختبار"}"#, &approve)
+            .unwrap();
+        assert_eq!(prompt["messages"][0]["text"], "اختبار");
+        assert_eq!(prompt["instructions_are_authority"], false);
+        reg.resource_context(&json!({"action":"list","server":"docs"}), &approve)
+            .unwrap();
+        assert_eq!(
+            reg.resource_context(
+                &json!({"action":"read","server":"docs","uri":"docs://local"}),
+                &approve
+            )
+            .unwrap()["contents"][0]["text"],
+            "محلي"
+        );
+        assert_eq!(
+            reg.call("mcp__docs__echo", &json!({}), &approve).unwrap()["result"]["content"][0]
+                ["text"],
+            "called-once"
+        );
+        assert_eq!(
+            reg.call("mcp__docs__echo", &json!({"drop":true}), &approve)
+                .unwrap()["execution_status"],
+            "unknown"
+        );
+        assert!(!reg.has("mcp__docs__echo"));
+        assert!(reg.prompt_command("prompts docs", &approve).is_err());
+        let log = fs::read_to_string(log).unwrap();
+        assert_eq!(log.lines().filter(|s| *s == "tools/call").count(), 2);
+        assert_eq!(log.lines().filter(|s| *s == "prompts/get").count(), 1);
+        drop(approve);
+        assert_eq!(thread.join().unwrap(), 9);
+    }
     fn resource_registry(root: &Path, mode: &str) -> Registry {
         let mut registry = Registry::new(None, root, Arc::new(AtomicBool::new(false))).unwrap();
         registry.config.push(ServerConfig {
             name: "fixture".into(),
             command: "python".into(),
+            url: None,
+            bearer_env: None,
             args: vec![
                 Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("tests/fixtures/mcp_resource_server.py")
@@ -715,6 +906,8 @@ mod tests {
         ServerConfig {
             name: "fixture".into(),
             command: "python".into(),
+            url: None,
+            bearer_env: None,
             args,
             env: Vec::new(),
         }

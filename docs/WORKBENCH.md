@@ -21,7 +21,7 @@ Each task records an action summary in the session: tool names, return success/f
 
 Tool-call batches are validated before entering the saved history. Denied/cancelled tools receive paired tool results. If a process ended before saving a result, resume inserts an explicitly unknown-status envelope; it never reruns the action or invents success. The user/model must inspect the workspace before proposing a retry. Version 0.6 projects provider requests to a bounded context window without deleting the raw transcript. Older complete tool rounds and large observations can be excerpted, with exact recovery through recall_context. User/system instructions are retained; an explicit stop remains when essential context cannot fit. See AGENT_REASONING.md.
 
-## MCP (stdio, explicit opt-in)
+## MCP (stdio and Streamable HTTP)
 Copy examples/mcp.example.json to a private file and configure a trusted local process. The file is loaded only through --mcp-config or BLUE_DRAGON_MCP_CONFIG. Repository files are not auto-executed.
 
     blue-dragon --mcp-config /path/to/servers.json tui
@@ -31,7 +31,7 @@ Copy examples/mcp.example.json to a private file and configure a trusted local p
 
 Configuration holds environment variable names, not secret values. Only explicitly named values and basic OS variables are inherited. The server runs with your OS permissions and can modify files or use the network; approval is not isolation.
 
-Implemented: JSON-RPC stdio, initialization/version checking, paginated tool discovery, bounded messages/queues, timeout/cancellation, call results, default denial for unsupported server requests. Not included: Streamable HTTP, OAuth, roots/resources/prompts, sampling, elicitation, server reconnection. Browser automation uses a separate local CDP/extension transport; see BROWSER.md. Test coverage uses a real local subprocess fixture; third-party MCP servers still require compatibility testing.
+Connect a configured stdio or Streamable HTTP server, approve calls, read bounded text resources and preview named prompts. For configuration, commands, protocol limits and examples see [MCP resource context](MCP_RESOURCE_CONTEXT.md).
 
 ## Added tools
 Alongside the existing ten workspace tools:

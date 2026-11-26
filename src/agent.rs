@@ -791,6 +791,9 @@ impl Agent {
     pub fn mcp_list(&self) -> Value {
         self.mcp.list()
     }
+    pub fn mcp_prompt(&mut self, line: &str) -> Result<Value> {
+        self.mcp.prompt_command(line, &self.tools)
+    }
     pub fn connect_mcp(&mut self, name: &str) -> Result<Value> {
         self.mcp.connect(name, &self.tools)
     }

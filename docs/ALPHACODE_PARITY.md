@@ -19,7 +19,7 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Full-screen TUI / streaming UI | Implemented; OpenAI-compatible and Anthropic SSE, local fixture-tested |
 | Chromium/Firefox browser automation | URL-only automatic preparation/initial inspection, official Termux Chromium setup, own CDP client and authenticated extension bridge; managed tab DOM/click/fill/JS/network/console/source/screenshots. Linux real-browser tests; Android physical validation and Firefox signing pending |
 | Desktop control | The operator can open a workspace text file in a supported editor with `/desktop open` and use the clipboard on supported systems. General mouse, keyboard and window automation remains open. |
-| MCP client | Explicitly connected stdio tools plus paginated resource listing and bounded text reads. Remote transports remain open. See [MCP resource context](MCP_RESOURCE_CONTEXT.md). |
+| MCP client | Explicit stdio and Streamable HTTP connections with tools, paginated text resources and user-selected prompts. See [MCP resource context](MCP_RESOURCE_CONTEXT.md). |
 | Multi-agent swarm and isolated worktrees | [Concurrent child agents](DELEGATED_AGENTS.md) have scoped reads and can submit [patch proposals](SUPERVISED_EDIT_PROPOSALS.md) for parent review. Isolated writable Git worktrees remain open. |
 | Model selection / free gateway | Searchable picker of keyless Kilo free models, Blue Free bounded automatic rotation, pinned concrete choices, one-hour catalog cache, saved selections. JarvisClaw retained; OpenRouter requires own key |
 | Native installer candidates | CI packaging for Debian/Ubuntu amd64 and macOS arm64 (unsigned pkg). Candidate artifacts are separate from the published one-command installers. |
