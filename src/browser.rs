@@ -479,7 +479,8 @@ impl Browser {
             "Destination must end in .js or .mjs"
         );
         tools.check_browser_save_destination(path)?;
-        let url = cdp.javascript_response(&id)?.to_owned();
+        let (url, status) = cdp.javascript_response(&id)?;
+        let url = url.to_owned();
         validate_url(&url)?;
         if let Some(expected) = args.get("url") {
             anyhow::ensure!(
@@ -509,7 +510,7 @@ impl Browser {
         self.check_save_document_origin(&url)?;
         let cdp = self.cdp.as_mut().context("CDP disconnected")?;
         anyhow::ensure!(
-            cdp.javascript_response(&id)? == url,
+            cdp.javascript_response(&id)? == (url.as_str(), status),
             "Observed response changed"
         );
         let origin = reqwest::Url::parse(&url)?.origin().ascii_serialization();
@@ -523,12 +524,14 @@ impl Browser {
                     .as_ref()
                     .context("CDP disconnected")?
                     .javascript_response(&id)?
-                    == url,
+                    == (url.as_str(), status),
             "Browser response or connection changed; nothing saved"
         );
         let mut result = tools.persist_browser_response(path, &bytes)?;
         result["request_id"] = json!(id);
         result["source_origin"] = json!(origin);
+        result["source_url"] = json!(url);
+        result["http_status"] = json!(status);
         result["comparison_hint"] = json!("For a requested comparison with a workspace-relative path, compare both files on disk, e.g. with cmp. Do not convert the local path to a URL.");
         Ok(result)
     }

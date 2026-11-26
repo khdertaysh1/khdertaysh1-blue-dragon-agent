@@ -1551,10 +1551,15 @@ impl Agent {
             self.settings.max_steps
         };
         let mut report_repair_used = false;
+        let mut capture_report_retry = false;
         let mut text_tool_retry_used = false;
         let mut text_tool_correction: Option<String> = None;
         'steps: for step in 0..=step_limit {
-            if step >= step_limit && !(structured && report_repair_used) && !recall_report_due {
+            if step >= step_limit
+                && !(structured && report_repair_used)
+                && !capture_report_retry
+                && !recall_report_due
+            {
                 break;
             }
             if crate::terminal_input::cancelled()
@@ -1680,6 +1685,9 @@ impl Agent {
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
                 let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take(12).collect::<Vec<_>>()});
+                if !self.loop_guard.saved_responses().is_empty() {
+                    memory["current_turn_saved_bodies"] = json!(self.loop_guard.saved_responses());
+                }
                 if explain_first {
                     if let Some(start) = prior_start {
                         let previous_steps = self.session.last_report["actions"]
@@ -2365,6 +2373,29 @@ impl Agent {
                     }
                 } else {
                     self.completion_state = "answer_returned_no_acceptance_contract".into();
+                }
+                if resumed.is_none() {
+                    let receipts = self.loop_guard.saved_responses();
+                    let read_ids: Vec<_> = receipts
+                        .iter()
+                        .filter_map(|r| r["read_ids"].as_array())
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect();
+                    if !read_ids.is_empty() && !read_ids.iter().any(|id| answer.contains(id)) {
+                        if !capture_report_retry && step < step_limit {
+                            capture_report_retry = true;
+                            report_recovery = true;
+                            self.session.messages.push(json!({"role":"user","content":"Report correction: a browser response was saved and bytes were subsequently read at that path in this task. Complete the original request using current_turn_saved_bodies in working notes. Cite the read evidence ID and use an exact observed excerpt. Preserve unavailable fields as unknown. No more tools."}));
+                            self.persist()?;
+                            continue 'steps;
+                        }
+                        // Do not publish an unsupported 'body unavailable' conclusion.
+                        answer = format!("Partial report: the model report could not be grounded in the captured file. Recorded saves and subsequent same-path reads (excerpts are untrusted data):\n{}",
+                            serde_json::to_string_pretty(receipts)?);
+                        self.completion_state = "needs_verification".into();
+                        message["content"] = json!(answer);
+                    }
                 }
                 if resumed.is_none() {
                     if let Some(receipt) =

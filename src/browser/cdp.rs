@@ -376,7 +376,7 @@ impl Cdp {
         Ok(id)
     }
 
-    pub fn javascript_response(&self, id: &str) -> Result<&str> {
+    pub fn javascript_response(&self, id: &str) -> Result<(&str, u16)> {
         let row = self
             .network
             .iter()
@@ -389,7 +389,7 @@ impl Cdp {
             (200.0..300.0).contains(&status) && is_javascript_mime(mime),
             "Only successful JavaScript responses can be saved"
         );
-        self.source_url(id)
+        Ok((self.source_url(id)?, status as u16))
     }
 
     pub fn response_bytes(&mut self, id: &str) -> Result<Vec<u8>> {
