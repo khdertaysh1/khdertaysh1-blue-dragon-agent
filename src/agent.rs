@@ -1438,7 +1438,7 @@ impl Agent {
             }
         }
         self.browser.end_inspection();
-        self.session.last_report = json!({"started_at":started,"finished_at":chrono::Utc::now(),"finished":result.is_ok(),"error":result.as_ref().err().map(|e|e.to_string()),"provider_failure":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::rotation::ProviderFailure>()).map(crate::provider_diagnostics::metadata),"provider_partial":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::provider_contract::Incomplete>()).map(crate::provider_contract::partial_record),"cancelled":self.cancelled.load(std::sync::atomic::Ordering::Relaxed),"actions":actions,"routing":self.rotation_status(),"context":self.context_status(),"task_status":self.completion_state,"fresh_source_checks":crate::intelligence::fresh::status(&self.session.fresh_source_requests,&self.session,&self.tools),"acceptance_checks":self.check_status(),"loop_guard":self.loop_guard.status(),"findings":self.session.findings,"open_plan_steps":self.session.plan.steps.iter().filter(|s|s.status!="completed").count(),"note":"Tool success records observed return status, not a guarantee that code is correct. Plan completion is model-reported."});
+        self.session.last_report = json!({"started_at":started,"finished_at":chrono::Utc::now(),"finished":result.is_ok(),"error":result.as_ref().err().map(|e|e.to_string()),"provider_failure":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::rotation::ProviderFailure>()).map(crate::provider_diagnostics::metadata),"provider_partial":result.as_ref().err().and_then(|e|e.downcast_ref::<crate::provider_contract::Incomplete>()).map(crate::provider_contract::partial_record),"cancelled":self.cancelled.load(std::sync::atomic::Ordering::Relaxed) || crate::terminal_input::cancelled(),"actions":actions,"routing":self.rotation_status(),"context":self.context_status(),"task_status":self.completion_state,"fresh_source_checks":crate::intelligence::fresh::status(&self.session.fresh_source_requests,&self.session,&self.tools),"acceptance_checks":self.check_status(),"loop_guard":self.loop_guard.status(),"findings":self.session.findings,"open_plan_steps":self.session.plan.steps.iter().filter(|s|s.status!="completed").count(),"note":"Tool success records observed return status, not a guarantee that code is correct. Plan completion is model-reported."});
         if let Some(file) = resumed {
             self.session.last_report["resumed_file"] = file.metadata();
             self.session.last_report["browser_actions_replayed"] = json!(0);
@@ -1854,6 +1854,15 @@ impl Agent {
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
                 let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take_while(|o| o.message_index > turn_start).take(12).collect::<Vec<_>>()});
+                if let Some(snapshot) = actions.iter().rev().find(|a| {
+                    a["browser_action"] == "snapshot"
+                        && a["ok"] == true
+                        && a["cached_result"] != true
+                        && a["original_evidence_id"].is_null()
+                }) {
+                    memory["current_page_observation"] = json!({"evidence_id":snapshot["evidence_id"],
+                        "observed_url":snapshot["url"],"observed_title":snapshot["title"],"untrusted_page_data":true});
+                }
                 if !self.loop_guard.saved_responses().is_empty() {
                     memory["current_turn_saved_bodies"] = json!(self.loop_guard.saved_responses());
                 }
@@ -2133,6 +2142,14 @@ impl Agent {
                             .as_array()
                             .is_some_and(|calls| !calls.is_empty());
                         let reply = extract_text(&message);
+                        if self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+                            || crate::terminal_input::cancelled()
+                        {
+                            anyhow::bail!("Task cancelled; session saved");
+                        }
+                        if !native_calls && cancellation_only(&reply) {
+                            anyhow::bail!("Provider returned a cancellation notice without a runtime cancellation signal; completion is unverified");
+                        }
                         if crate::reasoning::turn_evidence::archived_reply(&reply) {
                             self.completion_state = "needs_verification".into();
                             anyhow::bail!("The provider echoed an archived reply. It cannot establish the result of this request.");
@@ -3445,6 +3462,14 @@ impl Agent {
                     action["evidence_id"] = result["evidence_id"].clone();
                     action["original_evidence_id"] = result["original_evidence_id"].clone();
                 }
+                if action["browser_action"] == "snapshot" && action["ok"] == true {
+                    let page = &result["result"];
+                    for key in ["url", "title"] {
+                        if let Some(value) = page[key].as_str() {
+                            action[key] = json!(crate::reasoning::context::clip(value, 256));
+                        }
+                    }
+                }
                 if resumed.is_some()
                     && ok
                     && name == "read_file_window"
@@ -3542,6 +3567,11 @@ impl Agent {
             }
             if repeated_unavailable_saves(actions) {
                 anyhow::bail!("CDP could not supply the response body on two save attempts");
+            }
+            if recall_report_due && actions.iter().any(|a| a["browser_action"].is_string()) {
+                anyhow::bail!(
+                    "History read limit reached; remaining browser task steps are unverified"
+                );
             }
             if recall_report_due && !report_recovery {
                 report_recovery = true;
@@ -3750,6 +3780,23 @@ fn repeated_unavailable_saves(actions: &[Value]) -> bool {
     false
 }
 
+fn cancellation_only(text: &str) -> bool {
+    let text = text.trim().trim_end_matches(['.', '!', '۔']).to_lowercase();
+    let text = text.strip_prefix("final report:").unwrap_or(&text).trim();
+    let title = text.lines().next().unwrap_or("").trim();
+    matches!(
+        title,
+        "task cancelled" | "task canceled" | "تم إلغاء المهمة"
+    ) && text.lines().skip(1).all(|line| {
+        let line = line.trim();
+        line.is_empty()
+            || matches!(
+                line.trim_end_matches('.'),
+                "evidence and details: /report" | "details and evidence: /report"
+            )
+    })
+}
+
 fn browser_outcomes(actions: &[Value], arabic: bool) -> Vec<String> {
     let mut lines = Vec::new();
     for success in [true, false] {
@@ -3806,6 +3853,50 @@ fn browser_outcomes(actions: &[Value], arabic: bool) -> Vec<String> {
             lines.push(format!("{label}: {}", entries.join(", ")));
         }
     }
+    let snapshots: Vec<_> = actions
+        .iter()
+        .filter(|a| {
+            a["browser_action"] == "snapshot"
+                && a["ok"] == true
+                && a["cached_result"] != true
+                && a["original_evidence_id"].is_null()
+                && a["evidence_id"].is_string()
+        })
+        .collect();
+    if let Some(last) = snapshots.last() {
+        let ids = snapshots
+            .iter()
+            .filter_map(|a| a["evidence_id"].as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let title = last["title"].as_str().unwrap_or("?");
+        let url = last["url"].as_str().unwrap_or("?");
+        lines.push(format!(
+            "{} ({ids}): {} · {}",
+            if arabic {
+                "لقطات الصفحة"
+            } else {
+                "Page snapshots"
+            },
+            url.escape_debug(),
+            title.escape_debug()
+        ));
+        if !actions.iter().any(|a| {
+            a["browser_action"] == "click"
+                && a["ok"] == true
+                && a["cached_result"] != true
+                && a["original_evidence_id"].is_null()
+        }) {
+            lines.push(
+                if arabic {
+                    "لا توجد ضغطة مؤكدة في سجلّ هذا الطلب."
+                } else {
+                    "No confirmed click in this request."
+                }
+                .into(),
+            );
+        }
+    }
     if actions
         .iter()
         .any(|a| a["category"] == "cdp_body_unavailable")
@@ -3850,9 +3941,15 @@ fn interrupted_summary(
             );
         }
         lines.push(if arabic {
-            format!("آخر أداة: {}. خطوات مفتوحة: {open_steps}.", last.tool)
+            format!(
+                "آخر أداة: {} ({}). خطوات مفتوحة: {open_steps}.",
+                last.tool, last.id
+            )
         } else {
-            format!("Last tool: {}. Open steps: {open_steps}.", last.tool)
+            format!(
+                "Last tool: {} ({}). Open steps: {open_steps}.",
+                last.tool, last.id
+            )
         });
     }
     lines.push(
@@ -4173,6 +4270,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn provider_cancellation_text_does_not_complete_or_mark_user_cancelled() {
+        let (mut agent, _w, _s, server) = scripted_agent(vec![
+            tool_call("read", "read_file", json!({"path":"demo.txt"})),
+            completion(
+                json!({"role":"assistant","content":"Final report: Task cancelled\nEvidence and details: /report."}),
+            ),
+        ]);
+        assert!(agent.turn("Read demo.txt").is_err());
+        assert_eq!(agent.session.last_report["finished"], false);
+        assert_eq!(agent.session.last_report["cancelled"], false);
+        assert_eq!(agent.session.last_report["actions"][0]["tool"], "read_file");
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn stopped_snapshot_report_does_not_infer_clicks_from_two_reads() {
+        let mut actions = vec![
+            json!({"browser_action":"snapshot","ok":true,"evidence_id":"E000041"}),
+            json!({"browser_action":"snapshot","ok":true,"evidence_id":"E000045","title":"Menu","url":"http://localhost/"}),
+        ];
+        let report = browser_outcomes(&actions, false).join("\n");
+        assert!(
+            report.contains("E000041, E000045")
+                && report.contains("Menu")
+                && report.contains("No confirmed click")
+        );
+        actions.push(json!({"browser_action":"click","ok":true,"evidence_id":"E000046"}));
+        assert!(!browser_outcomes(&actions, false)
+            .join("\n")
+            .contains("No confirmed click"));
+    }
     #[test]
     fn unavailable_saves_report_evidence_across_intervening_reads() {
         let failed = |id: &str, path: &str| {
@@ -6223,6 +6352,35 @@ mod tests {
                 .count(),
             1
         );
+    }
+    #[test]
+    fn history_exhaustion_after_browser_work_persists_native_partial_report() {
+        let mut replies = vec![tool_call("status", "browser", json!({"action":"status"}))];
+        for i in 0..9 {
+            replies.push(tool_call(
+                &format!("r{i}"),
+                "recall_context",
+                json!({"message_index":0,"offset":i*100,"count":100}),
+            ));
+        }
+        let (mut agent, _w, _s, server) = scripted_agent(replies);
+        agent.settings.max_steps = 14;
+        agent
+            .session
+            .messages
+            .push(json!({"role":"user","content":"sample ".repeat(250)}));
+        let error = agent
+            .turn("Check browser status and summarize the available evidence.")
+            .unwrap_err();
+        assert!(error.to_string().contains("History read limit"), "{error}");
+        assert_eq!(agent.session.last_report["finished"], false);
+        assert_eq!(agent.session.last_report["cancelled"], false);
+        let action = &agent.session.last_report["actions"][0];
+        let report = agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(report.contains(action["evidence_id"].as_str().unwrap()));
+        assert_eq!(server.join().unwrap().len(), 10);
     }
     #[test]
     fn exhausted_history_budget_gets_one_tool_free_report_at_step_limit() {

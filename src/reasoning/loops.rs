@@ -220,11 +220,8 @@ impl Guard {
         let key = Self::key(name, args);
         if name == "recall_context" {
             if let Some(page) = self.saved_pages(args) {
-                if self.last == key {
-                    self.consecutive_cached += 1;
-                } else {
-                    self.consecutive_cached = 1;
-                }
+                // Alternating between cached pages still produces no new observation.
+                self.consecutive_cached += 1;
                 self.last = key;
                 return Some(page);
             }
@@ -542,6 +539,31 @@ mod tests {
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.stalled());
+    }
+    #[test]
+    fn alternating_cached_history_pages_stall_until_new_evidence() {
+        let mut guard = Guard::default();
+        let args = |offset| json!({"message_index":9,"offset":offset});
+        for offset in [0, 8] {
+            guard.after(
+                "recall_context",
+                &args(offset),
+                &json!({"ok":true,"next_offset":offset+8}),
+            );
+        }
+        for offset in [0, 8, 0] {
+            assert_eq!(
+                guard.before("recall_context", &args(offset)).unwrap()["cached_result"],
+                true
+            );
+        }
+        assert!(guard.stalled());
+        guard.after(
+            "recall_context",
+            &args(16),
+            &json!({"ok":true,"next_offset":24}),
+        );
+        assert!(!guard.stalled());
     }
     #[test]
     fn saved_pages_preserve_contents_filters_and_resume_at_first_gap() {
