@@ -861,6 +861,9 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/connect ") => serde_json::to_string_pretty(
             &agent.connect_mcp(line.trim_start_matches("/connect ").trim())?,
         )?,
+        cmd if cmd == "/symbol" || cmd.starts_with("/symbol ") => {
+            serde_json::to_string_pretty(&agent.symbol_trace(&cmd["/symbol".len()..])?)?
+        }
         "/map" => serde_json::to_string_pretty(&agent.project_map()?)?,
         "/status" => serde_json::to_string_pretty(&agent.git_status()?)?,
         "/diff" => agent.git_diff()?,

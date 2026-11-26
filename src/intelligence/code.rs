@@ -1,4 +1,5 @@
 //! Fresh, bounded source indexing. Cached parses are reused only after content hashing.
+mod bindings;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -23,6 +24,8 @@ pub struct Item {
     pub scope: String,
 }
 struct File {
+    bindings: std::sync::OnceLock<Option<bindings::Module>>,
+    trace_depth_ok: bool,
     hash: String,
     body: String,
     language: String,
@@ -120,9 +123,9 @@ fn grammar(path: &str) -> Option<(&'static str, Language)> {
         _ => None,
     }
 }
-fn parse(path: &str, body: &str) -> Result<(String, Vec<Item>, bool, bool)> {
+fn parse(path: &str, body: &str) -> Result<(String, Vec<Item>, bool, bool, bool)> {
     let Some((language, grammar)) = grammar(path) else {
-        return Ok(("text".into(), Vec::new(), false, false));
+        return Ok(("text".into(), Vec::new(), false, false, false));
     };
     let mut parser = Parser::new();
     parser.set_language(&grammar)?;
@@ -136,10 +139,12 @@ fn parse(path: &str, body: &str) -> Result<(String, Vec<Item>, bool, bool)> {
             Some(ParseOptions::new().progress_callback(&mut cancel)),
         )
         .context("Parser deadline exceeded")?;
-    let mut stack = vec![(tree.root_node(), String::new())];
+    let mut stack = vec![(tree.root_node(), String::new(), 0usize)];
     let mut items = Vec::new();
     let mut visited = 0;
-    while let Some((node, scope)) = stack.pop() {
+    let mut depth_ok = true;
+    while let Some((node, scope, depth)) = stack.pop() {
+        depth_ok &= depth <= 96;
         visited += 1;
         if visited > 30_000 || items.len() >= 2000 {
             break;
@@ -246,7 +251,7 @@ fn parse(path: &str, body: &str) -> Result<(String, Vec<Item>, bool, bool)> {
         let mut cursor = node.walk();
         let children = node.named_children(&mut cursor).collect::<Vec<_>>();
         for child in children.into_iter().rev() {
-            stack.push((child, next_scope.clone()));
+            stack.push((child, next_scope.clone(), depth + 1));
         }
     }
     let structure_limited = visited > 30_000 || items.len() >= 2000;
@@ -255,6 +260,7 @@ fn parse(path: &str, body: &str) -> Result<(String, Vec<Item>, bool, bool)> {
         items,
         tree.root_node().has_error(),
         structure_limited,
+        depth_ok,
     ))
 }
 /// Single-file structural view for both parent and path-scoped delegates.
@@ -309,7 +315,7 @@ pub fn outline(
         .file_name()
         .and_then(|p| p.to_str())
         .context("Non-UTF8 source filename")?;
-    let (language, items, parse_errors, structure_limited) = parse(name, &body)?;
+    let (language, items, parse_errors, structure_limited, _) = parse(name, &body)?;
     if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
         bail!("Outline cancelled");
     }
@@ -469,13 +475,16 @@ impl Index {
                 reused += 1;
                 continue;
             }
-            let (language, items, parse_errors, structure_limited) = match parse(&path, &body) {
-                Ok(p) => p,
-                Err(_) => ("parse_unavailable".into(), Vec::new(), false, true),
-            };
+            let (language, items, parse_errors, structure_limited, trace_depth_ok) =
+                match parse(&path, &body) {
+                    Ok(p) => p,
+                    Err(_) => ("parse_unavailable".into(), Vec::new(), false, true, false),
+                };
             self.files.insert(
                 path,
                 File {
+                    trace_depth_ok,
+                    bindings: Default::default(),
                     hash: digest,
                     body,
                     language,
@@ -504,11 +513,11 @@ impl Index {
             bail!("Query must be 1..1000 bytes");
         }
         let terms = tokens(query);
-        if terms.is_empty() {
+        if terms.is_empty() && args["kind"] != "bindings" {
             bail!("Query needs searchable words");
         }
         let kind = args["kind"].as_str().unwrap_or("code");
-        if !matches!(kind, "code" | "symbols" | "references") {
+        if !matches!(kind, "code" | "symbols" | "references" | "bindings") {
             bail!("Unknown search kind");
         }
         let path = args["path"].as_str().unwrap_or("");
@@ -527,6 +536,9 @@ impl Index {
             bail!("Limit must be 1..20");
         }
         self.refresh(root)?;
+        if kind == "bindings" {
+            return bindings::search(self, query, path, limit, args);
+        }
         let mut matches = Vec::new();
         for (name, file) in self.files.iter().filter(|(name, _)| name.starts_with(path)) {
             let name_words = tokens(name);

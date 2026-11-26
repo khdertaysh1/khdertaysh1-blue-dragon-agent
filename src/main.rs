@@ -468,7 +468,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /symbol NAME [PATH] /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -612,6 +612,15 @@ fn run() -> Result<()> {
                             }
                             "/diff" => {
                                 println!("{}", agent.git_diff()?);
+                                continue;
+                            }
+                            cmd if cmd == "/symbol" || cmd.starts_with("/symbol ") => {
+                                match agent.symbol_trace(cmd["/symbol".len()..].trim()) {
+                                    Ok(value) => {
+                                        println!("{}", serde_json::to_string_pretty(&value)?)
+                                    }
+                                    Err(e) => eprintln!("Symbol trace: {e:#}"),
+                                }
                                 continue;
                             }
                             "/map" => {

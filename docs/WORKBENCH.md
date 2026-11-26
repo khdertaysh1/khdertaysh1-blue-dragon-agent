@@ -131,3 +131,22 @@ allows three workers to run concurrently, with additional assignments queued.
 The planner selects a team size within the current budget. No live capacity
 benchmark is claimed for a given device or provider. The original
 `/swarm PATH | TASK` continues to run the two focused reviews.
+
+### Trace a JavaScript or TypeScript function
+
+Use `/symbol formatQuote` in chat or the TUI. An optional defining file or
+directory narrows matches, for example `/symbol formatQuote public/assets/format.js`.
+The agent can use `code_search` with `kind="bindings"` for the same result.
+Each row identifies its defining module and symbol, the role, workspace path,
+one-based source line, byte offset, source excerpt and file hash. The local
+command displays the first 20 rows. The tool supports paging with the returned
+offset and workspace fingerprint.
+
+The index hashes current workspace files before reusing module facts. Oxc
+resolves lexical identities locally, including import aliases and shadowed
+names. Relative ES module imports, namespace member calls and explicit named
+re-exports link across indexed files. The trace covers named top-level
+functions and function-valued variable declarations. Package aliases,
+export-star chains, dynamic dispatch and arbitrary TypeScript project
+configuration require separate analysis. Check coverage and skipped files
+before interpreting an empty result.

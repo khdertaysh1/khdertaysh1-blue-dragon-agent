@@ -37,6 +37,12 @@ tree-sitter-python = "0.25"
 tree-sitter-rust = "0.24"
 sha2 = "0.10"
 ignore = "0.4"
+oxc_allocator = "=0.75.0"
+oxc_parser = "=0.75.0"
+oxc_semantic = "=0.75.0"
+oxc_span = "=0.75.0"
+oxc_ast = "=0.75.0"
+oxc_syntax = "=0.75.0"
 
 [dev-dependencies]
 tempfile = "3"

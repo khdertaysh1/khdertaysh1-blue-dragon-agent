@@ -14,3 +14,5 @@ Rust grammar 0.24.2: https://github.com/tree-sitter/tree-sitter-rust (MIT).
 sha2 0.10.9: https://github.com/RustCrypto/hashes (MIT option).
 ignore 0.4.34: https://github.com/BurntSushi/ripgrep (MIT option).
 Their license texts are reproduced in the corresponding *-LICENSE files and included with binary releases. They are parser/search libraries, not additional adapted AlphaCode components.
+
+The optional JS/TS binding search uses the Oxc parser and lexical scope analysis (MIT). See Oxc-LICENSE.
