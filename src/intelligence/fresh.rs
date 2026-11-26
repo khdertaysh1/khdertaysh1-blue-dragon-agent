@@ -232,12 +232,14 @@ pub fn detect(prompt: &str, session: &Session) -> Vec<Request> {
             })
             .collect::<Vec<_>>()
             .join(" ");
-        return detect_local(local.trim(), session);
+        // Paths in a local clause may refer to artifacts produced by the network
+        // operation in this turn. Splitting the instruction loses that dependency.
+        return detect_local(local.trim(), session, false);
     }
-    detect_local(prompt, session)
+    detect_local(prompt, session, true)
 }
 
-fn detect_local(prompt: &str, session: &Session) -> Vec<Request> {
+fn detect_local(prompt: &str, session: &Session, allow_previous: bool) -> Vec<Request> {
     let text = prompt.to_lowercase();
     if [
         "do not read",
@@ -333,15 +335,51 @@ fn detect_local(prompt: &str, session: &Session) -> Vec<Request> {
     }
     paths.sort();
     paths.dedup();
-    if paths.is_empty()
-        && (explicit_window
-            || ["source", "window", "file", "المصدر", "الملف"]
-                .iter()
-                .any(|s| text.contains(s)))
-    {
+    if paths.is_empty() {
+        // A nameless file is not automatically the last file. Only an explicit
+        // backward reference can inherit a target from the immediately prior turn.
+        let direct_read = text.trim_start().starts_with("read ")
+            || text.trim_start().starts_with("recheck ")
+            || text.trim_start().starts_with("اقرأ ")
+            || text.trim_start().starts_with("أعد قراءة ");
+        let prior_window = [
+            "current source window",
+            "same window",
+            "previous window",
+            "نفس النافذة",
+            "النافذة السابقة",
+            "النافذة الحالية",
+        ]
+        .iter()
+        .any(|phrase| text.contains(phrase));
+        let prior_file = [
+            "same file",
+            "previous file",
+            "that file again",
+            "نفس الملف",
+            "الملف السابق",
+        ]
+        .iter()
+        .any(|phrase| text.contains(phrase));
+        let repeat_range = explicit_window
+            && (text.ends_with("again.")
+                || text.ends_with("again")
+                || text.starts_with("أعد قراءة"));
+        let inherit = allow_previous && direct_read && (prior_window || prior_file || repeat_range);
+        if !inherit && !explicit_window {
+            return vec![];
+        }
         // This resolves a follow-up target, not evidence of a new read.
-        for observation in session.observations.iter().rev() {
-            if observation.tool != "read_file_window"
+        let previous_turn = session.user_turns.last().filter(|_| inherit);
+        for observation in session
+            .observations
+            .iter()
+            .rev()
+            .take_while(|obs| previous_turn.is_some_and(|start| obs.message_index > *start))
+        {
+            if !(observation.tool == "read_file_window"
+                || (!prior_window
+                    && matches!(observation.tool.as_str(), "read_file" | "read_lines")))
                 || !observation.ok
                 || observation.request_sha256.is_none()
                 || observation.result_sha256.is_none()
@@ -351,7 +389,7 @@ fn detect_local(prompt: &str, session: &Session) -> Vec<Request> {
             if let Ok((_, args, result)) = crate::audit::request_for(session, &observation.id) {
                 if success(&result) {
                     if let Some(path) = args["path"].as_str() {
-                        if !explicit_window {
+                        if prior_window && !explicit_window {
                             expected_window = result["byte_offset"]
                                 .as_u64()
                                 .zip(result["end_byte_offset"].as_u64())
@@ -630,6 +668,55 @@ mod tests {
         session.observations[0].request_sha256 = None;
         assert_ne!(status(&[request], &session, &tools)["all_observed"], true);
     }
+    #[test]
+    fn a_new_unnamed_target_does_not_inherit_a_prior_file_or_range() {
+        let root = tempfile::tempdir().unwrap();
+        let tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::ReadOnly);
+        std::fs::write(root.path().join("sample.js"), vec![b'x'; 200]).unwrap();
+        let mut session = crate::session::new(root.path(), "fixture");
+        session.user_turns.push(0);
+        session
+            .messages
+            .push(json!({"role":"user","content":"Read the first 120 bytes of sample.js"}));
+        let args = json!({"path":"sample.js","byte_offset":0,"byte_count":120});
+        let result = tools.read_file_window("sample.js", 0, 120).unwrap();
+        session.messages.push(json!({"role":"assistant","tool_calls":[{"id":"previous","function":{"name":"read_file_window","arguments":args.to_string()}}]}));
+        let mut observation =
+            crate::reasoning::observe(session.messages.len(), "read_file_window", &result);
+        observation.request_sha256 =
+            Some(crate::intelligence::code::hash(args.to_string().as_bytes()));
+        session.observations.push(observation);
+        session
+            .messages
+            .push(json!({"role":"tool","tool_call_id":"previous","content":result.to_string()}));
+
+        for prompt in [
+            "From the network capture, save two files. Read and search the saved files.",
+            "Read the files created by the current build.",
+            "اقرأ الملفات الناتجة من المهمة الجديدة",
+        ] {
+            assert!(detect(prompt, &session).is_empty(), "{prompt}");
+        }
+        let window = detect("Recheck the current source window.", &session);
+        assert_eq!(window[0].path.as_deref(), Some("sample.js"));
+        assert_eq!(window[0].expected_window, Some((0, 120)));
+        for prompt in ["Read the same file", "اقرأ نفس الملف"] {
+            let file = detect(prompt, &session);
+            assert_eq!(file[0].path.as_deref(), Some("sample.js"));
+            assert_eq!(file[0].expected_window, None);
+        }
+        let named = detect("Read the first 8 bytes of sample.js", &session);
+        assert_eq!(named[0].expected_window, Some((0, 8)));
+        // An intervening user task with no file read breaks the implicit association.
+        session.user_turns.push(session.messages.len());
+        session
+            .messages
+            .push(json!({"role":"user","content":"Count the tests"}));
+        assert!(detect("Recheck the current source window.", &session)[0]
+            .path
+            .is_none());
+    }
+
     #[test]
     fn explicit_ranges_survive_serialization_and_never_become_any_window() {
         let session = crate::session::new(std::path::Path::new("."), "fixture");

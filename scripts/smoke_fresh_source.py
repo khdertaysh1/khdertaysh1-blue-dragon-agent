@@ -14,9 +14,11 @@ def run(binary, mode, expect_regression=False):
             def log_message(self,*_):pass
             def do_POST(self):
                 packet=json.loads(self.rfile.read(int(self.headers['Content-Length'])));index=len(packets);packets.append(packet)
-                do_read=(mode in ('range_wrong','range_correct','range_resume') and index==0) or (mode=='range_resume' and index==3) or (mode=='resume_recover' and index==2) or (mode=='recover' and index==1) or (mode in ('wrong_path','stale','failed','old') and index==0)
+                do_read=(mode in ('range_wrong','range_correct','range_resume') and index==0) or (mode=='range_resume' and index==3) or (mode=='resume_recover' and index==2) or (mode=='recover' and index==1) or (mode in ('wrong_path','stale','failed','old','new_target') and index==0)
+                if mode == 'new_target' and index == 2:
+                    do_read = True
                 if do_read:
-                    path='other.js' if mode=='wrong_path' else '../outside.js' if mode=='failed' else 'app.js'
+                    path='other.js' if mode=='wrong_path' or (mode=='new_target' and index==2) else '../outside.js' if mode=='failed' else 'app.js'
                     message={'role':'assistant','content':'','tool_calls':[{'id':f'call-{index}','type':'function','function':{'name':'read_file_window','arguments':json.dumps({'path':path,'byte_offset':1000 if mode=='range_correct' or (mode=='range_resume' and index==3) else 0,'byte_count':100 if mode=='range_correct' or (mode=='range_resume' and index==3) else 512})}}]}
                 else:
                     if mode=='stale' and index==1:source.write_bytes(original.replace(b'protectedRead',b'changedReader',1))
@@ -31,9 +33,13 @@ def run(binary, mode, expect_regression=False):
             if mode.startswith('range_'):prompt='Read bounded window of app.js bytes 1000..1100 again.'
             if mode=='range_unresolved':prompt='Read bytes 1000..1100 again.'
             process=subprocess.run(command+['run',prompt],env=env,text=True,capture_output=True,timeout=40)
-            if mode in ('old','resume_recover','range_resume'):
-                assert process.returncode==(0 if mode=='old' else 1),process.stderr
-                process=subprocess.run(command+['--resume','latest','run','Recheck the current source window.' if mode=='old' else 'كمل'],env=env,text=True,capture_output=True,timeout=40)
+            if mode in ('old','new_target','resume_recover','range_resume'):
+                assert process.returncode==(0 if mode in ('old','new_target') else 1),process.stderr
+                next_prompt = {
+                    'old': 'Recheck the current source window.',
+                    'new_target': 'From the network capture, save the scripts. Read and search the saved files.',
+                }.get(mode, 'كمل')
+                process=subprocess.run(command+['--resume','latest','run',next_prompt],env=env,text=True,capture_output=True,timeout=40)
             saved=json.loads(next((root/'state/sessions').glob('*.json')).read_text())
             if expect_regression:
                 assert mode=='missing' and process.returncode==0 and saved['last_report']['finished'] is True
@@ -41,7 +47,15 @@ def run(binary, mode, expect_regression=False):
                 assert len(packets)==1
                 return {'mode':mode,'requests':len(packets),'exit_code':process.returncode,'regression_reproduced':'Final prose accepted without the explicitly requested native read'}
             check=saved['last_report']['fresh_source_checks']
-            if mode in ('recover','resume_recover','range_correct','range_resume'):
+            if mode == 'new_target':
+                # This fixture checks the native file-read contract, not browser behavior.
+                assert saved['fresh_source_requests'] == [] and not check['required'], check
+                assert process.returncode == 0 and len(packets) == 4, (process.stderr, check)
+                calls = [call for msg in saved['messages'][saved['user_turns'][-1]:]
+                         for call in msg.get('tool_calls', [])]
+                assert len(calls) == 1 and json.loads(calls[0]['function']['arguments'])['path'] == 'other.js', calls
+                assert any(o['tool'] == 'read_file_window' for o in saved['observations'])
+            elif mode in ('recover','resume_recover','range_correct','range_resume'):
                 assert process.returncode==0 and len(packets)=={'recover':3,'resume_recover':4,'range_correct':2,'range_resume':5}[mode],(process.stderr,check)
                 assert check['all_observed'] is True
                 proof=check['checks'][0]['proof'];assert proof['window_sha256']==hashlib.sha256(original[1000:1100] if mode.startswith('range_') else original[:512]).hexdigest()
@@ -57,4 +71,4 @@ def run(binary, mode, expect_regression=False):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('binary',type=Path);p.add_argument('--expect-regression',action='store_true');a=p.parse_args()
-    print(json.dumps({'binary_sha256':hashlib.sha256(a.binary.read_bytes()).hexdigest(),'cases':[run(a.binary.resolve(),mode,a.expect_regression) for mode in (('missing',) if a.expect_regression else ('missing','recover','resume_recover','wrong_path','stale','failed','old','range_wrong','range_correct','range_resume','range_unresolved'))],'limits':'Scripted provider, real CLI and native file reads. No live reasoning or quota claim.'},indent=2))
+    print(json.dumps({'binary_sha256':hashlib.sha256(a.binary.read_bytes()).hexdigest(),'cases':[run(a.binary.resolve(),mode,a.expect_regression) for mode in (('missing',) if a.expect_regression else ('missing','recover','resume_recover','wrong_path','stale','failed','old','new_target','range_wrong','range_correct','range_resume','range_unresolved'))],'limits':'Scripted provider, real CLI and native file reads. No live reasoning or quota claim.'},indent=2))
