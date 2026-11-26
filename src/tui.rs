@@ -293,6 +293,8 @@ impl Screen {
                         .is_some_and(|v| v.load(std::sync::atomic::Ordering::Relaxed))
                 {
                     "Approved and remembered for this session"
+                } else if accepted && request.action == crate::tools::TASK_APPROVAL {
+                    "Approved this task"
                 } else if accepted && crate::browser::group_approval(&request.action) {
                     "Approved page reads for this task"
                 } else if accepted {
@@ -484,8 +486,8 @@ pub fn run(
         let _ = message_tx.send(AgentEvent::Plan(agent.plan_text()));
         for work in work_rx {
             let result = match work {
-                Work::Prompt(prompt) => agent.turn(&prompt),
-                Work::QueuedPrompt(prompt) => agent.queued_turn(&prompt),
+                Work::Prompt(prompt) => agent.terminal_task(&prompt, false),
+                Work::QueuedPrompt(prompt) => agent.terminal_task(&prompt, true),
                 Work::Slash(line) => run_slash(&mut agent, &message_tx, &line),
             };
             let status = result.map_err(|error| format!("{error:#}"));
@@ -1289,7 +1291,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut Screen) {
             regions[0],
         );
         frame.render_widget(
-            Paragraph::new(if request.remember.is_some() {
+            Paragraph::new(if request.action == crate::tools::TASK_APPROVAL {
+                "[Y] approve task · [N/Esc] deny\nUp/Down scroll details"
+            } else if request.remember.is_some() {
                 "[Y] once · [R] remember for session · [N/Esc] deny"
             } else if crate::browser::group_approval(&request.action) {
                 "[Y] allow page reads this task · [N/Esc] deny\nUp/Down scroll details"

@@ -1002,6 +1002,20 @@ impl Agent {
         self.interactive_turn(prompt, TurnOrigin::Interactive)
     }
 
+    pub(crate) fn terminal_task(&mut self, prompt: &str, queued: bool) -> Result<()> {
+        if !self.tools.begin_task_approval(prompt)? {
+            self.output(AgentEvent::Notice("Task declined before execution.".into()));
+            return Ok(());
+        }
+        let result = if queued {
+            self.queued_turn(prompt)
+        } else {
+            self.turn(prompt)
+        };
+        self.tools.end_task_approval();
+        result
+    }
+
     pub fn queued_turn(&mut self, prompt: &str) -> Result<()> {
         self.interactive_turn(prompt, TurnOrigin::Queued)
     }

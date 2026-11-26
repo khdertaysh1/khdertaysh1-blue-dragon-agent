@@ -12,6 +12,8 @@ Set BLUE_DRAGON_API_KEY, BLUE_DRAGON_MODEL and optionally BLUE_DRAGON_BASE_URL f
 Commands: /help, /map, /status, /diff, /session, /skills, /skill NAME, /plan, /report, /mcp, /connect NAME, /clear, /exit.
 The terminal uses a dark, high-contrast workbench with role-colored transcript entries and rounded panels. Phone-sized windows use a compact header and a two-line status/model strip to leave more space for the conversation. Approval controls stay pinned below scrollable details; scrolling cannot hide the approve/deny choices. Model search displays an explicit empty state. The wide terminal includes a task-plan pane. Small screens keep a single conversation pane. Input supports left/right/home/end, delete/backspace, Unicode code points and bracketed paste. Text shaping/grapheme-aware editing is not a full terminal text editor.
 
+In the writable TUI, each submitted or queued message starts with one task approval. Y covers workspace file edits, standard Python unittest or Cargo test runs, browser navigation and reads, captured response saves, and permitted form controls for that message. Browser scope and document checks still apply. Other subprocesses, arbitrary JavaScript, software installation and external integrations retain their action prompts. N declines before contacting the model. Slash commands and read-only mode keep their existing behavior.
+
 Ctrl+C requests cancellation while working; when idle it exits. Esc exits. Active direct subprocesses are killed on cancellation. Provider cancellation is cooperative: blocked network I/O can wait for the request timeout (120 seconds). MCP requests have a 30-second wait budget and an input-queue limit. Process descendants are not an OS sandbox and do not have a cross-platform process-tree guarantee.
 
 ## Plans and evidence
@@ -64,7 +66,7 @@ Validation includes both SSE protocols, fragmented tool arguments/Unicode, trunc
 
 Version 0.5 adds the approved `browser` tool and `/browser` setup commands; [BROWSER.md](BROWSER.md) documents platform paths and current limits. `/rotation` displays Blue Free retry/cooldown status. See [FREE_ROTATION.md](FREE_ROTATION.md); completed tools and partial streams are never automatically replayed.
 
-Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or TUI. `blue-dragon inspect URL` and `blue-dragon URL` are equivalent entry points. Browser preparation, form/DOM/JS/network/console collection precede the model call; further mutation approvals are unchanged. See URL_INSPECTION.md.
+Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or TUI. `blue-dragon inspect URL` and `blue-dragon URL` are equivalent entry points. Browser preparation, form/DOM/JS/network/console collection precede the model call; subsequent actions use the permissions of the active interface and task. See URL_INSPECTION.md.
 
 `/context` displays request-budget statistics; `/findings` displays observation references and saved model findings. `--context-tokens N` configures the context window including reply/schema reserves. The runtime blocks repeated denied/uncertain actions and detects repeated unchanged observations; this is not a guarantee of semantic correctness or unlimited memory.
 

@@ -59,6 +59,8 @@ try:
         os.write(master,b'Run the approved background fixture\r')
         wait_for(b'APPROVAL REQUIRED')
         os.write(master,b'y')
+        wait_for(b'Start background workspace job')
+        os.write(master,b'y')
         assert started.wait(5),'Job did not start'
         before=time.monotonic()
         os.write(master,b'\x1b')
