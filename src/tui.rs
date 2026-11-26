@@ -91,6 +91,7 @@ struct Screen {
     picker: Option<ModelPicker>,
     approval_scroll: u16,
     scroll_up: usize,
+    reveal_from: Option<usize>,
     status: String,
     model: String,
     workspace: String,
@@ -120,6 +121,7 @@ impl Screen {
             picker: None,
             approval_scroll: 0,
             scroll_up: 0,
+            reveal_from: None,
             status: "Ready".into(),
             model: model.into(),
             workspace,
@@ -148,6 +150,7 @@ impl Screen {
             self.lines.drain(..self.lines.len() - MAX_LOG_LINES);
         }
         self.scroll_up = 0;
+        self.reveal_from = None;
     }
 
     fn grapheme_byte(&self, index: usize) -> usize {
@@ -224,8 +227,9 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
+                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /clear /exit /map /symbol NAME [PATH] /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
             );
+            self.reveal_from = Some(self.lines.len() - 1);
             return;
         }
         if text == "/clear" {
@@ -613,7 +617,7 @@ pub fn run(
             }
         }
 
-        terminal.draw(|frame| draw(frame, &app))?;
+        terminal.draw(|frame| draw(frame, &mut app))?;
 
         if !event::poll(Duration::from_millis(60))? {
             continue;
@@ -992,7 +996,7 @@ fn identity_title(compact: bool, state: &str, marker: &str) -> Line<'static> {
     ])
 }
 
-fn draw(frame: &mut Frame<'_>, app: &Screen) {
+fn draw(frame: &mut Frame<'_>, app: &mut Screen) {
     let compact = frame.area().width < 70 || frame.area().height < 22;
     frame.render_widget(
         Block::default().style(Style::default().bg(SURFACE)),
@@ -1058,6 +1062,14 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     let width = usize::from(columns[0].width.saturating_sub(2)).max(1);
     let visual = transcript_lines(&text, width);
     let visible_lines = columns[0].height.saturating_sub(2) as usize;
+    // Resolve the requested first line after wrapping at the actual terminal width.
+    // Subsequent PgUp/PgDn operations use the normal transcript scroll offset.
+    if visible_lines > 0 {
+        if let Some(first) = app.reveal_from.take() {
+            let preceding = transcript_lines(&app.lines[..first].join("\n"), width).len();
+            app.scroll_up = visual.len().saturating_sub(visible_lines + preceding);
+        }
+    }
     let start = visual
         .len()
         .saturating_sub(visible_lines)
@@ -1354,7 +1366,7 @@ mod tests {
         for width in [23, 40, 90] {
             let mut terminal =
                 Terminal::new(ratatui::backend::TestBackend::new(width, 24)).unwrap();
-            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            terminal.draw(|frame| draw(frame, &mut app)).unwrap();
             let screen = rendered_text(&terminal);
             for value in ["kilo-auto/free", "ai-gateway.kilo.ai", "READY"] {
                 assert!(screen.contains(value), "{screen}");
@@ -1364,7 +1376,7 @@ mod tests {
         app.model = "other/model:free | https://openrouter.ai".into();
         app.status = "Task failed; see transcript".into();
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 18)).unwrap();
-        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
         let screen = rendered_text(&terminal);
         assert!(
             screen.contains("other/model:free")
@@ -1446,7 +1458,7 @@ mod tests {
             });
             let mut terminal =
                 Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
-            terminal.draw(|f| draw(f, &app)).unwrap();
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
             let text = terminal
                 .backend()
                 .buffer()
@@ -1468,7 +1480,7 @@ mod tests {
             app.input = "اقرأ ملف المشروع".into();
             app.cursor = app.input.graphemes(true).count();
             app.draft = "A streamed reply".into();
-            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            terminal.draw(|frame| draw(frame, &mut app)).unwrap();
             let rendered = terminal
                 .backend()
                 .buffer()
@@ -1484,7 +1496,7 @@ mod tests {
                 respond_to: tx,
                 remember: None,
             });
-            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            terminal.draw(|frame| draw(frame, &mut app)).unwrap();
             let rendered = terminal
                 .backend()
                 .buffer()
@@ -1518,11 +1530,29 @@ mod tests {
     }
 
     #[test]
+    fn help_opens_at_the_first_command_and_can_scroll_to_the_end() {
+        for (width, height) in [(80, 24), (40, 14)] {
+            let mut terminal =
+                Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            let (tx, rx) = mpsc::channel();
+            let mut app = Screen::new("fixture", ".".into());
+            app.input = "/help".into();
+            app.submit(&tx);
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
+            assert!(rendered_text(&terminal).contains("Commands:"));
+            assert!(rx.try_recv().is_err());
+            app.scroll_up = 0;
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
+            assert!(rendered_text(&terminal).contains("exits."));
+        }
+    }
+
+    #[test]
     fn compact_layout_keeps_status_model_and_prompt_visible() {
         let mut app = Screen::new("fixture-model", "/long/workspace/path".into());
         app.status = "Ready".into();
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         let text = rendered_text(&terminal);
         assert!(text.contains("fixture-model"));
         assert!(text.contains("Enter send"));
@@ -1542,7 +1572,7 @@ mod tests {
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
         for scroll in [0, 30, u16::MAX] {
             app.approval_scroll = scroll;
-            terminal.draw(|f| draw(f, &app)).unwrap();
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
             let text = rendered_text(&terminal);
             assert!(text.contains("[Y] approve one"));
             assert!(text.contains("[N/Esc] deny"));
@@ -1550,7 +1580,7 @@ mod tests {
         }
         app.approve(false);
         assert!(!rx.recv().unwrap());
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         assert!(!rendered_text(&terminal).contains("APPROVAL REQUIRED"));
     }
 
@@ -1564,19 +1594,19 @@ mod tests {
             source: "Fixture".into(),
         });
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(60, 20)).unwrap();
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         assert!(rendered_text(&terminal).contains("No matching models"));
         app.picker = None;
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         assert!(!rendered_text(&terminal).contains("No matching models"));
     }
 
     #[test]
     fn tiny_terminal_layout_does_not_panic() {
-        let app = Screen::new("fixture", ".".into());
+        let mut app = Screen::new("fixture", ".".into());
         for (w, h) in [(1, 1), (20, 6), (40, 10)] {
             let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
-            terminal.draw(|f| draw(f, &app)).unwrap();
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
         }
     }
 
