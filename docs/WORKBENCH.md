@@ -100,3 +100,34 @@ The [scoped audit workflow](SCOPE_AND_AUDIT.md) documents large-source caching, 
 In CLI chat or the TUI, enter `/mission` to inspect the most recent instrumented task. The observer reuses declared local acceptance checks. It records the tool step at which all of them had matching evidence, the latest command attempt and its exit status. A nonzero exit can confirm that a command ran. It cannot satisfy a criterion requiring exit zero. Without declared checks, the report leaves goal verification open. Compare this historical snapshot with the actual task outcome in `/report`.
 
 Each new instrumented turn starts a fresh observer. A status lookup can still refer to the previous task. Saved observations remain historical after restart. The observer does not send model requests, stop execution, change tool selection or grant permissions.
+
+### Local coding swarm
+
+`/swarm auto PATH | TASK` asks the selected provider for a bounded plan of
+local coding assignments. The coordinator dispatches independent work in
+parallel. An assignment can depend on completed earlier assignments. The
+coordinator passes their session IDs and short summaries to the dependent
+worker. A failed prerequisite blocks its dependents. Each launch uses the
+existing workspace scope and approval prompt.
+
+`/swarm fix PATH | ["python","-m","unittest"] | TASK` uses separate detached
+Git worktrees at the same HEAD for each worker and an additional worktree for
+integration. Open the repository root. Workers propose edits to existing
+tracked files. The operator supplies the verification command as an argument
+vector. Test proposals are staged first and the command must exit nonzero.
+Implementation proposals are then staged and the same command must exit zero.
+The coordinator rechecks HEAD and the workspace versions of all proposed files
+before applying approved patches, then runs the command in the real workspace.
+Each application uses the parent diff approval and version-checked edit journal.
+The report includes each committed step if integration stops partway. Exit
+codes establish the observed result of the chosen command. Worktrees isolate
+file versions and share the repository's Git objects; test programs run with
+the operator's OS permissions.
+
+`/swarm status` shows saved worker sessions and remaining budgets. This team
+uses a dedicated ledger per parent session. The default live limit is 32;
+`BLUE_DRAGON_SWARM_LIVE` accepts 1 through 1000. For example, setting it to 3
+allows three workers to run concurrently, with additional assignments queued.
+The planner selects a team size within the current budget. No live capacity
+benchmark is claimed for a given device or provider. The original
+`/swarm PATH | TASK` continues to run the two focused reviews.

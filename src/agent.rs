@@ -65,6 +65,9 @@ pub enum AgentEvent {
     ToolResult(String),
 }
 
+#[path = "swarm.rs"]
+mod swarm;
+
 impl Agent {
     pub fn new(settings: Settings, approval: ApprovalMode, resume: Option<&str>) -> Result<Self> {
         let mut session = match resume {
@@ -655,6 +658,15 @@ impl Agent {
         crate::operator::run(line)
     }
     fn coding_swarm(&self, args: &str) -> Result<Value> {
+        if args.trim() == "status" {
+            return Ok(self.swarm_team()?.status());
+        }
+        if let Some(args) = args.strip_prefix("auto ") {
+            return self.adaptive_swarm(args, false);
+        }
+        if let Some(args) = args.strip_prefix("fix ") {
+            return self.adaptive_swarm(args, true);
+        }
         let (path, task) = args.split_once('|').context("Use /swarm PATH | TASK")?;
         let (path, task) = (path.trim(), task.trim());
         anyhow::ensure!(
@@ -698,9 +710,12 @@ impl Agent {
                 .filter(|row| ids.contains(&row["agent_id"]))
                 .collect();
             if self.tools.is_cancelled()
-                || results
-                    .iter()
-                    .all(|row| !matches!(row["state"].as_str(), Some("starting" | "running")))
+                || results.iter().all(|row| {
+                    !matches!(
+                        row["state"].as_str(),
+                        Some("starting" | "running" | "finishing")
+                    )
+                })
             {
                 return Ok(
                     json!({"task":task,"results":results,"launch_issues":issues,"cancelled":self.tools.is_cancelled()}),

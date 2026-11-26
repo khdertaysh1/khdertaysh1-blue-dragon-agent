@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 
 const MAX_ACTIVE: usize = 2;
 const MAX_CHILDREN: usize = 8;
+pub(crate) const SWARM_HARD_LIMIT: usize = 1000;
+pub(crate) const SWARM_DEFAULT_LIVE: usize = 32;
 const REQUESTS: usize = 24;
 const TOOL_CALLS: usize = 64;
 const OUTPUT_BYTES: usize = 65536;
@@ -46,6 +48,7 @@ struct Child {
     cancelled: Arc<AtomicBool>,
 }
 struct Shared {
+    _team_lock: Option<std::fs::File>,
     children: Mutex<BTreeMap<String, Child>>,
     requests: AtomicUsize,
     calls: AtomicUsize,
@@ -59,6 +62,8 @@ pub struct Manager {
     root: PathBuf,
     directory: PathBuf,
     recovery_incomplete: bool,
+    live_limit: usize,
+    retained_limit: usize,
 }
 fn active(s: &str) -> bool {
     matches!(s, "running" | "starting" | "finishing")
@@ -161,7 +166,7 @@ fn source_capture(tool: &str, result: &Value) -> Option<Value> {
 fn source_consistency(agents: &[Value]) -> Value {
     let mut files = BTreeMap::<String, BTreeMap<String, Vec<Value>>>::new();
     let mut unavailable = 0;
-    for agent in agents.iter().take(MAX_CHILDREN) {
+    for agent in agents.iter().take(SWARM_HARD_LIMIT) {
         for evidence in agent["evidence"].as_array().into_iter().flatten().take(64) {
             let capture = &evidence["source_capture"];
             if let (Some(path), Some(digest)) =
@@ -181,7 +186,7 @@ fn source_consistency(agents: &[Value]) -> Value {
     }).collect::<Vec<_>>();
     let unverified = agents
         .iter()
-        .take(MAX_CHILDREN)
+        .take(SWARM_HARD_LIMIT)
         .map(|a| {
             a["evidence_revalidation_rejected"].as_u64().unwrap_or(0)
                 + a["evidence_omitted"].as_u64().unwrap_or(0)
@@ -192,6 +197,40 @@ fn source_consistency(agents: &[Value]) -> Value {
 
 impl Manager {
     pub fn new(root: PathBuf, directory: PathBuf) -> Self {
+        Self::with_limits(
+            root,
+            directory,
+            MAX_ACTIVE,
+            MAX_CHILDREN,
+            [REQUESTS, TOOL_CALLS, OUTPUT_BYTES],
+            None,
+        )
+    }
+
+    pub(crate) fn swarm(root: PathBuf, directory: PathBuf, live: usize) -> Result<Self> {
+        std::fs::create_dir_all(&directory)?;
+        let lock = session::lock(&directory, "swarm-team")?;
+        // This ledger belongs only to explicit swarm commands. Reserve enough
+        // for one six-turn wave plus the coordinator; charge before dispatch.
+        let slots = live.max(MAX_CHILDREN);
+        Ok(Self::with_limits(
+            root,
+            directory,
+            live,
+            SWARM_HARD_LIMIT,
+            [1 + 6 * slots, 24 * slots, OUTPUT_BYTES * slots.min(32)],
+            Some(lock),
+        ))
+    }
+
+    fn with_limits(
+        root: PathBuf,
+        directory: PathBuf,
+        live_limit: usize,
+        retained_limit: usize,
+        limits: [usize; 3],
+        team_lock: Option<std::fs::File>,
+    ) -> Self {
         let mut children = BTreeMap::new();
         let entries = std::fs::read_dir(&directory);
         let mut incomplete = entries
@@ -204,9 +243,9 @@ impl Manager {
                     e.path().extension().is_some_and(|x| x == "json")
                         && e.file_name() != "budget.json"
                 })
-                .take(MAX_CHILDREN + 1)
+                .take(retained_limit + 1)
             {
-                if children.len() >= MAX_CHILDREN {
+                if children.len() >= retained_limit {
                     incomplete = true;
                     break;
                 }
@@ -249,7 +288,7 @@ impl Manager {
         }
         let budget_path = directory.join("budget.json");
         let mut budgets = if children.is_empty() && !incomplete && !budget_path.exists() {
-            [REQUESTS, TOOL_CALLS, OUTPUT_BYTES]
+            limits
         } else {
             [0, 0, 0]
         };
@@ -262,9 +301,9 @@ impl Manager {
             {
                 if v["schema"] == 1 {
                     for (i, (key, limit)) in [
-                        ("requests", REQUESTS),
-                        ("calls", TOOL_CALLS),
-                        ("output", OUTPUT_BYTES),
+                        ("requests", limits[0]),
+                        ("calls", limits[1]),
+                        ("output", limits[2]),
                     ]
                     .iter()
                     .enumerate()
@@ -281,7 +320,10 @@ impl Manager {
             root,
             directory,
             recovery_incomplete: incomplete,
+            live_limit,
+            retained_limit,
             shared: Arc::new(Shared {
+                _team_lock: team_lock,
                 children: Mutex::new(children),
                 requests: AtomicUsize::new(budgets[0]),
                 calls: AtomicUsize::new(budgets[1]),
@@ -304,7 +346,7 @@ impl Manager {
         let children = self.shared.children.lock().unwrap();
         let rows=children.iter().map(|(id,c)|{let s=c.state.lock().unwrap();json!({"agent_id":id,"session_id":id,"state":s.status,"summary":s.output,"failure":s.failure,"provider_requests":s.requests,"updates":s.updates,"evidence":s.evidence,"evidence_revalidation_rejected":s.evidence_revalidation_rejected,"evidence_omitted":s.evidence_omitted,"pending_messages":s.inbox.len(),"cancellation_requested":c.cancelled.load(Ordering::SeqCst),"summary_is_model_authored":true,"semantic_claim_verified":false})}).collect::<Vec<_>>();
         let consistency = source_consistency(&rows);
-        json!({"agents":rows,"source_consistency":consistency,"shared_provider_requests_remaining":self.shared.requests.load(Ordering::SeqCst),"shared_tool_calls_remaining":self.shared.calls.load(Ordering::SeqCst),"shared_output_bytes_remaining":self.shared.output.load(Ordering::SeqCst),"max_concurrency":MAX_ACTIVE,"max_agents":MAX_CHILDREN,"mode":"independent_read_only_sessions","automatic_patch_merge":false,"summary_agreement":"not_assessed; preserve contradictory findings for parent review","browser_shared":false,"restart_policy":"No automatic restart; saved child sessions and parent observations are historical evidence only","limits":"Two concurrent children; 24 provider attempts and 64 tool calls and 64KiB output/mail shared and durably reserved across this team, including restart. Six turns/child and 90s work deadline; an in-flight provider call may take up to 15s more to stop. No child shell, writes, browser, MCP, external fetch, nested spawn or stdin approvals. Model summaries are untrusted; inspect original child evidence. Workspace guards are not OS process isolation."})
+        json!({"agents":rows,"source_consistency":consistency,"shared_provider_requests_remaining":self.shared.requests.load(Ordering::SeqCst),"shared_tool_calls_remaining":self.shared.calls.load(Ordering::SeqCst),"shared_output_bytes_remaining":self.shared.output.load(Ordering::SeqCst),"max_concurrency":self.live_limit,"max_agents":self.retained_limit,"mode":"independent_read_only_sessions","automatic_patch_merge":false,"summary_agreement":"not_assessed; preserve contradictory findings for parent review","browser_shared":false,"restart_policy":"No automatic restart; saved child sessions and parent observations are historical evidence only","limits":"Concurrency and retained-agent caps are reported above. Provider, tool-call and output budgets are shared and durably reserved across this team, including restart. Six turns/child and 90s work deadline; an in-flight provider call may take up to 15s more to stop. No child shell, writes, browser, MCP, external fetch, nested spawn or stdin approvals. Model summaries are untrusted; inspect original child evidence. Workspace guards are not OS process isolation."})
     }
     /// Fresh bounded checkpoint validation for reports; never starts or resumes work.
     pub fn evidence_report(&self) -> Value {
@@ -312,7 +354,7 @@ impl Manager {
             let children = self.shared.children.lock().unwrap();
             children
                 .iter()
-                .take(MAX_CHILDREN)
+                .take(SWARM_HARD_LIMIT)
                 .map(|(id, child)| {
                     let state = child.state.lock().unwrap();
                     (
@@ -471,6 +513,15 @@ impl Manager {
         )
     }
     fn proposal_action(&self, tools: &ToolBox, args: &Value, action: &str) -> Result<Value> {
+        self.proposal_in(tools, args, action, &self.directory)
+    }
+    pub(crate) fn proposal_in(
+        &self,
+        tools: &ToolBox,
+        args: &Value,
+        action: &str,
+        journals: &std::path::Path,
+    ) -> Result<Value> {
         let mut request = args.clone();
         request["byte_count"] = json!(8192);
         request["byte_offset"] = json!(0);
@@ -507,7 +558,7 @@ impl Manager {
             args["expected_result_sha256"]
         ])
         .to_string();
-        crate::edit_proposals::parent_action(tools, &self.directory, &identity, &proposal, action)
+        crate::edit_proposals::parent_action(tools, journals, &identity, &proposal, action)
     }
     pub fn invoke(
         &self,
@@ -517,6 +568,30 @@ impl Manager {
         parent_cancelled: Arc<AtomicBool>,
         args: &Value,
     ) -> Result<Value> {
+        self.invoke_with_tree(
+            settings,
+            active_model,
+            parent_tools,
+            parent_cancelled,
+            args,
+            None,
+        )
+    }
+
+    pub(crate) fn reserve_planning_request(&self) -> Result<()> {
+        reserve(&self.shared, 1, 0, 0)
+    }
+
+    pub(crate) fn invoke_with_tree(
+        &self,
+        settings: &Settings,
+        active_model: &str,
+        parent_tools: &ToolBox,
+        parent_cancelled: Arc<AtomicBool>,
+        args: &Value,
+        tree: Option<Arc<crate::swarm_tree::Tree>>,
+    ) -> Result<Value> {
+        let (live_limit, retained_limit) = (self.live_limit, self.retained_limit);
         self.set_cancellation(parent_cancelled.clone());
         match args["action"].as_str().unwrap_or("") {
             "inspect" => self.inspect_evidence(args),
@@ -532,27 +607,30 @@ impl Manager {
                     .as_array()
                     .filter(|p| !p.is_empty() && p.len() <= 8)
                     .context("paths must contain 1..8 explicit workspace paths")?;
+                let checkout = tree
+                    .as_ref()
+                    .map(|t| parent_tools.for_swarm_tree(t.root.clone()));
+                let reader = checkout.as_ref().unwrap_or(parent_tools);
                 let allowed = paths
                     .iter()
                     .map(|p| {
-                        let path =
-                            parent_tools.local_file_path(p.as_str().context("Invalid path")?)?;
+                        let path = reader.local_file_path(p.as_str().context("Invalid path")?)?;
                         let directory = path.is_dir();
                         Ok((path, directory))
                     })
                     .collect::<Result<Vec<_>>>()?;
                 {
                     let children = self.shared.children.lock().unwrap();
-                    if children.len() >= MAX_CHILDREN {
-                        bail!("Team lifetime limit reached; eight retained delegates maximum");
+                    if children.len() >= retained_limit {
+                        bail!("Team lifetime limit reached ({retained_limit} retained delegates)");
                     }
                     if children
                         .values()
                         .filter(|c| active(&c.state.lock().unwrap().status))
                         .count()
-                        >= MAX_ACTIVE
+                        >= live_limit
                     {
-                        bail!("Two delegates already active; wait for completion before spawning another");
+                        bail!("Active delegate limit reached ({live_limit})");
                     }
                 }
                 if self.shared.requests.load(Ordering::SeqCst) == 0 {
@@ -594,11 +672,12 @@ impl Manager {
                     },
                 );
                 let shared = self.shared.clone();
-                let root = self.root.clone();
+                let root = reader.workspace_root().to_path_buf();
                 let directory = self.directory.clone();
                 let thread_id = id.clone();
                 let spawn=std::thread::Builder::new().name(format!("delegate-{id}")).spawn(move||{
                     let _lock=lock;
+                    let _checkout=tree;
                     state.lock().unwrap().status="running".into();
                     let result=run(&shared,&state,(&cancelled,&parent_cancelled),provider,(root,&directory,&allowed),&mut child_session);
                     let mut s=state.lock().unwrap();

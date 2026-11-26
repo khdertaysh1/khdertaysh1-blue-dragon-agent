@@ -51,6 +51,12 @@ impl ToolBox {
         }
     }
 
+    pub(crate) fn for_swarm_tree(&self, root: PathBuf) -> Self {
+        let mut tools = Self::new(root, self.approval.clone());
+        tools.cancelled = self.cancelled.clone();
+        tools
+    }
+
     pub(crate) fn workspace_root(&self) -> &Path {
         &self.root
     }
