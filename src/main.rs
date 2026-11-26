@@ -162,6 +162,9 @@ enum Command {
     /// List saved local sessions, or find a conversation by words and optionally reopen it.
     Sessions {
         query: Option<String>,
+        /// Rank matches using the incremental local session index
+        #[arg(long, requires = "query")]
+        indexed: bool,
         #[arg(long, requires = "query")]
         open: bool,
     },
@@ -334,10 +337,15 @@ fn run() -> Result<()> {
         }
         Some(Command::Sessions {
             query: Some(query),
+            indexed,
             open,
         }) => {
             anyhow::ensure!(!query.trim().is_empty(), "A search term is required");
-            let view = session::search_sessions(&settings.sessions_dir, &query)?;
+            let view = if indexed {
+                session::indexed::search(&settings.sessions_dir, &query)?
+            } else {
+                session::search_sessions(&settings.sessions_dir, &query)?
+            };
             if !open {
                 println!("{}", serde_json::to_string_pretty(&view)?);
                 return Ok(());
@@ -459,7 +467,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {

@@ -611,6 +611,12 @@ impl Agent {
                 json!({"session":self.session.id,"matches":crate::session::search_turns(&self.session,query,20),"limit":20}),
             );
         }
+        if let Some(words) = query
+            .strip_prefix("search")
+            .and_then(|rest| rest.strip_prefix(char::is_whitespace))
+        {
+            return crate::session::indexed::search(&self.settings.sessions_dir, words);
+        }
         crate::session::search_sessions(&self.settings.sessions_dir, query)
     }
     pub fn plan_text(&self) -> String {
