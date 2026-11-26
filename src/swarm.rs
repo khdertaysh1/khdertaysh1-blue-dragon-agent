@@ -146,10 +146,11 @@ impl Agent {
             let mut active = agents
                 .iter()
                 .filter(|r| {
-                    matches!(
-                        r["state"].as_str(),
-                        Some("starting" | "running" | "finishing")
-                    )
+                    r["parent_agent_id"].is_null()
+                        && matches!(
+                            r["state"].as_str(),
+                            Some("starting" | "running" | "finishing")
+                        )
                 })
                 .count();
             for (i, item) in plan.iter().enumerate() {
@@ -233,8 +234,18 @@ impl Agent {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
+        // Snapshot descendants once. Each source receipt keeps its producing session ID.
+        let mut branches = std::collections::BTreeMap::<String, Vec<Value>>::new();
+        for row in team.status()["agents"].as_array().into_iter().flatten() {
+            if let Some(owner) = row["parent_agent_id"].as_str() {
+                branches
+                    .entry(owner.to_owned())
+                    .or_default()
+                    .push(row.clone());
+            }
+        }
         let rows:Vec<_>=plan.iter().zip(&states).map(|(a,s)|json!({"assignment":a.task,"kind":a.kind,"after":a.after,"worker":match s {
-            State::Done(v)=>v.clone(), State::Blocked(e)=>json!({"state":"blocked","reason":e}),State::Queued=>json!({"state":"not_started"}),State::Running(id)=>json!({"agent_id":id,"state":"cancellation_requested"})
+            State::Done(v)=>{let mut worker=v.clone(); if let Some(subtasks)=v["agent_id"].as_str().and_then(|id|branches.remove(id)) {worker["subtasks"]=json!(subtasks);} worker}, State::Blocked(e)=>json!({"state":"blocked","reason":e}),State::Queued=>json!({"state":"not_started"}),State::Running(id)=>json!({"agent_id":id,"state":"cancellation_requested"})
         }})).collect();
         let complete =
             states.iter().all(|s| matches!(s, State::Done(_))) && !self.tools.is_cancelled();

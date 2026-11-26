@@ -17,6 +17,12 @@ pub fn http(responses: Vec<(&'static str, String)>) -> (String, thread::JoinHand
 pub fn http_status(
     responses: Vec<(u16, &'static str, String)>,
 ) -> (String, thread::JoinHandle<Vec<Value>>) {
+    http_before_reply(responses, || {})
+}
+pub fn http_before_reply(
+    responses: Vec<(u16, &'static str, String)>,
+    before_reply: impl Fn() + Send + 'static,
+) -> (String, thread::JoinHandle<Vec<Value>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -57,6 +63,7 @@ pub fn http_status(
             let mut data = vec![0; size];
             input.read_exact(&mut data).unwrap();
             requests.push(serde_json::from_slice(&data).unwrap_or(Value::Null));
+            before_reply();
             write!(socket,"HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
         }
         requests

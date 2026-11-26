@@ -141,8 +141,92 @@ def default_capacity(binary):
         assert len(seen) == count and '"state": "workers_completed"' in proc.stdout, (len(seen), proc.stdout[-1000:])
 
 
+
+def nested_review(binary):
+    """One execution slot must suffice for parent -> leaf -> parent."""
+    errors = []
+    calls = []
+    def tool(name, args, index):
+        return {"role": "assistant", "tool_calls": [{"id": str(index), "type": "function",
+                "function": {"name": name, "arguments": json.dumps(args)}}]}
+
+    class Server(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):
+            try:
+                packet = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                messages = packet["messages"]
+                tools = {item["function"]["name"] for item in packet.get("tools", [])}
+                replies = [json.loads(m["content"]) for m in messages if m["role"] == "tool"]
+                n = len(replies)
+                answer = {"role": "assistant", "content": ""}
+                if "coordinate local coding" in messages[0]["content"]:
+                    answer["content"] = json.dumps([{"task": "trace price display", "kind": "review", "after": []}])
+                elif "agent_subtask" in tools:
+                    calls.append("worker")
+                    if n == 0:
+                        answer = tool("agent_subtask", {"task": "out of scope", "paths": ["outside.js"]}, n)
+                    elif n == 1:
+                        assert replies[-1]["ok"] is False
+                        answer = tool("agent_subtask", {"task": "locate caller", "paths": ["src/view.js"]}, n)
+                    else:
+                        assert replies[-1]["state"] == "completed" and replies[-1]["evidence_ids"]
+                        answer["content"] = "Display receipt from " + replies[-1]["agent_id"]
+                else:
+                    calls.append("leaf")
+                    assert not {"agent_propose_edits", "agent_message", "run_command", "browser"} & tools
+                    if n == 0:
+                        answer = tool("agent_subtask", {"task": "too deep", "paths": ["src/view.js"]}, n)
+                    elif n == 1:
+                        assert replies[-1]["denied"]
+                        answer = tool("file_info", {"path": "outside.js"}, n)
+                    elif n == 2:
+                        assert replies[-1]["denied"]
+                        answer = tool("read_file_window", {"path": "src/view.js", "byte_offset": 0, "byte_count": 128}, n)
+                    else:
+                        assert "formatQuote(total)" in str(replies[-1]), replies[-1]
+                        answer["content"] = "src/view.js calls formatQuote(total)"
+                data = json.dumps({"choices": [{"message": answer}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as error:
+                errors.append(repr(error))
+                self.send_error(500)
+
+    with tempfile.TemporaryDirectory() as tmp, http.server.ThreadingHTTPServer(("127.0.0.1", 0), Server) as server:
+        project = Path(tmp) / "project"
+        (project / "src").mkdir(parents=True)
+        (project / "src/view.js").write_text("const text = formatQuote(total);")
+        (project / "outside.js").write_text("private fixture")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        state = Path(tmp) / "state"
+        proc = subprocess.run([binary, "--root", str(project), "--base-url",
+                               f"http://127.0.0.1:{server.server_port}/v1", "--model", "fixture",
+                               "--no-stream", "--no-rotation", "chat"],
+                              input="/swarm auto src | Trace the price display\ny\ny\n/swarm status\n/exit\n",
+                              capture_output=True, text=True, timeout=45,
+                              env=dict(os.environ, BLUE_DRAGON_HOME=str(state), BLUE_DRAGON_SWARM_LIVE="1"))
+        server.shutdown()
+        assert not errors, errors
+        assert calls == ["worker", "worker", "leaf", "leaf", "leaf", "leaf", "worker"], (calls, proc.stdout)
+        assert '"subtasks": [' in proc.stdout and '"state": "workers_completed"' in proc.stdout
+        checkpoints = [json.loads(p.read_text()) for p in state.glob("sessions/swarms/*/*.json") if p.name != "budget.json"]
+        assert len(checkpoints) == 2
+        leaf = next(c for c in checkpoints if c["last_report"].get("parent_agent_id"))
+        parent = next(c for c in checkpoints if c["id"] != leaf["id"])
+        assert leaf["last_report"]["parent_agent_id"] == parent["id"]
+        assert leaf["last_report"]["state"] == "completed"
+        budget = json.loads(next(state.glob("sessions/swarms/*/budget.json")).read_text())
+        assert budget["requests"] == 49 - 1 - len(calls) and budget["calls"] == 192 - 5
+
+
 if __name__ == "__main__":
     executable = str(Path(sys.argv[1]).resolve())
+    nested_review(executable)
     default_capacity(executable)
     run(executable)
     run(executable, conflict=True)
