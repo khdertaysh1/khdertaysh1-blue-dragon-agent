@@ -528,7 +528,7 @@ impl ToolBox {
         if crate::browser::group_approval(action) {
             write!(
                 output,
-                "Allow snapshot and network reads for this page and task? [y/N] "
+                "Allow the requested operation and page reads for this task? [y/N] "
             )?;
         } else {
             write!(output, "Approve this ONE action? [y/N] ")?;

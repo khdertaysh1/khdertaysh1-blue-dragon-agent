@@ -72,7 +72,7 @@ class CLI:
     def send(self,text,approvals=0):
         start=len(self.output);answered=0;self.process.stdin.write(text+'\n');self.process.stdin.flush();deadline=time.monotonic()+40
         while 'blue-dragon> ' not in self.output[start:]:
-            needed=sum(self.output[start:].count(label) for label in ('Approve this ONE action? [y/N] ', 'Allow snapshot and network reads for this page and task? [y/N] '))
+            needed=sum(self.output[start:].count(label) for label in ('Approve this ONE action? [y/N] ', 'Allow the requested operation and page reads for this task? [y/N] '))
             if needed>answered:
                 assert answered<approvals,'Unexpected approval prompt: '+self.output[start:][-1000:]
                 self.process.stdin.write('y\n');self.process.stdin.flush();answered+=1

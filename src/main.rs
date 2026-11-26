@@ -422,8 +422,10 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
-        Some(Command::Gui { no_open }) => gui::run(settings, args.read_only, args.resume, !no_open),
-        Some(Command::Tui) => tui::run(
+        Some(Command::Gui { no_open }) if !cfg!(target_os = "android") => {
+            gui::run(settings, args.read_only, args.resume, !no_open)
+        }
+        Some(Command::Tui | Command::Gui { .. }) => tui::run(
             settings,
             args.read_only,
             args.resume.as_deref(),

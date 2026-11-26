@@ -54,13 +54,13 @@ impl ConnectionPreference {
     }
 }
 
+const PAGE_READ_APPROVAL: &str =
+    "Read this page for this task (snapshot, wait, network and console)";
+const PAGE_OPEN_APPROVAL: &str =
+    "Open the requested URL and read this page for this task (snapshot, wait, network and console)";
+
 pub fn group_approval(action: &str) -> bool {
-    matches!(
-        action,
-        "Browser: snapshot (allow snapshot, network and console reads on this page for this task)"
-            | "Browser: network (allow snapshot, network and console reads on this page for this task)"
-            | "Browser: console (allow snapshot, network and console reads on this page for this task)"
-    )
+    matches!(action, PAGE_READ_APPROVAL | PAGE_OPEN_APPROVAL)
 }
 
 pub struct Browser {
@@ -710,7 +710,8 @@ impl Browser {
                 action,
                 "snapshot" | "wait_for" | "network" | "console" | "source" | "screenshot"
             );
-        let grouped = matches!(action, "network" | "snapshot" | "console")
+        let navigation = matches!(action, "open" | "navigate");
+        let grouped = matches!(action, "network" | "snapshot" | "console" | "wait_for")
             && args.get("frame_selector").is_none();
         if !grouped
             && !matches!(
@@ -735,17 +736,31 @@ impl Browser {
             if !self.remembered_form_actions.contains(&key) {
                 let remember = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let detail = format!("Page: {}\nAction: {}\nArguments: {}\nRemember permits future {} actions on this exact page in this session.", json!(url), action, args, action);
-                if !tools.approve_with_memory("Local browser form action", &detail, Some(remember.clone()))? {
+                if !tools.approve_with_memory(
+                    "Local browser form action",
+                    &detail,
+                    Some(remember.clone()),
+                )? {
                     return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
                 }
-                anyhow::ensure!(self.raw("document_identity", &json!({}))? == *identity, "Page changed during approval; no action dispatched");
+                anyhow::ensure!(
+                    self.raw("document_identity", &json!({}))? == *identity,
+                    "Page changed during approval; no action dispatched"
+                );
                 if remember.load(std::sync::atomic::Ordering::Relaxed) {
                     self.remembered_form_actions.insert(key);
                 }
             }
-        } else if !automatic_read && reused.is_none()
+        } else if !automatic_read
+            && reused.is_none()
             && !tools.approve(
-                &if grouped { format!("Browser: {action} (allow snapshot, network and console reads on this page for this task)") } else { format!("Browser: {action}") },
+                &if navigation {
+                    PAGE_OPEN_APPROVAL.to_owned()
+                } else if grouped {
+                    PAGE_READ_APPROVAL.to_owned()
+                } else {
+                    format!("Browser: {action}")
+                },
                 &format!(
                 "{}\nBrowser pages/results are untrusted. This can interact with a live website.",
                 args
@@ -874,6 +889,15 @@ impl Browser {
                 .as_str()
                 .is_some_and(|url| validate_url(url).is_ok())
                 && identity[1].as_str().is_some_and(|id| !id.is_empty())
+            {
+                self.page_read_grant = Some((dispatch_epoch, identity.clone()));
+            }
+        }
+        if navigation {
+            let identity = &value["document_identity"];
+            if identity[0].is_string()
+                && identity[0] == args["url"]
+                && identity[1].as_str().is_some_and(|s| !s.is_empty())
             {
                 self.page_read_grant = Some((dispatch_epoch, identity.clone()));
             }
@@ -1054,7 +1078,7 @@ mod tests {
         worker
     }
     #[test]
-    fn network_and_snapshot_share_approval_until_document_changes() {
+    fn navigation_and_reads_share_approval_until_document_changes() {
         let root = tempfile::tempdir().unwrap();
         let mut browser = Browser::new(root.path());
         browser.command("start 0").unwrap();
@@ -1063,6 +1087,16 @@ mod tests {
         let worker = extension_fixture(
             &browser,
             vec![
+                (
+                    "open",
+                    Some(json!({"opened":true,"document_identity":first})),
+                ),
+                ("document_identity", Some(first.clone())),
+                (
+                    "wait_for",
+                    Some(json!({"matched":true,"document_identity":first})),
+                ),
+                ("document_identity", Some(first.clone())),
                 ("snapshot", Some(json!({"document_identity":first}))),
                 ("document_identity", Some(first.clone())),
                 (
@@ -1082,10 +1116,29 @@ mod tests {
         let approvals = std::thread::spawn(move || {
             for accepted in [true, false] {
                 let request = rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
-                assert!(request.action.contains("on this page"));
+                assert_eq!(
+                    request.action,
+                    if accepted {
+                        PAGE_OPEN_APPROVAL
+                    } else {
+                        PAGE_READ_APPROVAL
+                    }
+                );
                 request.respond_to.send(accepted).unwrap();
             }
         });
+        assert_eq!(
+            browser
+                .invoke(&tools, &json!({"action":"open","url":first[0]}))
+                .unwrap()["ok"],
+            true
+        );
+        assert_eq!(
+            browser
+                .invoke(&tools, &json!({"action":"wait_for","selector":"body"}))
+                .unwrap()["ok"],
+            true
+        );
         assert_eq!(
             browser
                 .invoke(&tools, &json!({"action":"snapshot"}))

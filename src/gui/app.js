@@ -57,23 +57,50 @@ function render(state) {
   if (lastRows !== fingerprint) {
     const box = el("history"),
       bottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-    box.replaceChildren(
-      ...rows.map(([role, text]) => {
-        const article = document.createElement("article"),
-          label = document.createElement("b"),
-          body = document.createElement("pre");
-        label.textContent = role;
-        body.dir = "auto";
-        body.textContent = text;
-        article.append(label, body);
-        return article;
-      }),
+    const expanded = new Set(
+      Array.from(box.querySelectorAll("details[open]"), node => node.dataset.group)
     );
+    const content = document.createDocumentFragment();
+    let group, summary, steps = 0;
+    let arabic = navigator.language.startsWith("ar");
+    for (const [index, [role, text]] of rows.entries()) {
+      if (role === "You") arabic = /[\u0600-\u06ff]/u.test(text);
+      const article = document.createElement("article");
+      const label = document.createElement("b");
+      const body = document.createElement("pre");
+      label.textContent = role;
+      body.dir = "auto";
+      body.textContent = text;
+      article.append(label, body);
+      if (role === "Tool" || role === "Result") {
+        if (!group) {
+          group = document.createElement("details");
+          group.dataset.group = JSON.stringify([state.session, index, text]);
+          group.open = expanded.has(group.dataset.group);
+          summary = document.createElement("summary");
+          group.append(summary);
+          content.append(group);
+          steps = 0;
+        }
+        if (role === "Tool") {
+          steps++;
+          const name = text.replace(/ \(step \d+\)$/, "");
+          const count = arabic ? "عدد الخطوات " + steps.toLocaleString("ar") : steps + (steps === 1 ? " step" : " steps");
+          summary.textContent = name + " · " + count;
+        } else if (!steps) summary.textContent = "Tool result";
+        group.append(article);
+      } else {
+        group = null;
+        content.append(article);
+      }
+    }
+    box.replaceChildren(content);
     if (bottom) box.scrollTop = box.scrollHeight;
     lastRows = fingerprint;
   }
   approvalId = state.approval?.id;
   el("approval").hidden = !state.approval;
+  el("allow").textContent = state.approval?.page_reads ? "Allow for this task" : "Approve once";
   el("detail").textContent = state.approval
     ? state.approval.action + "\n" + state.approval.detail
     : "";

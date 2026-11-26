@@ -35,7 +35,7 @@ impl View {
     fn snapshot(&self) -> Value {
         json!({"revision":self.revision,"workspace":self.workspace,"session":self.session,"model":self.model,
             "rows":self.rows,"draft":self.draft,"busy":self.busy,
-            "approval":self.approvals.front().map(|(id,a)|json!({"id":id,"action":a.action,"detail":a.detail}))})
+            "approval":self.approvals.front().map(|(id,a)|json!({"id":id,"action":a.action,"detail":a.detail,"page_reads":crate::browser::group_approval(&a.action)}))})
     }
 }
 

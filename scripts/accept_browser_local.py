@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix='blue-browser-local-') as td:
      chunk=os.read(agent.stdout.fileno(),65536)
      if not chunk:break
      text+=chunk
-    n=text.count(b'Approve this ONE action?')+text.count(b'Allow snapshot and network reads for this page and task?')
+    n=text.count(b'Approve this ONE action?')+text.count(b'Allow the requested operation and page reads for this task?')
     if n>answered:
      assert approve,'unexpected approval';agent.stdin.write((b'n\n' if approve=='deny' else b'y\n')*(n-answered));agent.stdin.flush();answered=n
     if b'blue-dragon> ' in text:return text.decode()

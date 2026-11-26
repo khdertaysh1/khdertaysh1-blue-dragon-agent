@@ -92,6 +92,7 @@ struct Screen {
     approval_scroll: u16,
     scroll_up: usize,
     reveal_from: Option<usize>,
+    show_steps: bool,
     status: String,
     model: String,
     workspace: String,
@@ -122,6 +123,7 @@ impl Screen {
             approval_scroll: 0,
             scroll_up: 0,
             reveal_from: None,
+            show_steps: false,
             status: "Ready".into(),
             model: model.into(),
             workspace,
@@ -189,6 +191,13 @@ impl Screen {
     }
 
     fn submit(&mut self, tx: &Sender<Work>) {
+        if self.input.trim() == "/steps" {
+            self.show_steps = !self.show_steps;
+            self.input.clear();
+            self.cursor = 0;
+            self.scroll_up = 0;
+            return;
+        }
         if self.busy {
             let text = self.input.trim();
             if !text.is_empty() {
@@ -227,7 +236,7 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /clear /exit /map /symbol NAME [PATH] /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
+                "Commands: /help /steps /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /clear /exit /map /symbol NAME [PATH] /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
             );
             self.reveal_from = Some(self.lines.len() - 1);
             return;
@@ -996,6 +1005,40 @@ fn identity_title(compact: bool, state: &str, marker: &str) -> Line<'static> {
     ])
 }
 
+fn conversation_text(lines: &[String], expanded: bool) -> String {
+    if expanded {
+        return lines.join("\n");
+    }
+    let mut rows = Vec::new();
+    let mut lines = lines.iter().peekable();
+    while let Some(line) = lines.next() {
+        if !line.starts_with("Tool: ") {
+            rows.push(line.clone());
+            continue;
+        }
+        let mut latest = line;
+        let mut count = 1;
+        while let Some(next) = lines.next_if(|s| {
+            s.starts_with("Tool: ")
+                || s.starts_with("Result: ")
+                || s.starts_with("Approval: Approved")
+                || s.starts_with("  ")
+        }) {
+            if next.starts_with("Tool: ") {
+                count += 1;
+                latest = next;
+            }
+        }
+        let name = latest
+            .trim_start_matches("Tool: ")
+            .split(" (step ")
+            .next()
+            .unwrap_or("");
+        rows.push(format!("Tools · {count} · {name} · /steps"));
+    }
+    rows.join("\n")
+}
+
 fn draw(frame: &mut Frame<'_>, app: &mut Screen) {
     let compact = frame.area().width < 70 || frame.area().height < 22;
     frame.render_widget(
@@ -1037,11 +1080,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut Screen) {
         outer[0],
     );
 
-    let text = if app.draft.is_empty() {
-        app.lines.join("\n")
-    } else {
-        format!("{}\nDragon: {}", app.lines.join("\n"), app.draft)
-    };
+    let mut text = conversation_text(&app.lines, app.show_steps);
+    if !app.draft.is_empty() {
+        text.push_str("\nDragon: ");
+        text.push_str(&app.draft);
+    }
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints(if outer[1].width >= 110 {
@@ -1066,7 +1109,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut Screen) {
     // Subsequent PgUp/PgDn operations use the normal transcript scroll offset.
     if visible_lines > 0 {
         if let Some(first) = app.reveal_from.take() {
-            let preceding = transcript_lines(&app.lines[..first].join("\n"), width).len();
+            let preceding = transcript_lines(
+                &conversation_text(&app.lines[..first], app.show_steps),
+                width,
+            )
+            .len();
             app.scroll_up = visual.len().saturating_sub(visible_lines + preceding);
         }
     }
@@ -1527,6 +1574,26 @@ mod tests {
         assert_eq!(lines[1].to_string(), "");
         assert_eq!(lines[3].to_string(), "");
         assert_eq!(lines[4].to_string(), "second()");
+    }
+
+    #[test]
+    fn compact_steps_keep_tool_details_available_and_chat_visible() {
+        let mut screen = Screen::new("model", ".".into());
+        screen.lines.clear();
+        screen.log("Tool:", "browser snapshot (step 1)");
+        screen.log("Approval:", "Approved page reads for this task");
+        screen.log("Result:", "returned E001");
+        screen.log("Tool:", "recall_context (step 2)");
+        screen.log("Result:", "returned E002");
+        screen.log("Dragon:", "Done");
+        let compact = conversation_text(&screen.lines, false);
+        assert_eq!(compact, "Tools · 2 · recall_context · /steps\nDragon: Done");
+        screen.input = "/steps".into();
+        screen.busy = true;
+        let (tx, rx) = mpsc::channel();
+        screen.submit(&tx);
+        assert!(rx.try_recv().is_err());
+        assert!(conversation_text(&screen.lines, screen.show_steps).contains("E001"));
     }
 
     #[test]

@@ -4,7 +4,7 @@
     16px/1.5 "DM Sans",
     system-ui,
     sans-serif;
-  background: #11171c;
+  background: #091429;
   color: #e4edf3;
 }
 * {
@@ -14,7 +14,7 @@ body {
   margin: 0;
 }
 header {
-  background: #152128;
+  background: #102140;
   border-bottom: 1px solid #31404a;
   display: flex;
   align-items: center;
@@ -22,7 +22,7 @@ header {
   padding: 12px max(16px, 5vw);
 }
 header strong {
-  color: #8aede2;
+  color: #6eacff;
   white-space: nowrap;
 }
 #model {
@@ -41,7 +41,7 @@ textarea {
 }
 button {
   padding: 0.45em 0.95em;
-  background: #21323a;
+  background: #16315b;
   color: #e6f5f6;
   border: 1px solid #44606c;
   cursor: pointer;
@@ -53,7 +53,7 @@ button:disabled {
 input,
 textarea {
   width: 100%;
-  background: #0e161c;
+  background: #09172f;
   border: 1px solid #40535c;
   color: inherit;
   padding: 0.65em;
@@ -65,7 +65,7 @@ aside {
   padding: 16px;
 }
 aside {
-  background: #1c2931;
+  background: #152844;
 }
 aside button {
   margin: 0.4em 0.4em 0.4em 0;
@@ -107,7 +107,7 @@ article {
 }
 article b {
   font-size: 0.8rem;
-  color: #88d7cb;
+  color: #8fbcff;
 }
 pre {
   white-space: pre-wrap;
@@ -118,7 +118,7 @@ pre {
 #compose,
 #approval {
   padding: 14px;
-  background: #1b2931;
+  background: #112445;
   border: 1px solid #364c56;
   border-radius: 10px;
   margin-top: 16px;
@@ -134,8 +134,8 @@ footer {
 }
 #send,
 #allow {
-  background: #90dfd3;
-  color: #102822;
+  background: #245eca;
+  color: #ffffff;
 }
 #error {
   color: #ffb7a9;
@@ -146,5 +146,11 @@ textarea {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #97e2d9;
+  outline: 2px solid #75adff;
 }
+
+header strong { font-size: 1.25rem; }
+pre[dir="auto"], textarea { font-size: 1.125rem; line-height: 1.65; }
+pre[dir="auto"]:dir(rtl), textarea:dir(rtl) { font-size: 1.25rem; line-height: 1.8; }
+summary { cursor: pointer; color: #abcaff; padding: .45em 0; }
+details { margin-block: .5em; }

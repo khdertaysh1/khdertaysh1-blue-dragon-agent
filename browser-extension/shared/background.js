@@ -68,12 +68,12 @@ async function execute(action,args) {
   if(action==='open') {
     const url=httpURL(args.url);
     if(currentTab===null || !managed.has(currentTab)) {const tab=await api.tabs.create({url:'about:blank',active:true});currentTab=tab.id;managed.add(tab.id);}
-    await navigateTo(currentTab,url);return {opened:true};
+    await navigateTo(currentTab,url);return {opened:true,document_identity:await documentIdentity().catch(()=>null)};
   }
   if(currentTab===null || !managed.has(currentTab))throw Error('No managed tab. Use open first.');
   const tab=await api.tabs.get(currentTab);
   httpURL(tab.url);
-  if(action==='navigate') {const destination=httpURL(args.url);if(args.fresh_document===true)await navigateTo(currentTab,'about:blank');await navigateTo(currentTab,destination);return {navigated:true};}
+  if(action==='navigate') {const destination=httpURL(args.url);if(args.fresh_document===true)await navigateTo(currentTab,'about:blank');await navigateTo(currentTab,destination);return {navigated:true,document_identity:await documentIdentity().catch(()=>null)};}
   if(action==='close') {await api.tabs.remove(currentTab);managed.delete(currentTab);currentTab=null;return {closed:true};}
   async function documentIdentity() {
     const [frame] = await api.scripting.executeScript({target:{tabId:currentTab},func:()=>location.href});
@@ -114,7 +114,7 @@ async function execute(action,args) {
   const keys=Object.keys(envelope).sort().join(',');
   if(envelope.ok) {
     if(keys !== 'blueDragonPageEnvelope,ok,value' || envelope.value === undefined)throw Error('Invalid successful page execution envelope');
-    if((action==='snapshot' || action==='console') && !args.frame_selector && results[0].documentId)
+    if((action==='snapshot' || action==='wait_for' || action==='console') && !args.frame_selector && results[0].documentId)
       envelope.value.document_identity=[envelope.value.url,results[0].documentId];
     if (action === 'click' && envelope.value?.clicked === true) {
       const start = Math.max(0,cursor-ringEvictions);

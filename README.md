@@ -26,7 +26,7 @@ The release includes platform binaries, SHA-256 checksums and browser extensions
 
 ## Graphical workspace (development build)
 
-Run `blue-dragon gui` in your project directory on Android (Termux), Windows, Linux or macOS. The binary opens a local web interface in your default browser. Keep the terminal process running. If the browser does not open, use the private URL printed in the terminal. Use `gui --no-open` to print the URL without launching the browser.
+Run `blue-dragon gui` in your project directory on Windows, Linux or macOS. On Android, run `blue-dragon tui` in Termux. The Android `gui` alias also opens the terminal. Type `/steps` there to expand or collapse tool activity. On desktop, the binary opens a local web interface in your default browser. Keep the terminal process running. If the browser does not open, use the private URL printed in the terminal. Use `gui --no-open` to print the URL without launching the browser.
 
 Use **Sessions** to choose a workspace or continue a saved conversation. Messages, tool results and approval requests use the same agent and session store as the terminal. The global `--root`, `--resume` and `--read-only` options work with `gui`. The server listens only on IPv4 loopback and the launch URL grants access to that running instance.
 
