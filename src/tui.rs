@@ -566,7 +566,7 @@ pub fn run(
                     }
                     app.dispatch_followup(&work_tx);
                 }
-                AgentEvent::ToolResult(summary) => {
+                AgentEvent::ToolResult(summary) | AgentEvent::EditorToolResult(summary, _) => {
                     app.log("Result:", &summary);
                 }
             }

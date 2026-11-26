@@ -223,7 +223,8 @@ pub fn run(
                                         v.row("Dragon", &s)
                                     }
                                     AgentEvent::ToolStart(s) => v.row("Tool", &s),
-                                    AgentEvent::ToolResult(s) => v.row("Result", &s),
+                                    AgentEvent::ToolResult(s)
+                                    | AgentEvent::EditorToolResult(s, _) => v.row("Result", &s),
                                     AgentEvent::Notice(s) => v.row("System", &s),
                                     AgentEvent::Plan(s) => v.row("Plan", &s),
                                     AgentEvent::Model(s) => v.model = s,

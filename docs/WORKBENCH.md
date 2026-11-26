@@ -188,3 +188,33 @@ matched to the saved browser receipt. Arbitrary expressions, form values,
 and response bodies are not added to the concept index. A historical read
 describes that point in the session; a question about the live page still
 requires a fresh observation. Search does not infer why a value was unchanged.
+
+### Use Blue Dragon from an ACP editor
+
+Install the draft binary on your PATH and register `blue-dragon acp` as a
+custom stdio agent. For Zed, add this entry in settings:
+
+```json
+{
+  "agent_servers": {
+    "Blue Dragon": {
+      "type": "custom",
+      "command": "blue-dragon",
+      "args": ["acp"]
+    }
+  }
+}
+```
+
+Open a project and start a new external-agent thread. Each ACP session owns
+an independent Blue Dragon conversation rooted in the editor's absolute
+`cwd`. The adapter reads saved files on disk. Save a buffer before asking
+about recent changes. To pin the permitted workspace, add `--root` and
+its path to the arguments. Use `--read-only` to deny actions requiring approval.
+
+The v1 stdio adapter supports initialization, new sessions, text and resource
+links, reviewed answers, tool progress, one-action permission decisions and
+cancellation. It uses the configured Blue Dragon provider and tool controls.
+Resource links are references supplied to the conversation. Binary prompt
+attachments, editor-supplied MCP servers, restoring sessions through ACP,
+and editing unsaved buffers are outside this adapter's current scope.

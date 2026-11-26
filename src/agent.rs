@@ -22,6 +22,7 @@ pub struct Agent {
     pub quota_picker: QuotaPicker,
     provider: Provider,
     synchronous_chat_input: bool,
+    editor_events: bool,
     provider_routes: Vec<(crate::models::Selection, String)>,
     project_instructions: Option<String>,
     delegates: crate::delegates::Manager,
@@ -63,6 +64,7 @@ pub enum AgentEvent {
     Finished(std::result::Result<(), String>),
     ToolStart(String),
     ToolResult(String),
+    EditorToolResult(String, bool),
 }
 
 #[path = "swarm.rs"]
@@ -168,6 +170,7 @@ impl Agent {
             sources,
             provider,
             synchronous_chat_input: false,
+            editor_events: false,
             provider_routes: crate::models::fallback_providers(
                 &std::env::var("BLUE_DRAGON_FALLBACK_PROVIDERS")
                     .unwrap_or_else(|_| "kilo,jarvis".into()),
@@ -210,6 +213,13 @@ impl Agent {
         self.synchronous_chat_input = true;
     }
 
+    pub(crate) fn set_editor_output(&mut self, sender: std::sync::mpsc::SyncSender<AgentEvent>) {
+        self.editor_events = true;
+        self.quota_picker = Box::new(|_| {
+            anyhow::bail!("Model selection requires a configured provider in editor mode")
+        });
+        self.set_output(sender);
+    }
     pub fn set_output(&mut self, sender: std::sync::mpsc::SyncSender<AgentEvent>) {
         let progress = sender.clone();
         self.tools.set_progress(move |text| {
@@ -249,7 +259,9 @@ impl Agent {
                 std::io::stdout().flush().ok();
             }
             AgentEvent::ToolStart(name) => println!("\n[tool] {name}"),
-            AgentEvent::ToolResult(summary) => println!("[result] {summary}"),
+            AgentEvent::ToolResult(summary) | AgentEvent::EditorToolResult(summary, _) => {
+                println!("[result] {summary}")
+            }
         }
     }
 
@@ -3333,7 +3345,17 @@ impl Agent {
                 } else {
                     summary
                 };
-                self.output(AgentEvent::ToolResult(summary));
+                self.output(if self.editor_events {
+                    AgentEvent::EditorToolResult(
+                        summary,
+                        ok && !declined
+                            && result["denied"] != true
+                            && result["execution_status"] != "not_executed"
+                            && result["execution_status"] != "unknown",
+                    )
+                } else {
+                    AgentEvent::ToolResult(summary)
+                });
                 if declined {
                     user_denied_action = true;
                     denied_artifact_read = name == "source_artifact";

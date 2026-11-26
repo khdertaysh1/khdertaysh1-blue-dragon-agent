@@ -1,3 +1,4 @@
+mod acp;
 mod agent;
 mod agent_tool_reply;
 mod anthropic;
@@ -64,8 +65,12 @@ use config::Settings;
 #[derive(Debug, Parser)]
 #[command(name = "blue-dragon", about = "Blue Dragon | AI coding agent", version = env!("BLUE_DRAGON_PUBLIC_VERSION"))]
 struct Cli {
-    #[arg(long, global = true, default_value = ".", help = "Project workspace")]
-    root: PathBuf,
+    #[arg(
+        long,
+        global = true,
+        help = "Project workspace (defaults to current directory)"
+    )]
+    root: Option<PathBuf>,
     #[arg(long, global = true, env = "BLUE_DRAGON_MODEL")]
     model: Option<String>,
     #[arg(long, global = true, env = "BLUE_DRAGON_BASE_URL")]
@@ -147,6 +152,8 @@ enum Command {
     },
     /// Start conversational agent with interactive approval prompts
     Chat,
+    /// Serve an editor over Agent Client Protocol v1 (JSON-RPC on stdio)
+    Acp,
     /// Full-screen terminal with live answers and per-action approvals
     Tui,
     /// Open the local graphical workspace in the system browser
@@ -291,6 +298,8 @@ fn run() -> Result<()> {
 
     let root = args
         .root
+        .as_deref()
+        .unwrap_or(std::path::Path::new("."))
         .canonicalize()
         .with_context(|| format!("Workspace {:?} is not accessible", args.root))?;
     if !root.is_dir() {
@@ -319,6 +328,7 @@ fn run() -> Result<()> {
     settings.context_tokens = args.context_tokens as usize;
     settings.project_memory = !args.no_project_memory;
     match args.command {
+        Some(Command::Acp) => acp::serve(settings, args.read_only, args.root.is_some()),
         Some(Command::Doctor) => {
             println!(
                 "Blue Dragon v{} | Diagnostic",
