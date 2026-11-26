@@ -527,24 +527,26 @@ impl Browser {
         }
         self.check_save_document_origin(&url)?;
         let local_page = Self::loopback_lab_url(&url);
-        let missing_parent = if local_page {
-            tools.missing_response_parent(path)?
-        } else {
-            None
-        };
+        let missing_parent = tools.missing_response_parent(path)?;
         if missing_parent.is_none() {
             tools.check_browser_save_destination(path)?;
         }
         let epoch = self.status()["connection_epoch"].as_u64();
-        if !tools.approve_task_step(
-            "Save observed JavaScript response to workspace",
-            &format!(
-                "Response: {}\nRequest: {}\nNew file: {}\nMaximum 1 MiB. No refetch or execution.",
-                json!(url),
-                json!(id),
-                json!(path)
-            ),
-        )? {
+        let detail = format!(
+            "Response: {}\nRequest: {}\nNew file: {}\nMaximum 1 MiB. No refetch or execution.",
+            json!(url),
+            json!(id),
+            json!(path)
+        );
+        let approved = if let Some(parent) = missing_parent.as_ref().filter(|_| !local_page) {
+            tools.approve(
+                "Save observed response in a new workspace directory",
+                &format!("{detail}\nCreate directory: {}", json!(parent)),
+            )?
+        } else {
+            tools.approve_task_step("Save observed JavaScript response to workspace", &detail)?
+        };
+        if !approved {
             return Ok(json!({"ok":false,"denied":true,"execution_status":"not_executed"}));
         }
         self.check_save_document_origin(&url)?;
