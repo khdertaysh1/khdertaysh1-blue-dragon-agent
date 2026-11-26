@@ -187,7 +187,7 @@ fn citations(text: &str) -> Vec<(&str, usize)> {
             if n > 0
                 && !path.is_empty()
                 && !path.contains(':')
-                && !path.starts_with('\\')
+                && !path.starts_with(['/', '\\'])
                 && !path.split(['/', '\\']).any(|part| part == "..")
                 && !Path::new(path).is_absolute()
             {

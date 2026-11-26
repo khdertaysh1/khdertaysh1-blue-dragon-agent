@@ -43,6 +43,7 @@ const MAX_OUTPUT_BYTES: usize = 40 * 1024;
 
 impl ToolBox {
     pub fn new(root: PathBuf, approval: ApprovalMode) -> Self {
+        let root = root.canonicalize().unwrap_or(root);
         Self {
             root,
             task_approved: false,

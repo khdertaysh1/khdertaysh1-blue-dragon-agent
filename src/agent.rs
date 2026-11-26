@@ -1240,6 +1240,13 @@ impl Agent {
         if !continuation
             && resumed.is_none()
             && !asks_about_prior_work(prompt)
+            && ![
+                "inspect task continuity",
+                "show task continuity",
+                "report task continuity",
+            ]
+            .iter()
+            .any(|prefix| prompt.trim_start().to_ascii_lowercase().starts_with(prefix))
             && !self.session.plan.steps.is_empty()
         {
             // The original update_plan call and its result remain in session history.
