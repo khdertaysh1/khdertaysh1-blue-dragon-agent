@@ -1645,6 +1645,7 @@ impl Agent {
             Value::Null
         };
         let mut tried_providers = std::collections::BTreeSet::new();
+        let mut quote_retry = false;
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
         let mut can_finish_local_verification = false;
@@ -1750,7 +1751,8 @@ impl Agent {
             }
             let mut emitted = false;
             let mut stream_received = false;
-            let buffer_for_review = operational_prompt
+            let buffer_for_review = crate::report_quotes::requested(prompt)
+                || operational_prompt
                 || evidence_requirement.is_some()
                 || download_contract
                 || explain_first
@@ -1861,7 +1863,7 @@ impl Agent {
                         && a["original_evidence_id"].is_null()
                 }) {
                     memory["current_page_observation"] = json!({"evidence_id":snapshot["evidence_id"],
-                        "observed_url":snapshot["url"],"observed_title":snapshot["title"],"untrusted_page_data":true});
+                        "observed_url":snapshot["url"],"observed_title":snapshot["title"],"visible_access_notice":snapshot["visible_access_notice"],"untrusted_page_data":true});
                 }
                 if !self.loop_guard.saved_responses().is_empty() {
                     memory["current_turn_saved_bodies"] = json!(self.loop_guard.saved_responses());
@@ -2530,6 +2532,23 @@ impl Agent {
                         continue;
                     }
                     return Err(crate::provider_contract::incomplete("empty_response", ""));
+                }
+                if resumed.is_none() {
+                    if let Some(ids) = crate::report_quotes::source_error(
+                        &self.session,
+                        turn_start,
+                        prompt,
+                        &answer,
+                    ) {
+                        if !quote_retry && step < step_limit {
+                            quote_retry = true;
+                            report_recovery = true;
+                            self.session.messages.push(json!({"role":"user","content":format!("A source quotation did not match native file-read evidence ({ids}). Answer the original task using the observed results. Quote only exact substrings of the cited read. Omit optional code examples. No more tools.")}));
+                            self.persist()?;
+                            continue 'steps;
+                        }
+                        anyhow::bail!("Source quotation could not be verified against file-read evidence ({ids}).");
+                    }
                 }
                 if let Some(requirement) = &evidence_requirement {
                     if let Err(error) = requirement.validate(&self.session, turn_start, &answer) {
@@ -3464,7 +3483,7 @@ impl Agent {
                 }
                 if action["browser_action"] == "snapshot" && action["ok"] == true {
                     let page = &result["result"];
-                    for key in ["url", "title"] {
+                    for key in ["url", "title", "visible_access_notice"] {
                         if let Some(value) = page[key].as_str() {
                             action[key] = json!(crate::reasoning::context::clip(value, 256));
                         }
@@ -3881,6 +3900,12 @@ fn browser_outcomes(actions: &[Value], arabic: bool) -> Vec<String> {
             url.escape_debug(),
             title.escape_debug()
         ));
+        if let Some(notice) = last["visible_access_notice"].as_str() {
+            lines.push(format!(
+                "{notice} ({})",
+                last["evidence_id"].as_str().unwrap_or("?")
+            ));
+        }
         if !actions.iter().any(|a| {
             a["browser_action"] == "click"
                 && a["ok"] == true

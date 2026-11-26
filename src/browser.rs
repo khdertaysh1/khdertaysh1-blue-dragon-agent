@@ -976,6 +976,11 @@ impl Browser {
                 self.page_read_grant = Some((dispatch_epoch, identity.clone()));
             }
         }
+        if action == "snapshot" && args["frame_selector"].is_null() {
+            if let Some(notice) = visible_access_notice(&value) {
+                value["visible_access_notice"] = json!(notice);
+            }
+        }
         let mut result = action_result(action, value);
         if result["execution_status"] == "unknown" {
             self.uncertain_mutation = true;
@@ -1006,6 +1011,34 @@ fn source_scope_check(
     validate_url(target)?;
     policy.check(target, "read")
 }
+// Report only an explicit notice in the document title or main heading.
+// Third-party assets and embedded widgets can occur on ordinary content pages.
+fn visible_access_notice(page: &Value) -> Option<&'static str> {
+    let headings = page["h1"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    let body = page["text"].as_str().unwrap_or_default().to_lowercase();
+    for raw in page["title"].as_str().into_iter().chain(headings) {
+        let title = raw.trim().trim_end_matches(['.', '…', '!']).to_lowercase();
+        match title.as_str() {
+            "verify you are human" | "verify you are a human" | "checking your browser" |
+            "التحقق من أنك إنسان" => return Some("The page displays a browser or human verification challenge. Provider unverified."),
+            "just a moment" | "security verification" if body.contains("verify you are human") || body.contains("verifying you are human") || body.contains("checking your browser") =>
+                return Some("The page displays a browser or human verification challenge. Provider unverified."),
+            "access denied" | "request blocked" | "sorry, you have been blocked" | "تم حظر الطلب" => {
+                if body.contains("web application firewall") || body.contains("blocked by the firewall") {
+                    return Some("The page explicitly attributes the access block to a firewall.");
+                }
+                return Some("The page displays an access-denied notice. Cause unverified.");
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn action_result(action: &str, value: Value) -> Value {
     if matches!(action, "click" | "fill") {
         if let Some(
@@ -1774,5 +1807,28 @@ mod form_action_tests {
         assert!(validate_form_action("select", &json!({"selector":"#a","value":""})).is_ok());
         assert!(validate_form_action("select", &json!({"selector":"","value":"x"})).is_err());
         assert!(validate_form_action("select", &json!({"selector":"#a","value":7})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod visible_access_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_page_notices_are_distinct_from_embedded_verification_assets() {
+        let normal = json!({"title":"Academy","h1":["Courses"],"text":"Verify you are human","scripts":["/cdn-cgi/challenge-platform/widget.js"]});
+        assert_eq!(visible_access_notice(&normal), None);
+        let challenge = json!({"title":"Just a moment...","text":"Verifying you are human."});
+        assert!(visible_access_notice(&challenge)
+            .unwrap()
+            .contains("challenge"));
+        let denied = json!({"h1":["Access denied"]});
+        assert!(visible_access_notice(&denied)
+            .unwrap()
+            .contains("Cause unverified"));
+        let firewall = json!({"h1":["Request blocked"],"text":"Request blocked by the firewall"});
+        assert!(visible_access_notice(&firewall)
+            .unwrap()
+            .contains("attributes"));
     }
 }

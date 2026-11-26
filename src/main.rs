@@ -33,6 +33,7 @@ mod provider_contract;
 mod provider_diagnostics;
 mod provider_traffic;
 mod reasoning;
+mod report_quotes;
 mod rotation;
 mod saved_file;
 mod scope;
