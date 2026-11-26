@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.1.14.4
+
+- Save an eligible JavaScript response from the current browser capture into an approved workspace folder and read it back from disk. Save and read receipts carry separate evidence IDs.
+- Browser reports retain the last observed URL and page title when a task stops. Recognized access-denied and verification notices are reported from the page snapshot.
+- JavaScript quotation checks compare supported code excerpts with the referenced file read. Current tasks distinguish new observations from earlier session evidence.
+- Desktop users can open a native project window. The terminal also supports opt-in local code review teams with read-only workers.
+
 ## 1.1.14.3
 
 - Local file search reports verified line numbers and exact matching lines when available, including in compact context.

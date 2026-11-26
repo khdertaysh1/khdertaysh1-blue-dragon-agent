@@ -8,33 +8,34 @@ Blue Dragon is a Rust coding agent for the terminal. Open it in your project to 
 
 ## Quick Start
 
-Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.3** and verify the executable's SHA-256 and reported version.
+Open a terminal in the project folder you want Blue Dragon to work in. These commands install and start **Blue Dragon 1.1.14.4** and verify the executable's SHA-256 and reported version.
 
 **Linux x64, macOS on Apple Silicon, or Android ARM64 in Termux** (Bash and curl)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.3/scripts/start.sh | bash
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.4/scripts/start.sh | bash
 ```
 
 **Windows x64** (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.3/scripts/start.ps1').Content))
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.4/scripts/start.ps1').Content))
 ```
 
-The release includes platform binaries, SHA-256 checksums and browser extensions. For a first session on your phone, follow the Termux walkthrough. [Downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.3) · [Termux walkthrough](docs/FIRST_SESSION.md) · [Install and update](docs/INSTALL.md)
+The release includes platform binaries, SHA-256 checksums and browser extensions. For a first session on your phone, follow the Termux walkthrough. [Downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.4) · [Termux walkthrough](docs/FIRST_SESSION.md) · [Install and update](docs/INSTALL.md)
 
-## Graphical workspace (development build)
+## Graphical workspace
 
 Run `blue-dragon gui` in your project directory on Windows, Linux or macOS. On Android, run `blue-dragon tui` in Termux. The Android `gui` alias also opens the terminal. Type `/steps` there to expand or collapse tool activity. On desktop this opens a native Blue Dragon window. Choose **Open project** to switch workspaces, or **Sessions** to resume a conversation. The next launch restores the last desktop session. Open a relative file reference such as `src/main.rs:16` in a reply to see the highlighted source line. Use `gui --no-open` for the private web client. The Linux Debian package adds an Applications entry and the macOS package installs Blue Dragon.app. On Windows, run `.\blue-dragon.exe gui` or register the executable with `.\scripts\register-desktop.ps1 -Binary .\blue-dragon.exe` from a source checkout.
 
 Use **Sessions** to choose a workspace or continue a saved conversation. Messages, tool results and approval requests use the same agent and session store as the terminal. The global `--root`, `--resume` and `--read-only` options work with `gui`. The server listens only on IPv4 loopback and the launch URL grants access to that running instance.
 
-## What's new in 1.1.14.3
+## What's new in 1.1.14.4
 
-- Local file search reports verified line numbers and exact matching lines when available, including in compact context.
-- The terminal can approve a local form interaction inline and remember consent on that page.
-- Browser precondition failures distinguish an action that never ran from an uncertain outcome.
+- Save an eligible JavaScript response from the current browser capture into an approved workspace folder and read it back from disk. Save and read receipts carry separate evidence IDs.
+- Browser reports retain the last observed URL and page title when a task stops. Recognized access-denied and verification notices are reported from the page snapshot.
+- JavaScript quotation checks compare supported code excerpts with the referenced file read. Current tasks distinguish new observations from earlier session evidence.
+- Desktop users can open a native project window. The terminal also supports opt-in local code review teams with read-only workers.
 
 [Full release notes](docs/RELEASE_NOTES.md) · [Documentation](docs/README.md)
 
