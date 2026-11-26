@@ -11,6 +11,7 @@ name = "blue-dragon"
 path = "src/main.rs"
 
 [dependencies]
+httparse = "1"
 libc = "0.2"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
@@ -37,6 +38,17 @@ tree-sitter-python = "0.25"
 tree-sitter-rust = "0.24"
 sha2 = "0.10"
 ignore = "0.4"
+oxc_allocator = "=0.75.0"
+oxc_parser = "=0.75.0"
+oxc_semantic = "=0.75.0"
+oxc_span = "=0.75.0"
+oxc_ast = "=0.75.0"
+oxc_syntax = "=0.75.0"
+jsonc-parser = { version = "0.26.3", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+image = { version = "0.25", default-features = false, features = ["webp"] }

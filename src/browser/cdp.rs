@@ -376,7 +376,7 @@ impl Cdp {
         Ok(id)
     }
 
-    pub fn javascript_response(&self, id: &str) -> Result<&str> {
+    pub fn javascript_response(&self, id: &str) -> Result<(&str, u16)> {
         let row = self
             .network
             .iter()
@@ -389,7 +389,7 @@ impl Cdp {
             (200.0..300.0).contains(&status) && is_javascript_mime(mime),
             "Only successful JavaScript responses can be saved"
         );
-        self.source_url(id)
+        Ok((self.source_url(id)?, status as u16))
     }
 
     pub fn response_bytes(&mut self, id: &str) -> Result<Vec<u8>> {
@@ -446,7 +446,7 @@ impl Cdp {
                     std::thread::sleep(Duration::from_millis(30));
                 }
                 Ok(
-                    json!({"navigated":true,"dom_content_loaded":loader.as_ref().is_none_or(|id|self.loaded_documents.contains(id)),"note":"Snapshot reflects the current document; dynamic applications may continue loading."}),
+                    json!({"navigated":true,"document_identity":self.document_identity().ok(),"dom_content_loaded":loader.as_ref().is_none_or(|id|self.loaded_documents.contains(id)),"note":"Snapshot reflects the current document; dynamic applications may continue loading."}),
                 )
             }
             "network" => {
@@ -508,7 +508,8 @@ impl Cdp {
                         "preview_omitted":count.saturating_sub(16),"ring_gap_possible":self.network_evictions>cursor,
                         "causal_link_verified":false});
                 }
-                if action == "snapshot" && args.get("frame_selector").is_none() {
+                if matches!(action, "snapshot" | "wait_for") && args.get("frame_selector").is_none()
+                {
                     let identity = self.document_identity()?;
                     if identity[0] == result["url"] {
                         result["document_identity"] = identity;

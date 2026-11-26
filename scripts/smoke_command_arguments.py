@@ -57,12 +57,14 @@ def run(binary, mode):
      raise AssertionError(('phone-sized TUI missing',needle,bytes(captured[-2000:])))
     try:
      wait_text(b'BLUE DRAGON');os.write(master,'نفّذ المهمة المحلية فقط / Run local fixture only.\r'.encode());wait_text(b'APPROVAL REQUIRED')
+     assert not packets, 'The provider must not run before task approval'
+     os.write(master,b'y');wait_text(b'shell_expansion')
      os.write(master,b'n' if mode=='tui_denied' else b'y')
-     wait_text(b'Denied by user' if mode=='tui_denied' else b'Completed')
      # Wait for a model final response, then close without another provider task.
      until=time.monotonic()+10
      while len(packets)<3 and time.monotonic()<until:
       if select.select([master],[],[],0.05)[0]:captured.extend(os.read(master,65536))
+     assert len(packets)>=3, 'Provider did not receive the native command outcome'
      time.sleep(0.3);os.write(master,b'/exit\r');child.wait(timeout=8)
      p=subprocess.CompletedProcess([],child.returncode,bytes(captured).decode(errors='replace'),'')
     finally:

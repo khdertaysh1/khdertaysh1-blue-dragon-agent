@@ -2,7 +2,7 @@
 
 ## Install and start
 
-Use the [one-line command for your platform](../README.md#quick-start) from the project folder you want to work in. It downloads the executable for release `v1.1.14.3`, checks its SHA-256 and reported version, and opens the terminal interface. On a fresh Termux installation, run `pkg install curl` first if curl is missing.
+Use the [one-line command for your platform](../README.md#quick-start) from the project folder you want to work in. It downloads the executable for release `v1.1.14.4`, checks its SHA-256 and reported version, and opens the terminal interface. On a fresh Termux installation, run `pkg install curl` first if curl is missing.
 
 ## Native installer candidates
 
@@ -25,7 +25,7 @@ To check which version is installed, replace `--provider free tui` with `--versi
 On Termux, Linux and macOS, the [Unix installer](../scripts/install.sh) supports a specific release tag, a custom directory and a rollback copy. It requires Bash, curl, jq and a SHA-256 utility. To install this release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.3/scripts/install.sh | bash -s -- --version v1.1.14.3
+curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.4/scripts/install.sh | bash -s -- --version v1.1.14.4
 ```
 
 Omitting `--version` selects the first compatible published release in GitHub's release list, which can include prereleases. The pinned quick-start command always selects the version in its URL.
@@ -33,7 +33,7 @@ Omitting `--version` selects the first compatible published release in GitHub's 
 On Windows, the [PowerShell installer](../scripts/install.ps1) downloads the x64 executable and prints its version. Run this in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.3/scripts/install.ps1').Content))
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon-agent/v1.1.14.4/scripts/install.ps1').Content))
 ```
 
 ## Use an earlier version

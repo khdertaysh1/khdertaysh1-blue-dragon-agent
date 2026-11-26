@@ -2,7 +2,7 @@
 
 `delegate_agents` is a root-supervised team of actual model/tool loops. It does not wrap shell jobs or copy the parent's conversation. Each child has its own session ID, transcript, session lock, native evidence IDs, and bounded tool loop. Evidence is always qualified by child session ID; child summaries are model-authored, not parent-native test proof.
 
-The root alone can `spawn`, `send`, `wait`, `status`, `collect`, or `cancel`. Spawn specifies a task and 1–8 existing workspace paths and requires the parent's approval. Children receive only that task/path scope and a fixed read-only tool allowlist: file listing, file metadata, bounded UTF-8 file windows, per-file streaming search and single-file source outlines. File-only scopes stay file-only. Existing workspace/secret/symlink guards apply; messages cannot broaden them. Children have no shell, write, browser, remote fetch, MCP, nested spawn, or stdin approval tools. This is a tool boundary inside one process, not an OS sandbox. Parent writes remain serial in the existing agent loop.
+The root alone can `spawn`, `send`, `wait`, `status`, `collect`, or `cancel`. Spawn specifies a task and 1–8 existing workspace paths and requires the parent's approval. Children receive only that task/path scope and a fixed read-only tool allowlist: file listing, file metadata, bounded UTF-8 file windows, per-file streaming search and single-file source outlines. File-only scopes stay file-only. Existing workspace/secret/symlink guards apply; messages cannot broaden them. Children have no shell, write, browser, remote fetch, MCP, or stdin approval tools. Ordinary delegates keep their single-level topology. This is a tool boundary inside one process, not an OS sandbox. Parent writes remain serial in the existing agent loop.
 
 Children can send bounded `agent_message` updates to the parent or an existing peer. The native sender ID is attached; text is explicitly untrusted. Delivery to the queue does not mean the recipient acted on it. `collect` returns each child's state, summary and session-qualified evidence together; contradictions are preserved and require parent review. It never merges patches or makes a consensus/security claim.
 
@@ -12,7 +12,7 @@ Cancellation is requested, not instantly proven: an in-flight provider request m
 
 Restart reads child checkpoints and retained quotas. Running/starting or incomplete-on-disk activity is reported as `interrupted` with unknown in-flight outcome. Nothing is automatically restarted or replayed. Invalid/missing budget state with existing child history fails closed. Completed summaries remain historical. This includes a simulated OS process kill during an in-flight model request; it is not a claim that Android will preserve a background process.
 
-The deterministic CLI fixture verifies two concurrently active model requests, separate transcripts/evidence, parent/peer messages, denied writes and out-of-scope reads, large-file reading/search, contradictory summaries, cooperative cancellation and process-kill recovery. Real phone resource behavior, Windows/macOS on this candidate, live provider cost/quality, task dependency scheduling, child write worktrees, nested delegation and automatic patch conflict resolution remain outside the verified implementation.
+The deterministic CLI fixture verifies two concurrently active model requests, separate transcripts/evidence, parent/peer messages, denied writes and out-of-scope reads, large-file reading/search, contradictory summaries, cooperative cancellation and process-kill recovery. Real phone resource behavior, Windows/macOS on this candidate, live provider cost/quality, task dependency scheduling, child write worktrees and automatic patch conflict resolution remain outside the verified implementation.
 
 Boundary corrections after independent review: every accepted message (parent→child, peer→child, child→parent) now reserves its UTF-8 payload bytes before enqueue. Invalid/full destinations do not reserve; exhausted or failed durable reservation does not enqueue. Concurrent routes consume the same durable counter and restart does not refund accepted messages. Message delivery is still not durable delivery acknowledgement; a crash may lose queued content while retaining its charge.
 
@@ -25,3 +25,23 @@ The `file_outline` child tool uses the same path/type guard and shared request/t
 Existing `/audit-report`, `/report` and `task_continuity` now expose a bounded `delegate_evidence` section that revalidates child checkpoint pins at report time, omits raw child content/summaries, and explicitly counts rejected/omitted evidence. See [revalidation, bounds and limitations](DELEGATE_EVIDENCE_REPORTS.md). No child work is replayed to generate the report.
 
 `delegate_agents inspect` lets the parent inspect a known child's pinned native result in bounded UTF-8 windows without reopening the source or replaying a tool. Supply the child/evidence IDs and exact result hash from collection. Failed/unknown snapshots stay diagnostic and untrusted. See [inspection contract and limits](DELEGATE_EVIDENCE_INSPECTION.md).
+
+### Subtasks in adaptive swarms
+
+In `/swarm auto` and `/swarm fix`, an approved worker can call
+`agent_subtask` for a narrower local question. Each subtask has its own
+session, immediate parent ID, transcript and evidence IDs. It returns its
+summary and evidence references to that parent in the tool result.
+The coordinator includes subtask rows under completed assignments.
+`/swarm status` also shows interrupted or incomplete subtasks.
+
+A worker lends its execution slot to the subtask until it returns, so a
+team with one live slot can still use delegation. Both use the same
+provider, workspace checkout, original deadline and team budget. A subtask
+may only read within its explicit subset of its parent's grants. Only the
+first worker level can assign a subtask or propose edits. Root or parent
+cancellation is checked again when an in-flight provider response returns.
+
+AlphaCode v1.1.20 records a report-back parent and walks the ancestor chain
+in `src/alphacode_app_core/server/swarm.rs`; its server does not cap depth.
+Blue Dragon currently allows one extra level.

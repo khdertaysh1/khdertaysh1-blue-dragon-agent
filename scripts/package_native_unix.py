@@ -1,6 +1,7 @@
 """Build a Linux amd64 .deb or an unsigned macOS arm64 .pkg from the CI binary."""
 import argparse
 from pathlib import Path
+import plistlib
 import platform
 import shutil
 import subprocess
@@ -37,6 +38,14 @@ def main():
         for license_file in [repo / "LICENSE", repo / "third_party/NOTICE.md", *sorted((repo / "third_party").glob("*-LICENSE"))]:
             shutil.copyfile(license_file, docs / license_file.name)
         if linux:
+            desktop = prefix / "share/applications/blue-dragon.desktop"
+            desktop.parent.mkdir(parents=True)
+            desktop.write_text("[Desktop Entry]\nType=Application\nName=Blue Dragon\n"
+                               "Exec=/usr/bin/blue-dragon gui\nIcon=blue-dragon\nTerminal=false\n"
+                               "Categories=Development;\n", encoding="utf-8")
+            icon = prefix / "share/icons/hicolor/scalable/apps/blue-dragon.svg"
+            icon.parent.mkdir(parents=True)
+            shutil.copyfile(repo / "assets/dragon-mark.svg", icon)
             name = f"blue-dragon_{version}_amd64.deb"
             control = root / "DEBIAN/control"
             control.parent.mkdir()
@@ -52,6 +61,17 @@ def main():
                                "Description: Blue Dragon coding assistant\n", encoding="utf-8")
             subprocess.run(["dpkg-deb", "--root-owner-group", "--build", root, work / name], check=True)
         else:
+            app = root / "Applications/Blue Dragon.app/Contents"
+            launcher = app / "MacOS/BlueDragon"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text('#!/bin/sh\ncd "$HOME" || exit 1\nexec /usr/local/bin/blue-dragon gui\n',
+                                encoding="utf-8")
+            launcher.chmod(0o755)
+            (app / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundlePackageType": "APPL", "CFBundleExecutable": "BlueDragon",
+                "CFBundleIdentifier": "com.github.khdertaysh1.blue-dragon.desktop",
+                "CFBundleName": "Blue Dragon", "CFBundleVersion": version,
+            }))
             name = f"blue-dragon-{version}-macos-arm64.pkg"
             subprocess.run(["pkgbuild", "--root", root, "--install-location", "/", "--identifier",
                             "com.github.khdertaysh1.blue-dragon", "--version", version, work / name], check=True)

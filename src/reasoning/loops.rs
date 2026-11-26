@@ -24,6 +24,9 @@ pub struct Guard {
     consecutive_cached: usize,
     recall_reads: usize,
     saving_file: bool,
+    no_reload: bool,
+    opened_once: BTreeMap<String, String>,
+    saved_responses: std::collections::VecDeque<Value>,
     opened_url: Option<String>,
     network_evidence: Option<String>,
     capture_summary: Option<Value>,
@@ -46,7 +49,22 @@ impl Guard {
             ]
             .iter()
             .any(|word| text.contains(word));
+        let no_reload = [
+            "do not reload",
+            "do not reopen",
+            "without reloading",
+            "without reopening",
+            "don't reload",
+            "لا تعيد تحميل",
+            "لا تعد تحميل",
+            "لا تعِد تحميل",
+            "دون إعادة تحميل",
+            "بدون إعادة تحميل",
+        ]
+        .iter()
+        .any(|phrase| text.contains(phrase));
         Self {
+            no_reload,
             saving_file,
             ..Self::default()
         }
@@ -86,6 +104,55 @@ impl Guard {
         }
     }
     pub fn link_evidence(&mut self, name: &str, args: &Value, id: &str, result: &Value) {
+        if !super::claims::is_historical(result)
+            && !super::claims::unverified_execution(result)
+            && result["ok"] != false
+            && result.get("error").is_none()
+        {
+            if self.no_reload
+                && name == "browser"
+                && matches!(args["action"].as_str(), Some("open" | "navigate"))
+                && result["ok"] == true
+            {
+                if let Some(url) = args["url"]
+                    .as_str()
+                    .and_then(|s| reqwest::Url::parse(s).ok())
+                {
+                    self.opened_once.insert(url.to_string(), id.to_owned());
+                }
+            }
+            if name == "browser"
+                && args["action"] == "save_response"
+                && result["ok"] == true
+                && result["saved_to_disk"] == true
+                && result["complete_browser_body"] == true
+                && result["storage"] == "disk"
+                && result["path"].is_string()
+                && result["path"] == args["path"]
+            {
+                if self.saved_responses.len() == 3 {
+                    self.saved_responses.pop_front();
+                }
+                self.saved_responses.push_back(json!({"path":result["path"],"save_evidence":id,
+                    "read_ids":[],"request_id":result["request_id"],"source_url":result["source_url"],"http_status":result["http_status"],
+                    "saved_bytes":result["bytes"],"sha256_at_save":result["sha256"]}));
+            } else if matches!(name, "read_file" | "read_file_window") {
+                if let (Some(content), Some(receipt)) = (
+                    result["content"].as_str().filter(|s| !s.is_empty()),
+                    self.saved_responses
+                        .iter_mut()
+                        .rev()
+                        .find(|r| r["path"] == args["path"]),
+                ) {
+                    // A later same-path window is an observation, not a whole-file hash check.
+                    if let Some(ids) = receipt["read_ids"].as_array_mut() {
+                        ids.push(json!(id));
+                    }
+                    receipt["later_read"] = json!({"evidence_id":id,"byte_offset":result["byte_offset"].as_u64().unwrap_or(0),
+                        "excerpt":content.chars().take(512).collect::<String>(),"excerpt_truncated":content.chars().nth(512).is_some()});
+                }
+            }
+        }
         if name == "browser"
             && args["action"] == "network"
             && self.opened_url.is_some()
@@ -100,6 +167,9 @@ impl Guard {
         if let Some(seen) = self.seen.get_mut(&Self::key(name, args)) {
             seen.evidence = Some(id.to_owned());
         }
+    }
+    pub fn saved_responses(&self) -> &std::collections::VecDeque<Value> {
+        &self.saved_responses
     }
     pub fn file_capture(&self) -> Option<&Value> {
         self.capture_summary.as_ref()
@@ -150,11 +220,8 @@ impl Guard {
         let key = Self::key(name, args);
         if name == "recall_context" {
             if let Some(page) = self.saved_pages(args) {
-                if self.last == key {
-                    self.consecutive_cached += 1;
-                } else {
-                    self.consecutive_cached = 1;
-                }
+                // Alternating between cached pages still produces no new observation.
+                self.consecutive_cached += 1;
                 self.last = key;
                 return Some(page);
             }
@@ -189,6 +256,24 @@ impl Guard {
             } else {
                 "Repeated identical arguments returned unchanged results. Inspect the previous result for this tool."
             }}));
+        }
+        if self.no_reload
+            && name == "browser"
+            && matches!(args["action"].as_str(), Some("open" | "navigate"))
+        {
+            if let Some(id) = args["url"]
+                .as_str()
+                .and_then(|s| reqwest::Url::parse(s).ok())
+                .and_then(|url| self.opened_once.get(url.as_str()))
+            {
+                self.blocked += 1;
+                self.consecutive_blocks += 1;
+                return Some(
+                    json!({"ok":false,"execution_status":"not_executed","repetition_blocked":true,
+                    "category":"reload_not_requested","original_evidence_id":id,
+                    "error":"Document was already opened during this no-reload task. Use retained evidence."}),
+                );
+            }
         }
         if name == "browser"
             && self.saving_file
@@ -358,6 +443,49 @@ impl Guard {
 mod tests {
     use super::*;
     #[test]
+    fn saved_body_survives_metadata_reads_and_forbidden_reopen() {
+        let prompt = "Read the captured response. Do not reload or fetch a fresh copy.";
+        let mut guard = Guard::for_task(prompt);
+        let open = json!({"action":"open","url":"http://localhost:8080"});
+        let ok = json!({"ok":true});
+        guard.link_evidence("browser", &open, "E01", &ok);
+        let save = json!({"action":"save_response","path":"example.js"});
+        let saved = json!({"ok":true,"path":"example.js","storage":"disk","complete_browser_body":true,
+            "saved_to_disk":true,"source_url":"http://localhost:8080/example.js","http_status":201,"request_id":"a.1","bytes":10});
+        guard.link_evidence("browser", &save, "E02", &saved);
+        let read = json!({"path":"example.js","byte_offset":0});
+        guard.link_evidence(
+            "read_file_window",
+            &read,
+            "E03",
+            &json!({"content":"const n=2;","byte_offset":0}),
+        );
+        guard.link_evidence(
+            "read_file_window",
+            &read,
+            "E04",
+            &json!({"cached_result":true,"content":"wrong"}),
+        );
+        guard.link_evidence("browser", &json!({"action":"network"}), "E05", &ok);
+        let repeat = json!({"action":"navigate","url":"http://localhost:8080/"});
+        assert_eq!(
+            guard.before("browser", &repeat).unwrap()["original_evidence_id"],
+            "E01"
+        );
+        assert!(Guard::for_task("Reload the page")
+            .before("browser", &repeat)
+            .is_none());
+        let receipt = &guard.saved_responses()[0];
+        assert_eq!(receipt["save_evidence"], "E02");
+        assert_eq!(receipt["later_read"]["evidence_id"], "E03");
+        assert_eq!(receipt["later_read"]["excerpt"], "const n=2;");
+        assert_eq!(receipt["http_status"], 201);
+        guard.link_evidence("browser", &save, "E06", &json!({"ok":false,"denied":true}));
+        assert_eq!(guard.saved_responses().len(), 1);
+        assert!(Guard::for_task(prompt).saved_responses().is_empty());
+    }
+
+    #[test]
     fn file_task_preserves_capture_across_read_only_actions() {
         let mut guard = Guard::for_task("Open the page and save a file");
         let open = json!({"action":"open","url":"https://example.test/"});
@@ -411,6 +539,31 @@ mod tests {
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.before("recall_context", &args).is_some());
         assert!(guard.stalled());
+    }
+    #[test]
+    fn alternating_cached_history_pages_stall_until_new_evidence() {
+        let mut guard = Guard::default();
+        let args = |offset| json!({"message_index":9,"offset":offset});
+        for offset in [0, 8] {
+            guard.after(
+                "recall_context",
+                &args(offset),
+                &json!({"ok":true,"next_offset":offset+8}),
+            );
+        }
+        for offset in [0, 8, 0] {
+            assert_eq!(
+                guard.before("recall_context", &args(offset)).unwrap()["cached_result"],
+                true
+            );
+        }
+        assert!(guard.stalled());
+        guard.after(
+            "recall_context",
+            &args(16),
+            &json!({"ok":true,"next_offset":24}),
+        );
+        assert!(!guard.stalled());
     }
     #[test]
     fn saved_pages_preserve_contents_filters_and_resume_at_first_gap() {

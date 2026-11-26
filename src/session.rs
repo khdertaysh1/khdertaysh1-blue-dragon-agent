@@ -1,3 +1,6 @@
+pub mod indexed;
+pub(crate) mod semantic;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -19,6 +22,8 @@ pub struct Session {
     pub plan: crate::plan::Plan,
     #[serde(default)]
     pub last_report: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission: Option<crate::mission::Mission>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_checkpoint: Option<crate::file_review::Checkpoint>,
     #[serde(default)]
@@ -69,6 +74,7 @@ pub fn new(root: &Path, model: &str) -> Session {
         compact_context: false,
         plan: crate::plan::Plan::default(),
         last_report: Value::Null,
+        mission: None,
         review_checkpoint: None,
         observations: Vec::new(),
         findings: Vec::new(),

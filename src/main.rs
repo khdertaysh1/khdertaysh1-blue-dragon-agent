@@ -1,3 +1,4 @@
+mod acp;
 mod agent;
 mod agent_tool_reply;
 mod anthropic;
@@ -12,6 +13,7 @@ mod edit_proposals;
 mod exact_file;
 mod file_receipts;
 mod file_review;
+mod gui;
 mod intelligence;
 mod jobs;
 mod lab_report;
@@ -19,6 +21,7 @@ mod lab_runner;
 mod local_files;
 mod mcp;
 mod mcp_protocol;
+mod mission;
 mod models;
 mod network_history;
 mod operator;
@@ -30,6 +33,7 @@ mod provider_contract;
 mod provider_diagnostics;
 mod provider_traffic;
 mod reasoning;
+mod report_quotes;
 mod rotation;
 mod saved_file;
 mod scope;
@@ -39,6 +43,7 @@ mod source_discovery;
 mod source_report;
 mod source_trace;
 mod streaming;
+mod swarm_tree;
 mod terminal_input;
 mod test_coverage;
 #[cfg(test)]
@@ -61,8 +66,12 @@ use config::Settings;
 #[derive(Debug, Parser)]
 #[command(name = "blue-dragon", about = "Blue Dragon | AI coding agent", version = env!("BLUE_DRAGON_PUBLIC_VERSION"))]
 struct Cli {
-    #[arg(long, global = true, default_value = ".", help = "Project workspace")]
-    root: PathBuf,
+    #[arg(
+        long,
+        global = true,
+        help = "Project workspace (defaults to current directory)"
+    )]
+    root: Option<PathBuf>,
     #[arg(long, global = true, env = "BLUE_DRAGON_MODEL")]
     model: Option<String>,
     #[arg(long, global = true, env = "BLUE_DRAGON_BASE_URL")]
@@ -144,8 +153,16 @@ enum Command {
     },
     /// Start conversational agent with interactive approval prompts
     Chat,
+    /// Serve an editor over Agent Client Protocol v1 (JSON-RPC on stdio)
+    Acp,
     /// Full-screen terminal with live answers and per-action approvals
     Tui,
+    /// Open the graphical workspace (terminal on Android)
+    Gui {
+        /// Print the private launch URL without opening a browser
+        #[arg(long)]
+        no_open: bool,
+    },
     /// Execute one task; approval is still required for writes/commands
     Run {
         task: String,
@@ -161,6 +178,9 @@ enum Command {
     /// List saved local sessions, or find a conversation by words and optionally reopen it.
     Sessions {
         query: Option<String>,
+        /// Rank matches using the incremental local session index
+        #[arg(long, requires = "query")]
+        indexed: bool,
         #[arg(long, requires = "query")]
         open: bool,
     },
@@ -279,6 +299,8 @@ fn run() -> Result<()> {
 
     let root = args
         .root
+        .as_deref()
+        .unwrap_or(std::path::Path::new("."))
         .canonicalize()
         .with_context(|| format!("Workspace {:?} is not accessible", args.root))?;
     if !root.is_dir() {
@@ -307,6 +329,7 @@ fn run() -> Result<()> {
     settings.context_tokens = args.context_tokens as usize;
     settings.project_memory = !args.no_project_memory;
     match args.command {
+        Some(Command::Acp) => acp::serve(settings, args.read_only, args.root.is_some()),
         Some(Command::Doctor) => {
             println!(
                 "Blue Dragon v{} | Diagnostic",
@@ -333,10 +356,15 @@ fn run() -> Result<()> {
         }
         Some(Command::Sessions {
             query: Some(query),
+            indexed,
             open,
         }) => {
             anyhow::ensure!(!query.trim().is_empty(), "A search term is required");
-            let view = session::search_sessions(&settings.sessions_dir, &query)?;
+            let view = if indexed {
+                session::indexed::search(&settings.sessions_dir, &query)?
+            } else {
+                session::search_sessions(&settings.sessions_dir, &query)?
+            };
             if !open {
                 println!("{}", serde_json::to_string_pretty(&view)?);
                 return Ok(());
@@ -405,7 +433,18 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
-        Some(Command::Tui) => tui::run(
+        #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+        Some(Command::Gui { no_open: false }) => gui::desktop::run(
+            settings,
+            args.read_only,
+            args.resume,
+            args.root.is_some(),
+            args.new_session,
+        ),
+        Some(Command::Gui { no_open }) if !cfg!(target_os = "android") => {
+            gui::run(settings, args.read_only, args.resume, !no_open)
+        }
+        Some(Command::Tui | Command::Gui { .. }) => tui::run(
             settings,
             args.read_only,
             args.resume.as_deref(),
@@ -458,7 +497,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /symbol NAME [PATH] /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {
@@ -510,6 +549,13 @@ fn run() -> Result<()> {
                                 println!(
                                     "{}",
                                     serde_json::to_string_pretty(&agent.audit_report())?
+                                );
+                                continue;
+                            }
+                            "/mission" => {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&agent.mission_report())?
                                 );
                                 continue;
                             }
@@ -595,6 +641,15 @@ fn run() -> Result<()> {
                             }
                             "/diff" => {
                                 println!("{}", agent.git_diff()?);
+                                continue;
+                            }
+                            cmd if cmd == "/symbol" || cmd.starts_with("/symbol ") => {
+                                match agent.symbol_trace(cmd["/symbol".len()..].trim()) {
+                                    Ok(value) => {
+                                        println!("{}", serde_json::to_string_pretty(&value)?)
+                                    }
+                                    Err(e) => eprintln!("Symbol trace: {e:#}"),
+                                }
                                 continue;
                             }
                             "/map" => {
@@ -691,6 +746,13 @@ fn run() -> Result<()> {
                             }
                             "/report" => {
                                 println!("{}", agent.report_text());
+                                continue;
+                            }
+                            cmd if cmd.starts_with("/mcp ") => {
+                                match agent.mcp_prompt(&cmd[5..]) {
+                                    Ok(v) => println!("{v}"),
+                                    Err(e) => eprintln!("MCP: {e:#}"),
+                                }
                                 continue;
                             }
                             "/mcp" => {

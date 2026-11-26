@@ -12,6 +12,8 @@ Set BLUE_DRAGON_API_KEY, BLUE_DRAGON_MODEL and optionally BLUE_DRAGON_BASE_URL f
 Commands: /help, /map, /status, /diff, /session, /skills, /skill NAME, /plan, /report, /mcp, /connect NAME, /clear, /exit.
 The terminal uses a dark, high-contrast workbench with role-colored transcript entries and rounded panels. Phone-sized windows use a compact header and a two-line status/model strip to leave more space for the conversation. Approval controls stay pinned below scrollable details; scrolling cannot hide the approve/deny choices. Model search displays an explicit empty state. The wide terminal includes a task-plan pane. Small screens keep a single conversation pane. Input supports left/right/home/end, delete/backspace, Unicode code points and bracketed paste. Text shaping/grapheme-aware editing is not a full terminal text editor.
 
+In the writable TUI, each submitted or queued message starts with one task approval. Y covers workspace file edits, standard Python unittest or Cargo test runs, browser navigation and reads, captured response saves, and permitted form controls for that message. Browser scope and document checks still apply. Other subprocesses, arbitrary JavaScript, software installation and external integrations retain their action prompts. N declines before contacting the model. Slash commands and read-only mode keep their existing behavior.
+
 Ctrl+C requests cancellation while working; when idle it exits. Esc exits. Active direct subprocesses are killed on cancellation. Provider cancellation is cooperative: blocked network I/O can wait for the request timeout (120 seconds). MCP requests have a 30-second wait budget and an input-queue limit. Process descendants are not an OS sandbox and do not have a cross-platform process-tree guarantee.
 
 ## Plans and evidence
@@ -21,7 +23,7 @@ Each task records an action summary in the session: tool names, return success/f
 
 Tool-call batches are validated before entering the saved history. Denied/cancelled tools receive paired tool results. If a process ended before saving a result, resume inserts an explicitly unknown-status envelope; it never reruns the action or invents success. The user/model must inspect the workspace before proposing a retry. Version 0.6 projects provider requests to a bounded context window without deleting the raw transcript. Older complete tool rounds and large observations can be excerpted, with exact recovery through recall_context. User/system instructions are retained; an explicit stop remains when essential context cannot fit. See AGENT_REASONING.md.
 
-## MCP (stdio, explicit opt-in)
+## MCP (stdio and Streamable HTTP)
 Copy examples/mcp.example.json to a private file and configure a trusted local process. The file is loaded only through --mcp-config or BLUE_DRAGON_MCP_CONFIG. Repository files are not auto-executed.
 
     blue-dragon --mcp-config /path/to/servers.json tui
@@ -31,7 +33,7 @@ Copy examples/mcp.example.json to a private file and configure a trusted local p
 
 Configuration holds environment variable names, not secret values. Only explicitly named values and basic OS variables are inherited. The server runs with your OS permissions and can modify files or use the network; approval is not isolation.
 
-Implemented: JSON-RPC stdio, initialization/version checking, paginated tool discovery, bounded messages/queues, timeout/cancellation, call results, default denial for unsupported server requests. Not included: Streamable HTTP, OAuth, roots/resources/prompts, sampling, elicitation, server reconnection. Browser automation uses a separate local CDP/extension transport; see BROWSER.md. Test coverage uses a real local subprocess fixture; third-party MCP servers still require compatibility testing.
+Connect a configured stdio or Streamable HTTP server, approve calls, read bounded text resources and preview named prompts. For configuration, commands, protocol limits and examples see [MCP resource context](MCP_RESOURCE_CONTEXT.md).
 
 ## Added tools
 Alongside the existing ten workspace tools:
@@ -64,7 +66,7 @@ Validation includes both SSE protocols, fragmented tool arguments/Unicode, trunc
 
 Version 0.5 adds the approved `browser` tool and `/browser` setup commands; [BROWSER.md](BROWSER.md) documents platform paths and current limits. `/rotation` displays Blue Free retry/cooldown status. See [FREE_ROTATION.md](FREE_ROTATION.md); completed tools and partial streams are never automatically replayed.
 
-Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or TUI. `blue-dragon inspect URL` and `blue-dragon URL` are equivalent entry points. Browser preparation, form/DOM/JS/network/console collection precede the model call; further mutation approvals are unchanged. See URL_INSPECTION.md.
+Paste a bare HTTP(S) URL to start the automatic initial browser review in CLI or TUI. `blue-dragon inspect URL` and `blue-dragon URL` are equivalent entry points. Browser preparation, form/DOM/JS/network/console collection precede the model call; subsequent actions use the permissions of the active interface and task. See URL_INSPECTION.md.
 
 `/context` displays request-budget statistics; `/findings` displays observation references and saved model findings. `--context-tokens N` configures the context window including reply/schema reserves. The runtime blocks repeated denied/uncertain actions and detects repeated unchanged observations; this is not a guarantee of semantic correctness or unlimited memory.
 
@@ -94,3 +96,125 @@ oversized checkpoints preserve the last resumable version. Session locks are
 released on process exit; leftover `.lock` files need not be deleted.
 
 The [scoped audit workflow](SCOPE_AND_AUDIT.md) documents large-source caching, explicit scope, readiness/frames, coverage, hypotheses, controlled comparisons and reproduction limits.
+
+### Observing mission evidence
+
+In CLI chat or the TUI, enter `/mission` to inspect the most recent instrumented task. The observer reuses declared local acceptance checks. It records the tool step at which all of them had matching evidence, the latest command attempt and its exit status. A nonzero exit can confirm that a command ran. It cannot satisfy a criterion requiring exit zero. Without declared checks, the report leaves goal verification open. Compare this historical snapshot with the actual task outcome in `/report`.
+
+Each new instrumented turn starts a fresh observer. A status lookup can still refer to the previous task. Saved observations remain historical after restart. The observer does not send model requests, stop execution, change tool selection or grant permissions.
+
+### Local coding swarm
+
+`/swarm auto PATH | TASK` asks the selected provider for a bounded plan of
+local coding assignments. The coordinator dispatches independent work in
+parallel. An assignment can depend on completed earlier assignments. The
+coordinator passes their session IDs and short summaries to the dependent
+worker. A failed prerequisite blocks its dependents. Each launch uses the
+existing workspace scope and approval prompt.
+
+`/swarm fix PATH | ["python","-m","unittest"] | TASK` uses separate detached
+Git worktrees at the same HEAD for each worker and an additional worktree for
+integration. Open the repository root. Workers propose edits to existing
+tracked files. The operator supplies the verification command as an argument
+vector. Test proposals are staged first and the command must exit nonzero.
+Implementation proposals are then staged and the same command must exit zero.
+The coordinator rechecks HEAD and the workspace versions of all proposed files
+before applying approved patches, then runs the command in the real workspace.
+Each application uses the parent diff approval and version-checked edit journal.
+The report includes each committed step if integration stops partway. Exit
+codes establish the observed result of the chosen command. Worktrees isolate
+file versions and share the repository's Git objects; test programs run with
+the operator's OS permissions.
+
+`/swarm status` shows saved worker sessions and remaining budgets. This team
+uses a dedicated ledger per parent session. The default live limit is 32;
+`BLUE_DRAGON_SWARM_LIVE` accepts 1 through 1000. For example, setting it to 3
+allows three workers to run concurrently, with additional assignments queued.
+The planner selects a team size within the current budget. No live capacity
+benchmark is claimed for a given device or provider. The original
+`/swarm PATH | TASK` continues to run the two focused reviews.
+
+### Trace a JavaScript or TypeScript function
+
+Use `/symbol formatQuote` in chat or the TUI. An optional defining file or
+directory narrows matches, for example `/symbol formatQuote public/assets/format.js`.
+The agent can use `code_search` with `kind="bindings"` for the same result.
+Each row identifies its defining module and symbol, the role, workspace path,
+one-based source line, byte offset, source excerpt and file hash. The local
+command displays the first 20 rows. The tool supports paging with the returned
+offset and workspace fingerprint.
+
+The index hashes current workspace files before reusing module facts. Oxc
+resolves lexical identities locally, including import aliases and shadowed
+names. Relative ES module imports, namespace member calls, named re-exports
+and star re-exports link across indexed files. Each match includes its module
+chain. Conflicting star exports appear in `ambiguous_imports`. The nearest
+indexed `tsconfig.json` can map exact and single-wildcard aliases through
+`compilerOptions.paths`, relative to its directory or its `baseUrl`. The trace covers named top-level
+functions and function-valued variable declarations. External packages,
+inherited tsconfig settings, dynamic dispatch and arbitrary TypeScript project
+configuration require separate analysis. Check coverage and skipped files
+before interpreting an empty result.
+
+### Automatic workspace skills
+
+The bundled `symbol-trace` guide covers local JS/TS definition and call-site lookups. Try “وين مكتوبة formatQuote ومين بيناديها؟” or “Where is formatQuote defined and called?”. A complete, unique task template selects the guide immediately. Other wording can select a guide by its description in the normal first model request. A general explanation or a mixed task can proceed without selection. A selected guide displays one `Skill · NAME` notice and uses workspace read tools for that request. Each new request starts fresh. Explicit `/skill NAME` takes precedence in its session.
+
+Existing local Markdown files remain available through `/skill`. To offer a local guide for automatic selection, put this header at the start of its Markdown file in the skills directory shown by `/skills`:
+
+```markdown
+---
+auto-scope: workspace-read
+description: Locate the declaration of a named type in local source files.
+match: Locate type {symbol} in this workspace
+---
+Use local code and file reads. Quote the declaration and its file-relative line.
+```
+
+The description is one line, at most 240 characters. Up to eight optional `match:` lines describe complete requests; `{symbol}` stands for one identifier. The catalog offers up to twelve guides and accepts bodies up to 4096 bytes for automatic use. The provider sees the catalog descriptions when offered. Only selected guidance is projected into the current request. Tool evidence and the selected name can remain in the transcript.
+
+### Search saved sessions by meaning
+
+In chat, ask `بأي جلسة ضلّ العدد واحد بعد ما حاولنا نغيّره؟` or
+`Which session had the count stuck at one?`. For other phrasings use
+`/sessions search WORDS`. Both routes combine the existing text search with
+a small offline Arabic/English engineering vocabulary. Search uses local
+saved sessions and does not contact a model or open a browser. Results
+identify the original session. Tool evidence IDs are local to that session.
+A conversation excerpt alone is not a verified tool observation.
+
+Direct successful reads of small counts (0–10) on quantity controls can be
+matched to the saved browser receipt. Arbitrary expressions, form values,
+and response bodies are not added to the concept index. A historical read
+describes that point in the session; a question about the live page still
+requires a fresh observation. Search does not infer why a value was unchanged.
+
+### Use Blue Dragon from an ACP editor
+
+Install the draft binary on your PATH and register `blue-dragon acp` as a
+custom stdio agent. For Zed, add this entry in settings:
+
+```json
+{
+  "agent_servers": {
+    "Blue Dragon": {
+      "type": "custom",
+      "command": "blue-dragon",
+      "args": ["acp"]
+    }
+  }
+}
+```
+
+Open a project and start a new external-agent thread. Each ACP session owns
+an independent Blue Dragon conversation rooted in the editor's absolute
+`cwd`. The adapter reads saved files on disk. Save a buffer before asking
+about recent changes. To pin the permitted workspace, add `--root` and
+its path to the arguments. Use `--read-only` to deny actions requiring approval.
+
+The v1 stdio adapter supports initialization, new sessions, text and resource
+links, reviewed answers, tool progress, one-action permission decisions and
+cancellation. It uses the configured Blue Dragon provider and tool controls.
+Resource links are references supplied to the conversation. Binary prompt
+attachments, editor-supplied MCP servers, restoring sessions through ACP,
+and editing unsaved buffers are outside this adapter's current scope.

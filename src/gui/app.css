@@ -1,0 +1,156 @@
+:root {
+  color-scheme: dark;
+  font:
+    16px/1.5 "DM Sans",
+    system-ui,
+    sans-serif;
+  background: #091429;
+  color: #e4edf3;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  background: #102140;
+  border-bottom: 1px solid #31404a;
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  padding: 12px max(16px, 5vw);
+}
+header strong {
+  color: #6eacff;
+  white-space: nowrap;
+}
+#model {
+  margin-right: auto;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #acbdc4;
+  font-size: 0.8rem;
+}
+button,
+input,
+textarea {
+  font: inherit;
+  border-radius: 7px;
+}
+button {
+  padding: 0.45em 0.95em;
+  background: #16315b;
+  color: #e6f5f6;
+  border: 1px solid #44606c;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+input,
+textarea {
+  width: 100%;
+  background: #09172f;
+  border: 1px solid #40535c;
+  color: inherit;
+  padding: 0.65em;
+}
+main,
+aside {
+  max-width: 900px;
+  margin: auto;
+  padding: 16px;
+}
+aside {
+  background: #152844;
+}
+aside button {
+  margin: 0.4em 0.4em 0.4em 0;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+h1,
+h2,
+p {
+  margin: 0.35em 0;
+}
+h1 {
+  font-size: 1.5em;
+}
+h2 {
+  font-size: 1em;
+}
+#root,
+label,
+#status {
+  font-size: 0.85rem;
+  color: #b4c9cf;
+}
+#root {
+  overflow-wrap: anywhere;
+}
+.context {
+  margin: 0.5em 0 1em;
+}
+#history {
+  min-height: 20vh;
+  max-height: 52dvh;
+  overflow: auto;
+}
+article {
+  border-left: 2px solid #45616d;
+  padding: 0 0.9em;
+  margin: 1em 0;
+}
+article b {
+  font-size: 0.8rem;
+  color: #8fbcff;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  margin: 0.25em 0;
+}
+#compose,
+#approval {
+  padding: 14px;
+  background: #112445;
+  border: 1px solid #364c56;
+  border-radius: 10px;
+  margin-top: 16px;
+}
+#approval {
+  border-color: #b19761;
+}
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.4em;
+}
+#send,
+#allow {
+  background: #245eca;
+  color: #ffffff;
+}
+#error {
+  color: #ffb7a9;
+}
+textarea {
+  resize: vertical;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #75adff;
+}
+
+header strong { font-size: 1.25rem; }
+pre[dir="auto"], textarea { font-size: 1.125rem; line-height: 1.65; }
+pre[dir="auto"]:dir(rtl), textarea:dir(rtl) { font-size: 1.25rem; line-height: 1.8; }
+summary { cursor: pointer; color: #abcaff; padding: .45em 0; }
+details { margin-block: .5em; }

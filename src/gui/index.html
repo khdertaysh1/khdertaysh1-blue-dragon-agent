@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Blue Dragon · Workspace</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <strong>Blue Dragon</strong><span id="model"></span
+      ><button id="sessions" aria-expanded="false">Sessions</button>
+    </header>
+    <aside id="panel" hidden>
+      <h2>Workspaces &amp; sessions</h2>
+      <form id="open">
+        <label for="workspace">Workspace directory</label
+        ><input id="workspace" required dir="auto" /><button>
+          New session
+        </button>
+      </form>
+      <div id="saved"></div>
+    </aside>
+    <main>
+      <div class="context">
+        <h1>Conversation</h1>
+        <div id="root"></div>
+      </div>
+      <section id="history" aria-label="Conversation"></section>
+      <section id="approval" hidden>
+        <h2>Approval requested</h2>
+        <pre id="detail"></pre>
+        <button id="deny">Deny</button> <button id="allow">Approve once</button>
+      </section>
+      <form id="compose">
+        <label for="prompt">Message</label
+        ><textarea
+          id="prompt"
+          dir="auto"
+          rows="2"
+          required
+          placeholder="Ask Blue Dragon…"
+        ></textarea>
+        <footer>
+          <span id="status" role="status">Connecting…</span
+          ><button id="send" disabled>Send</button>
+        </footer>
+      </form>
+      <p id="error" role="alert"></p>
+    </main>
+  </body>
+</html>

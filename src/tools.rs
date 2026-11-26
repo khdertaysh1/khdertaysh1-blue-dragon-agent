@@ -25,7 +25,10 @@ pub enum ApprovalMode {
     Tui(std::sync::mpsc::Sender<ApprovalRequest>),
 }
 
+pub(crate) const TASK_APPROVAL: &str = "Approve this task";
+
 pub struct ToolBox {
+    task_approved: bool,
     root: PathBuf,
     pub scope: crate::scope::Policy,
     approval: ApprovalMode,
@@ -42,6 +45,7 @@ impl ToolBox {
     pub fn new(root: PathBuf, approval: ApprovalMode) -> Self {
         Self {
             root,
+            task_approved: false,
             user_declined: std::sync::atomic::AtomicBool::new(false),
             scope: crate::scope::Policy::default(),
             approval,
@@ -49,6 +53,12 @@ impl ToolBox {
             jobs: std::sync::Arc::new(crate::jobs::Jobs::default()),
             cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    pub(crate) fn for_swarm_tree(&self, root: PathBuf) -> Self {
+        let mut tools = Self::new(root, self.approval.clone());
+        tools.cancelled = self.cancelled.clone();
+        tools
     }
 
     pub(crate) fn workspace_root(&self) -> &Path {
@@ -446,6 +456,32 @@ impl ToolBox {
         self.user_declined
             .swap(false, std::sync::atomic::Ordering::Relaxed)
     }
+    pub(crate) fn begin_task_approval(&mut self, prompt: &str) -> Result<bool> {
+        self.task_approved = false;
+        if matches!(self.approval, ApprovalMode::ReadOnly) {
+            return Ok(true);
+        }
+        let detail = format!("This request only: workspace edits, Python unittest and cargo test (execute project code), browser navigation and reads, captured file saves and scoped form controls. Other commands, arbitrary JavaScript and external integrations require separate approval.\n\nWorkspace: {}\nRequest: {prompt}", self.root.display());
+        self.task_approved = self.approve(TASK_APPROVAL, &detail)?;
+        Ok(self.task_approved)
+    }
+
+    pub(crate) fn end_task_approval(&mut self) {
+        self.task_approved = false;
+    }
+
+    pub(crate) fn has_task_approval(&self) -> bool {
+        self.task_approved && self.allows_url_inspection() && !self.is_cancelled()
+    }
+
+    pub(crate) fn approve_task_step(&self, action: &str, detail: &str) -> Result<bool> {
+        if self.has_task_approval() {
+            Ok(true)
+        } else {
+            self.approve(action, detail)
+        }
+    }
+
     pub fn approve(&self, action: &str, detail: &str) -> Result<bool> {
         self.approve_with_memory(action, detail, None)
     }
@@ -465,7 +501,7 @@ impl ToolBox {
             return Ok(false);
         }
         if let ApprovalMode::Tui(sender) = &self.approval {
-            if detail.len() > 8_000 {
+            if action != TASK_APPROVAL && detail.len() > 8_000 {
                 anyhow::bail!("Approval detail too large for the TUI; use interactive CLI instead");
             }
             let (respond_to, rx) = std::sync::mpsc::channel();
@@ -522,7 +558,7 @@ impl ToolBox {
         if crate::browser::group_approval(action) {
             write!(
                 output,
-                "Allow snapshot and network reads for this page and task? [y/N] "
+                "Allow the requested operation and page reads for this task? [y/N] "
             )?;
         } else {
             write!(output, "Approve this ONE action? [y/N] ")?;
@@ -532,6 +568,16 @@ impl ToolBox {
         self.user_declined
             .store(!answer, std::sync::atomic::Ordering::Relaxed);
         Ok(answer)
+    }
+
+    pub(crate) fn missing_response_parent(&self, relative: &str) -> Result<Option<String>> {
+        let rel = Self::validated_parts(relative)?;
+        let Some(parent) = rel.parent().filter(|p| !p.as_os_str().is_empty()) else {
+            return Ok(None);
+        };
+        let parent = parent.to_str().context("Invalid destination directory")?;
+        let resolved = self.resolve(parent, true)?;
+        Ok((!resolved.exists()).then(|| parent.to_owned()))
     }
 
     pub(crate) fn check_browser_save_destination(&self, relative: &str) -> Result<()> {
@@ -618,7 +664,7 @@ impl ToolBox {
             new_content.ends_with('\n'),
             diff
         );
-        if !self.approve(&format!("Write {relative}"), &preview)? {
+        if !self.approve_task_step(&format!("Write {relative}"), &preview)? {
             return Ok(
                 json!({"ok":false,"denied":true,"status":"denied by user","category":"denied","execution_status":"not_executed"}),
             );
@@ -658,7 +704,7 @@ impl ToolBox {
         if path.exists() {
             anyhow::bail!("Path already exists");
         }
-        if !self.approve("Create project directory", relative)? {
+        if !self.approve_task_step("Create project directory", relative)? {
             return Ok(
                 json!({"ok":false,"denied":true,"status":"denied by user","category":"denied","execution_status":"not_executed"}),
             );
@@ -771,7 +817,27 @@ impl ToolBox {
         let command_preview = serde_json::to_string_pretty(
             &json!({"program":program,"args":args,"timeout_seconds":timeout_seconds,"shell_expansion":false}),
         )?;
-        if !self.approve("Execute workspace command", &command_preview)? {
+        // Test runners execute the current workspace's code, as disclosed in the task grant.
+        let standard_test = match program {
+            "python" | "python3" => {
+                args.starts_with(&["-m".into(), "unittest".into()])
+                    && args[2..].iter().all(|arg| {
+                        arg == "-v"
+                            || (!arg.is_empty()
+                                && arg.split('.').all(|part| {
+                                    !part.is_empty()
+                                        && part
+                                            .bytes()
+                                            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                                }))
+                    })
+            }
+            "cargo" => args == ["test"] || args == ["test", "--locked"],
+            _ => false,
+        };
+        if !(standard_test && self.has_task_approval())
+            && !self.approve("Execute workspace command", &command_preview)?
+        {
             if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                 return Ok(
                     json!({"ok":false,"command_outcome":"cancelled","execution_status":"not_executed","error":"Cancelled before command execution"}),
@@ -963,7 +1029,7 @@ pub fn definitions() -> Value {
         {"type":"function","function":{"name":"multi_edit_file","description":"Apply 1..64 sequential exact replacements atomically to one UTF-8 file. Supply sha256 from read_file. All edits stage before a single diff approval; stale or ambiguous edits write nothing.","parameters":{"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"edits":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","properties":{"find":{"type":"string"},"replace":{"type":"string"}},"required":["find","replace"],"additionalProperties":false}}},"required":["path","expected_sha256","edits"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"edit_file","description":"Replace exactly one expected text occurrence in an existing file. Refuses ambiguous changes and requires a diff approval.","parameters":{"type":"object","properties":{"path":{"type":"string"},"find":{"type":"string"},"replace":{"type":"string"}},"required":["path","find","replace"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"git_diff","description":"Show unstaged Git diff. Read-only.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
-        {"type":"function","function":{"name":"write_file","description":"Replace or create a UTF-8 file relative to workspace. Content is written byte-for-byte: include any requested final newline in content. User approval is mandatory for changes and a diff is shown. An unchanged result means existing bytes equal supplied content; inspect its byte count and newline metadata instead of repeating the same call.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}},
+        {"type":"function","function":{"name":"write_file","description":"Replace or create a UTF-8 file relative to workspace. Content is written byte-for-byte: include any requested final newline in content. Requires user approval. An approved writable TUI task covers workspace file edits. An unchanged result means existing bytes equal supplied content; inspect its byte count and newline metadata instead of repeating the same call.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"run_command","description":"Execute a program with arguments in workspace (no shell expansion); requires user approval. Default timeout 30 seconds; request up to 300 seconds for longer builds. Cancellation remains available. Not a background job.","parameters":{"type":"object","properties":{"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"timeout_seconds":{"type":"integer","minimum":1,"maximum":300}},"required":["program","args"],"additionalProperties":false}}}
     ])
 }
@@ -1126,6 +1192,41 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn task_approval_expires_on_finish_denial_and_cancellation() {
+        let root = tempfile::tempdir().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
+        let mut tools = ToolBox::new(root.path().into(), ApprovalMode::Tui(tx));
+        let approvals = std::thread::spawn(move || {
+            for (prompt, accept) in [("first", true), ("second", false)] {
+                let r = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                assert_eq!(r.action, TASK_APPROVAL);
+                assert!(r.detail.ends_with(prompt));
+                r.respond_to.send(accept).unwrap();
+            }
+        });
+        assert!(tools.begin_task_approval("first").unwrap());
+        tools.create_directory("src").unwrap();
+        tools.write_file("src/first.txt", "example").unwrap();
+        assert_eq!(
+            fs::read_to_string(root.path().join("src/first.txt")).unwrap(),
+            "example"
+        );
+        assert!(!tools.for_swarm_tree(root.path().into()).has_task_approval());
+        tools
+            .cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(!tools.has_task_approval());
+        tools.end_task_approval();
+        tools
+            .cancelled
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        assert!(!tools.has_task_approval());
+        assert!(!tools.begin_task_approval("second").unwrap());
+        assert!(!tools.has_task_approval());
+        approvals.join().unwrap();
+    }
+
     fn setup() -> (tempfile::TempDir, ToolBox) {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(

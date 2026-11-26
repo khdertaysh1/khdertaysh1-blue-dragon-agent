@@ -13,17 +13,18 @@ Blue Dragon is independently written. This is an implementation audit, not a cla
 | Verification contracts | Exact native tool/input/result metadata with bounded snapshot freshness, stale-proof invalidation and one completion review; model criteria may be insufficient |
 | Git diff and Git status | Implemented |
 | Explicit approval for writes and commands | Implemented |
-| Local user skills | Markdown files; user must activate them |
+| Local user skills | Manual Markdown skills plus turn-local automatic workspace-read guides. Manual selection wins; unique templates route locally and paraphrases can use the model-facing catalog. |
 | Persistent sessions and resume | Atomic checkpoints, process-exit lock release and interrupted tool-history recovery. Child checkpoints record interrupted work. See [session recovery](RESUME_AND_REPRODUCTION.md). |
 | Context and task control | Budgeted non-destructive request projection, exact recall, adaptive task guidance, stalled-loop handling and bounded empty/context recovery; no semantic memory graph |
 | Full-screen TUI / streaming UI | Implemented; OpenAI-compatible and Anthropic SSE, local fixture-tested |
 | Chromium/Firefox browser automation | URL-only automatic preparation/initial inspection, official Termux Chromium setup, own CDP client and authenticated extension bridge; managed tab DOM/click/fill/JS/network/console/source/screenshots. Linux real-browser tests; Android physical validation and Firefox signing pending |
 | Desktop control | The operator can open a workspace text file in a supported editor with `/desktop open` and use the clipboard on supported systems. General mouse, keyboard and window automation remains open. |
-| MCP client | Explicitly connected stdio tools plus paginated resource listing and bounded text reads. Remote transports remain open. See [MCP resource context](MCP_RESOURCE_CONTEXT.md). |
+| MCP client | Explicit stdio and Streamable HTTP connections with tools, paginated text resources and user-selected prompts. See [MCP resource context](MCP_RESOURCE_CONTEXT.md). |
 | Multi-agent swarm and isolated worktrees | [Concurrent child agents](DELEGATED_AGENTS.md) have scoped reads and can submit [patch proposals](SUPERVISED_EDIT_PROPOSALS.md) for parent review. Isolated writable Git worktrees remain open. |
 | Model selection / free gateway | Searchable picker of keyless Kilo free models, Blue Free bounded automatic rotation, pinned concrete choices, one-hour catalog cache, saved selections. JarvisClaw retained; OpenRouter requires own key |
 | Native installer candidates | CI packaging for Debian/Ubuntu amd64 and macOS arm64 (unsigned pkg). Candidate artifacts are separate from the published one-command installers. |
-| Native desktop GUI | Not implemented |
+| Editor integration | ACP v1 stdio adapter over the existing agent. Neovim with the agentic.nvim ACP client, tested headless, covers a source lookup and a rejected edit. |
+| Native desktop GUI | Windows, macOS and Linux native workspace, project picker, session restoration and source-line previews. Android uses the Termux TUI. |
 
 Next milestones: wider MCP and device verification, resolved cross-file indexing, isolated patch worktrees, signed extension distribution, richer structured test reports, crash recovery, native installers.
 

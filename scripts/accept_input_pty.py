@@ -2,14 +2,23 @@
 import argparse,http.server,json,os,pathlib,pty,fcntl,termios,struct,subprocess,tempfile,threading,time,select,hashlib
 from pty_helpers import contains_styled_text
 
-def trial(binary,interface,decision='y',long=False,stale=False,edit_arabic=False):
+def trial(binary,interface,decision='y',long=False,stale=False,edit_arabic=False,task_steps=False):
  with tempfile.TemporaryDirectory(prefix='bd-input-') as td:
   root=pathlib.Path(td);work=root/'work';work.mkdir();home=root/'state';packets=[]
   class Provider(http.server.BaseHTTPRequestHandler):
    def log_message(self,*a):pass
    def do_POST(self):
     q=json.loads(self.rfile.read(int(self.headers['Content-Length'])));packets.append(q)
-    if any(m['role']=='tool' for m in q['messages']):m={'role':'assistant','content':'Native result recorded; no further actions.'}
+    if task_steps:
+     calls=[('discover_tools', {'names':['write_file','run_command']}),
+            ('write_file', {'path':'test_sample.py','content':'import unittest\nclass Sample(unittest.TestCase):\n def test_value(self): self.assertEqual(2 + 2, 4)\n'}),
+            ('run_command', {'program':'python3','args':['-m','unittest','test_sample']})]
+     index=len(packets)-1
+     if index<len(calls):
+      name,args=calls[index]
+      m={'role':'assistant','content':None,'tool_calls':[{'id':f'step{index}','type':'function','function':{'name':name,'arguments':json.dumps(args)}}]}
+     else:m={'role':'assistant','content':'Completed sample verification.'}
+    elif any(m['role']=='tool' for m in q['messages']):m={'role':'assistant','content':'Native result recorded; no further actions.'}
     else:
      time.sleep(.2)
      code='from pathlib import Path; Path("executed").write_text("once"); print("BLUE_DRAGON_OK")'
@@ -37,6 +46,24 @@ def trial(binary,interface,decision='y',long=False,stale=False,edit_arabic=False
    wait(lambda:b'blue-dragon>' in out if interface=='chat' else contains_styled_text(out,b'BLUE DRAGON'))
    task='Print BLUE_DRAGON_OK once after my approval.\nلا تستخدم بديلاً إذا رفضت.\nTreat this entire pasted request as one task.'
    if long:task+='\n'+(('تفصيل عربي English '+'x'*50+' ')*85).rstrip()
+   if task_steps:
+    os.write(master,b'Write a small test in test_sample.py, then run python3 -m unittest test_sample.\r')
+    wait(lambda:contains_styled_text(out,b'APPROVAL REQUIRED'));assert not packets
+    os.write(master,b'y')
+    wait(lambda:contains_styled_text(out,b'Completed sample verification'))
+    assert len(packets)==4 and (work/'test_sample.py').is_file()
+    observed=[json.loads(m['content']) for m in packets[-1]['messages'] if m['role']=='tool']
+    assert any(r.get('exit_code')==0 for r in observed),observed
+    pump(.2);out.clear()
+    os.write(master,b'Repeat that task.\r')
+    wait(lambda:contains_styled_text(out,b'APPROVAL REQUIRED'))
+    os.write(master,b'n')
+    wait(lambda:contains_styled_text(out,b'Task declined before execution'))
+    assert len(packets)==4
+    os.write(master,b'\x03')
+    wait(lambda:proc.poll() is not None)
+    assert termios.tcgetattr(slave)==before
+    return {'task_approval_count':1,'test_command_exit':0,'next_task_denied_before_model':True}
    if edit_arabic:
     # Type a marked Arabic word, erase the final grapheme, move right in RTL, then insert.
     os.write(master,'سَلامُ'.encode()+b'\x7f\x1b[C'+'م'.encode()+b'\r')
@@ -44,6 +71,10 @@ def trial(binary,interface,decision='y',long=False,stale=False,edit_arabic=False
    else:
     os.write(master,b'\x1b[200~'+task.encode()+b'\x1b[201~\r'+(b'y\r' if stale else b''))
    wait(lambda:b'APPROVAL REQUIRED' in out if interface=='chat' else contains_styled_text(out,b'APPROVAL'))
+   if interface=='tui':
+    pump(.2);assert not packets and not (work/'executed').exists()
+    os.write(master,b'\r');pump(.2);assert not packets, 'Enter must not approve task'
+    os.write(master,b'y');wait(lambda:contains_styled_text(out,b'shell_expansion'))
    pump(.3);assert len(packets)==1 and not (work/'executed').exists(),'No execution or approval from stale input'
    assert task in [m.get('content') for m in packets[0]['messages'] if m['role']=='user']
    os.write(master,b'\r');pump(.2);assert len(packets)==1 and not (work/'executed').exists(),'Enter must wait'
@@ -72,6 +103,6 @@ def trial(binary,interface,decision='y',long=False,stale=False,edit_arabic=False
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('binary',type=pathlib.Path);a=p.parse_args();b=a.binary.resolve()
  cases=[(i,d,l,s) for i in ['chat','tui'] for d,l,s in [('y',False,False),('y',True,False),('n',False,False),('n',False,True),('cancel',False,False)]]+[('chat','eof',False,False),('tui','y',False,False,True)]
- rows=[]
+ rows=[trial(b,"tui",task_steps=True)]
  for c in cases:rows.append(trial(b,*c))
  print(json.dumps({'binary_sha256':hashlib.sha256(b.read_bytes()).hexdigest(),'scripted_provider':True,'real_pty':True,'rows':rows},indent=2))

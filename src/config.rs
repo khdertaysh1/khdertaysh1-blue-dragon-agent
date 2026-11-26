@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct Settings {
     pub root: PathBuf,
     pub base_url: String,

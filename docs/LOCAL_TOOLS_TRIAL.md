@@ -6,6 +6,8 @@ Use /clipboard copy TEXT and /clipboard paste with Termux:API, pbcopy/pbpaste, w
 
 For /websearch WORDS, set BLUE_DRAGON_SEARCH_URL to your SearXNG /search endpoint with JSON enabled. The query goes to that configured endpoint. Search returns up to ten result URLs, titles and snippets. It does not open those results.
 
+Use `/sessions search WORDS` or `blue-dragon sessions --indexed "WORDS"` for ranked, local search across Blue Dragon sessions. A private, rebuildable candidate index is refreshed on demand. Results are verified against saved sessions and return the session ID, workspace, timestamp, matching excerpt, and matching paired browser evidence when available. An evidence ID belongs to its session. `reindexed` counts new or changed session filters built during that search.
+
 Use /sessions WORDS to find previous conversations and /conversation-search WORDS to find turns in this conversation. From a shell, blue-dragon sessions WORDS --open offers to reopen a match in its workspace.
 
 Reopening a conversation displays its recorded goal, status, stop reason, next plan step and latest observation when available. In chat and the TUI, type /checkpoint or وين وقفنا؟ to read this summary locally. At startup, + shows the next five conversations in the current workspace.

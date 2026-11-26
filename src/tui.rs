@@ -91,6 +91,8 @@ struct Screen {
     picker: Option<ModelPicker>,
     approval_scroll: u16,
     scroll_up: usize,
+    reveal_from: Option<usize>,
+    show_steps: bool,
     status: String,
     model: String,
     workspace: String,
@@ -120,6 +122,8 @@ impl Screen {
             picker: None,
             approval_scroll: 0,
             scroll_up: 0,
+            reveal_from: None,
+            show_steps: false,
             status: "Ready".into(),
             model: model.into(),
             workspace,
@@ -148,6 +152,7 @@ impl Screen {
             self.lines.drain(..self.lines.len() - MAX_LOG_LINES);
         }
         self.scroll_up = 0;
+        self.reveal_from = None;
     }
 
     fn grapheme_byte(&self, index: usize) -> usize {
@@ -186,6 +191,13 @@ impl Screen {
     }
 
     fn submit(&mut self, tx: &Sender<Work>) {
+        if self.input.trim() == "/steps" {
+            self.show_steps = !self.show_steps;
+            self.input.clear();
+            self.cursor = 0;
+            self.scroll_up = 0;
+            return;
+        }
         if self.busy {
             let text = self.input.trim();
             if !text.is_empty() {
@@ -224,8 +236,9 @@ impl Screen {
         if text == "/help" {
             self.log(
                 "System:",
-                "Commands: /help /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /models /model [PROVIDER MODEL] /clear /exit /map /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
+                "Commands: /help /steps /scope [allow URL read|interact|mutate ACCOUNT|clear] /coverage /audit-report /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /clear /exit /map /symbol NAME [PATH] /status /diff /session /checkpoint /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor. Ctrl+T opens model selection; Ctrl+C cancels; Esc exits.",
             );
+            self.reveal_from = Some(self.lines.len() - 1);
             return;
         }
         if text == "/clear" {
@@ -280,6 +293,8 @@ impl Screen {
                         .is_some_and(|v| v.load(std::sync::atomic::Ordering::Relaxed))
                 {
                     "Approved and remembered for this session"
+                } else if accepted && request.action == crate::tools::TASK_APPROVAL {
+                    "Approved this task"
                 } else if accepted && crate::browser::group_approval(&request.action) {
                     "Approved page reads for this task"
                 } else if accepted {
@@ -471,8 +486,8 @@ pub fn run(
         let _ = message_tx.send(AgentEvent::Plan(agent.plan_text()));
         for work in work_rx {
             let result = match work {
-                Work::Prompt(prompt) => agent.turn(&prompt),
-                Work::QueuedPrompt(prompt) => agent.queued_turn(&prompt),
+                Work::Prompt(prompt) => agent.terminal_task(&prompt, false),
+                Work::QueuedPrompt(prompt) => agent.terminal_task(&prompt, true),
                 Work::Slash(line) => run_slash(&mut agent, &message_tx, &line),
             };
             let status = result.map_err(|error| format!("{error:#}"));
@@ -551,7 +566,7 @@ pub fn run(
                     }
                     app.dispatch_followup(&work_tx);
                 }
-                AgentEvent::ToolResult(summary) => {
+                AgentEvent::ToolResult(summary) | AgentEvent::EditorToolResult(summary, _) => {
                     app.log("Result:", &summary);
                 }
             }
@@ -613,7 +628,7 @@ pub fn run(
             }
         }
 
-        terminal.draw(|frame| draw(frame, &app))?;
+        terminal.draw(|frame| draw(frame, &mut app))?;
 
         if !event::poll(Duration::from_millis(60))? {
             continue;
@@ -790,7 +805,11 @@ pub fn run(
     Ok(())
 }
 
-fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -> Result<()> {
+pub(crate) fn run_slash(
+    agent: &mut Agent,
+    tx: &mpsc::SyncSender<AgentEvent>,
+    line: &str,
+) -> Result<()> {
     if matches!(line, "/model" | "/models" | "/models refresh") {
         let (mut choices, source) = agent.kilo_models(line == "/models refresh")?;
         choices.push(crate::models::ModelChoice {
@@ -822,6 +841,7 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         _ if line.starts_with("/jobs ") => {
             serde_json::to_string_pretty(&agent.jobs_command(line.trim_start_matches("/jobs "))?)?
         }
+        "/mission" => serde_json::to_string_pretty(&agent.mission_report())?,
         "/checks" => serde_json::to_string_pretty(&agent.check_status())?,
         "/memory" => serde_json::to_string_pretty(&agent.memory_command("")?)?,
         _ if line.starts_with("/memory ") => serde_json::to_string_pretty(
@@ -853,10 +873,16 @@ fn run_slash(agent: &mut Agent, tx: &mpsc::SyncSender<AgentEvent>, line: &str) -
         }
         "/saved-files" => serde_json::to_string_pretty(&agent.saved_files())?,
         "/report" => agent.report_text(),
+        cmd if cmd.starts_with("/mcp ") => {
+            serde_json::to_string_pretty(&agent.mcp_prompt(&cmd[5..])?)?
+        }
         "/mcp" => serde_json::to_string_pretty(&agent.mcp_list())?,
         _ if line.starts_with("/connect ") => serde_json::to_string_pretty(
             &agent.connect_mcp(line.trim_start_matches("/connect ").trim())?,
         )?,
+        cmd if cmd == "/symbol" || cmd.starts_with("/symbol ") => {
+            serde_json::to_string_pretty(&agent.symbol_trace(&cmd["/symbol".len()..])?)?
+        }
         "/map" => serde_json::to_string_pretty(&agent.project_map()?)?,
         "/status" => serde_json::to_string_pretty(&agent.git_status()?)?,
         "/diff" => agent.git_diff()?,
@@ -981,7 +1007,41 @@ fn identity_title(compact: bool, state: &str, marker: &str) -> Line<'static> {
     ])
 }
 
-fn draw(frame: &mut Frame<'_>, app: &Screen) {
+fn conversation_text(lines: &[String], expanded: bool) -> String {
+    if expanded {
+        return lines.join("\n");
+    }
+    let mut rows = Vec::new();
+    let mut lines = lines.iter().peekable();
+    while let Some(line) = lines.next() {
+        if !line.starts_with("Tool: ") {
+            rows.push(line.clone());
+            continue;
+        }
+        let mut latest = line;
+        let mut count = 1;
+        while let Some(next) = lines.next_if(|s| {
+            s.starts_with("Tool: ")
+                || s.starts_with("Result: ")
+                || s.starts_with("Approval: Approved")
+                || s.starts_with("  ")
+        }) {
+            if next.starts_with("Tool: ") {
+                count += 1;
+                latest = next;
+            }
+        }
+        let name = latest
+            .trim_start_matches("Tool: ")
+            .split(" (step ")
+            .next()
+            .unwrap_or("");
+        rows.push(format!("Tools · {count} · {name} · /steps"));
+    }
+    rows.join("\n")
+}
+
+fn draw(frame: &mut Frame<'_>, app: &mut Screen) {
     let compact = frame.area().width < 70 || frame.area().height < 22;
     frame.render_widget(
         Block::default().style(Style::default().bg(SURFACE)),
@@ -1022,11 +1082,11 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
         outer[0],
     );
 
-    let text = if app.draft.is_empty() {
-        app.lines.join("\n")
-    } else {
-        format!("{}\nDragon: {}", app.lines.join("\n"), app.draft)
-    };
+    let mut text = conversation_text(&app.lines, app.show_steps);
+    if !app.draft.is_empty() {
+        text.push_str("\nDragon: ");
+        text.push_str(&app.draft);
+    }
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints(if outer[1].width >= 110 {
@@ -1047,6 +1107,18 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
     let width = usize::from(columns[0].width.saturating_sub(2)).max(1);
     let visual = transcript_lines(&text, width);
     let visible_lines = columns[0].height.saturating_sub(2) as usize;
+    // Resolve the requested first line after wrapping at the actual terminal width.
+    // Subsequent PgUp/PgDn operations use the normal transcript scroll offset.
+    if visible_lines > 0 {
+        if let Some(first) = app.reveal_from.take() {
+            let preceding = transcript_lines(
+                &conversation_text(&app.lines[..first], app.show_steps),
+                width,
+            )
+            .len();
+            app.scroll_up = visual.len().saturating_sub(visible_lines + preceding);
+        }
+    }
     let start = visual
         .len()
         .saturating_sub(visible_lines)
@@ -1219,7 +1291,9 @@ fn draw(frame: &mut Frame<'_>, app: &Screen) {
             regions[0],
         );
         frame.render_widget(
-            Paragraph::new(if request.remember.is_some() {
+            Paragraph::new(if request.action == crate::tools::TASK_APPROVAL {
+                "[Y] approve task · [N/Esc] deny\nUp/Down scroll details"
+            } else if request.remember.is_some() {
                 "[Y] once · [R] remember for session · [N/Esc] deny"
             } else if crate::browser::group_approval(&request.action) {
                 "[Y] allow page reads this task · [N/Esc] deny\nUp/Down scroll details"
@@ -1343,7 +1417,7 @@ mod tests {
         for width in [23, 40, 90] {
             let mut terminal =
                 Terminal::new(ratatui::backend::TestBackend::new(width, 24)).unwrap();
-            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            terminal.draw(|frame| draw(frame, &mut app)).unwrap();
             let screen = rendered_text(&terminal);
             for value in ["kilo-auto/free", "ai-gateway.kilo.ai", "READY"] {
                 assert!(screen.contains(value), "{screen}");
@@ -1353,7 +1427,7 @@ mod tests {
         app.model = "other/model:free | https://openrouter.ai".into();
         app.status = "Task failed; see transcript".into();
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 18)).unwrap();
-        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
         let screen = rendered_text(&terminal);
         assert!(
             screen.contains("other/model:free")
@@ -1435,7 +1509,7 @@ mod tests {
             });
             let mut terminal =
                 Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
-            terminal.draw(|f| draw(f, &app)).unwrap();
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
             let text = terminal
                 .backend()
                 .buffer()
@@ -1457,7 +1531,7 @@ mod tests {
             app.input = "اقرأ ملف المشروع".into();
             app.cursor = app.input.graphemes(true).count();
             app.draft = "A streamed reply".into();
-            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            terminal.draw(|frame| draw(frame, &mut app)).unwrap();
             let rendered = terminal
                 .backend()
                 .buffer()
@@ -1473,7 +1547,7 @@ mod tests {
                 respond_to: tx,
                 remember: None,
             });
-            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            terminal.draw(|frame| draw(frame, &mut app)).unwrap();
             let rendered = terminal
                 .backend()
                 .buffer()
@@ -1507,11 +1581,49 @@ mod tests {
     }
 
     #[test]
+    fn compact_steps_keep_tool_details_available_and_chat_visible() {
+        let mut screen = Screen::new("model", ".".into());
+        screen.lines.clear();
+        screen.log("Tool:", "browser snapshot (step 1)");
+        screen.log("Approval:", "Approved page reads for this task");
+        screen.log("Result:", "returned E001");
+        screen.log("Tool:", "recall_context (step 2)");
+        screen.log("Result:", "returned E002");
+        screen.log("Dragon:", "Done");
+        let compact = conversation_text(&screen.lines, false);
+        assert_eq!(compact, "Tools · 2 · recall_context · /steps\nDragon: Done");
+        screen.input = "/steps".into();
+        screen.busy = true;
+        let (tx, rx) = mpsc::channel();
+        screen.submit(&tx);
+        assert!(rx.try_recv().is_err());
+        assert!(conversation_text(&screen.lines, screen.show_steps).contains("E001"));
+    }
+
+    #[test]
+    fn help_opens_at_the_first_command_and_can_scroll_to_the_end() {
+        for (width, height) in [(80, 24), (40, 14)] {
+            let mut terminal =
+                Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            let (tx, rx) = mpsc::channel();
+            let mut app = Screen::new("fixture", ".".into());
+            app.input = "/help".into();
+            app.submit(&tx);
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
+            assert!(rendered_text(&terminal).contains("Commands:"));
+            assert!(rx.try_recv().is_err());
+            app.scroll_up = 0;
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
+            assert!(rendered_text(&terminal).contains("exits."));
+        }
+    }
+
+    #[test]
     fn compact_layout_keeps_status_model_and_prompt_visible() {
         let mut app = Screen::new("fixture-model", "/long/workspace/path".into());
         app.status = "Ready".into();
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         let text = rendered_text(&terminal);
         assert!(text.contains("fixture-model"));
         assert!(text.contains("Enter send"));
@@ -1531,7 +1643,7 @@ mod tests {
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
         for scroll in [0, 30, u16::MAX] {
             app.approval_scroll = scroll;
-            terminal.draw(|f| draw(f, &app)).unwrap();
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
             let text = rendered_text(&terminal);
             assert!(text.contains("[Y] approve one"));
             assert!(text.contains("[N/Esc] deny"));
@@ -1539,7 +1651,7 @@ mod tests {
         }
         app.approve(false);
         assert!(!rx.recv().unwrap());
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         assert!(!rendered_text(&terminal).contains("APPROVAL REQUIRED"));
     }
 
@@ -1553,19 +1665,19 @@ mod tests {
             source: "Fixture".into(),
         });
         let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(60, 20)).unwrap();
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         assert!(rendered_text(&terminal).contains("No matching models"));
         app.picker = None;
-        terminal.draw(|f| draw(f, &app)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
         assert!(!rendered_text(&terminal).contains("No matching models"));
     }
 
     #[test]
     fn tiny_terminal_layout_does_not_panic() {
-        let app = Screen::new("fixture", ".".into());
+        let mut app = Screen::new("fixture", ".".into());
         for (w, h) in [(1, 1), (20, 6), (40, 10)] {
             let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
-            terminal.draw(|f| draw(f, &app)).unwrap();
+            terminal.draw(|f| draw(f, &mut app)).unwrap();
         }
     }
 
