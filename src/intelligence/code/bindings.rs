@@ -1,5 +1,5 @@
 //! Static local ECMAScript module bindings. Oxc resolves lexical references
-//! within each module. The linker joins explicit relative imports to exports.
+//! within each module. Link only module paths backed by indexed workspace files.
 use super::Index;
 use anyhow::{ensure, Result};
 use oxc_allocator::Allocator;
@@ -20,6 +20,7 @@ struct Import {
 enum Export {
     Local(String),
     Forward(String, String),
+    Unsupported,
 }
 struct Call {
     local: String,
@@ -32,6 +33,7 @@ pub(super) struct Module {
     exports: BTreeMap<String, Export>,
     imports: BTreeMap<String, Import>,
     calls: Vec<Call>,
+    stars: Vec<String>,
     lines: Vec<usize>,
 }
 
@@ -79,6 +81,13 @@ impl Module {
                 },
             );
         }
+        for entry in &parsed.module_record.star_export_entries {
+            if !entry.is_type && entry.import_name.is_all_but_default() {
+                module
+                    .stars
+                    .push(entry.module_request.as_ref()?.name.to_string());
+            }
+        }
         for entry in parsed
             .module_record
             .local_export_entries
@@ -100,7 +109,7 @@ impl Module {
             } else if let Some(local) = entry.local_name.name() {
                 Export::Local(local.to_string())
             } else {
-                continue;
+                Export::Unsupported
             };
             module.exports.insert(name, binding);
         }
@@ -182,8 +191,9 @@ fn relative(importer: &str, source: &str) -> Option<String> {
     Some(path.to_str()?.replace('\\', "/"))
 }
 
-fn target<'a>(index: &'a Index, importer: &str, source: &str) -> Option<&'a str> {
-    let name = relative(importer, source)?;
+// Ok(None) means no candidate exists. Ambiguous or excluded files must also
+// block fallback to a lower-priority paths substitution.
+fn candidate<'a>(index: &'a Index, importer: &str, name: String) -> Result<Option<&'a str>, ()> {
     let known = |candidate: &str| {
         index
             .files
@@ -191,7 +201,7 @@ fn target<'a>(index: &'a Index, importer: &str, source: &str) -> Option<&'a str>
             .map(|(path, _)| path.as_str())
     };
     let typed = matches!(
-        Path::new(importer).extension()?.to_str(),
+        Path::new(importer).extension().and_then(|s| s.to_str()),
         Some("ts" | "tsx")
     );
     let ext = Path::new(&name).extension().and_then(|s| s.to_str());
@@ -204,16 +214,16 @@ fn target<'a>(index: &'a Index, importer: &str, source: &str) -> Option<&'a str>
             }
         }
         Some("js" | "jsx") if typed => {
-            let stem = name.rsplit_once('.')?.0;
+            let stem = name.rsplit_once('.').ok_or(())?.0;
             choices.extend(["ts", "tsx"].map(|ext| format!("{stem}.{ext}")));
         }
-        _ => return known(&name),
+        _ => (),
     }
     let mut found = None;
     for candidate in choices {
         if let Some(path) = known(&candidate) {
             if found.replace(path).is_some() {
-                return None;
+                return Err(());
             }
         } else {
             // An ignored, oversized or symlinked candidate cannot justify
@@ -223,38 +233,223 @@ fn target<'a>(index: &'a Index, importer: &str, source: &str) -> Option<&'a str>
                 Err(e)
                     if e.kind() == std::io::ErrorKind::NotFound
                         || e.kind() == std::io::ErrorKind::NotADirectory => {}
-                _ => return None,
+                _ => return Err(()),
             }
         }
     }
-    found
+    Ok(found)
 }
 
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct Options {
+    base_url: Option<String>,
+    #[serde(default)]
+    paths: BTreeMap<String, Vec<String>>,
+}
+
+fn paths_config(body: &str) -> Option<Options> {
+    // Bound the recursive JSONC parser even for adversarial project files.
+    use jsonc_parser::tokens::Token;
+    let body = body.trim_start_matches('\u{feff}');
+    let mut scanner = jsonc_parser::Scanner::new(body);
+    let mut depth = 0u8;
+    while let Some(token) = scanner.scan().ok()? {
+        match token {
+            Token::OpenBrace | Token::OpenBracket if depth >= 32 => return None,
+            Token::OpenBrace | Token::OpenBracket => depth += 1,
+            Token::CloseBrace | Token::CloseBracket => depth = depth.checked_sub(1)?,
+            _ => (),
+        }
+    }
+    let config = jsonc_parser::parse_to_serde_value(
+        body,
+        &jsonc_parser::ParseOptions {
+            allow_loose_object_property_names: false,
+            ..Default::default()
+        },
+    )
+    .ok()??;
+    if config.get("extends").is_some() {
+        return None;
+    }
+    serde_json::from_value(config.get("compilerOptions")?.clone()).ok()
+}
+
+type Configs = BTreeMap<String, Option<Options>>;
+
+fn target<'a>(
+    index: &'a Index,
+    configs: &Configs,
+    importer: &str,
+    source: &str,
+) -> Option<&'a str> {
+    if let Some(name) = relative(importer, source) {
+        return candidate(index, importer, name).ok().flatten();
+    }
+    if source.starts_with(['.', '/']) || source.contains([':', '?', '%', '\\']) {
+        return None;
+    }
+    for dir in Path::new(importer).parent()?.ancestors() {
+        let config_path = dir.join("tsconfig.json");
+        let key = config_path.to_str()?.replace('\\', "/");
+        let Some(config) = configs.get(&key) else {
+            // A closer ignored or unreadable config shadows the parent.
+            match std::fs::symlink_metadata(index.root.join(config_path)) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                _ => return None,
+            }
+        };
+        let options = config.as_ref()?;
+        let (values, capture) = if let Some(values) = options.paths.get(source) {
+            (values, "")
+        } else {
+            let mut best = None;
+            let mut tied = false;
+            for (pattern, values) in &options.paths {
+                let Some((prefix, suffix)) = pattern.split_once('*') else {
+                    continue;
+                };
+                if suffix.contains('*') {
+                    continue;
+                }
+                let Some(mid) = source
+                    .strip_prefix(prefix)
+                    .and_then(|s| s.strip_suffix(suffix))
+                else {
+                    continue;
+                };
+                match best {
+                    Some((length, _, _)) if length > prefix.len() => continue,
+                    Some((length, _, _)) if length == prefix.len() => tied = true,
+                    _ => {
+                        best = Some((prefix.len(), values, mid));
+                        tied = false;
+                    }
+                }
+            }
+            if tied {
+                return None;
+            }
+            let (_, values, mid) = best?;
+            (values, mid)
+        };
+        let base = options.base_url.as_deref().unwrap_or(".");
+        if base.starts_with('/') || base.contains([':', '\\']) {
+            return None;
+        }
+        for value in values {
+            if value.starts_with('/')
+                || value.contains([':', '\\'])
+                || value.matches('*').count() > 1
+            {
+                return None;
+            }
+            let mapped = value.replacen('*', capture, 1);
+            let name = relative(&key, &format!("./{base}/{mapped}"))?;
+            if let Some(path) = candidate(index, importer, name).ok()? {
+                return Some(path);
+            }
+        }
+        return None;
+    }
+    None
+}
+
+#[derive(Clone)]
+enum Resolution<'a> {
+    Found(Symbol<'a>, Vec<&'a str>),
+    Missing,
+    Unknown,
+    Ambiguous(Symbol<'a>, Symbol<'a>),
+}
 struct Graph<'a> {
     modules: Modules<'a>,
     targets: BTreeMap<(&'a str, &'a str), &'a str>,
+    cache: std::cell::RefCell<BTreeMap<Symbol<'a>, Resolution<'a>>>,
 }
 impl<'a> Graph<'a> {
-    fn exported(&self, mut path: &'a str, mut name: &'a str) -> Option<Symbol<'a>> {
-        for _ in 0..32 {
-            let module = self.modules.get(path)?;
-            let (src, remote) = match module.exports.get(name)? {
-                Export::Local(local) if module.definitions.contains_key(local) => {
-                    return Some((path, local))
-                }
-                Export::Local(local) => {
-                    let import = module.imports.get(local)?;
-                    (&import.source, import.exported.as_ref()?)
-                }
-                Export::Forward(src, remote) => (src, remote),
-            };
-            path = self.targets.get(&(path, src.as_str()))?;
-            name = remote;
+    fn walk(
+        &self,
+        path: &'a str,
+        name: &'a str,
+        stack: &mut Vec<Symbol<'a>>,
+        budget: &mut usize,
+    ) -> Resolution<'a> {
+        use Resolution::*;
+        if stack.contains(&(path, name)) {
+            return Missing;
         }
-        None
+        if stack.len() >= 32 || *budget == 0 {
+            return Unknown;
+        }
+        *budget -= 1;
+        let Some(m) = self.modules.get(path) else {
+            return Unknown;
+        };
+        stack.push((path, name));
+        let mut edge = |src: &'a str, remote: &'a str| {
+            let Some(next) = self.targets.get(&(path, src)) else {
+                return Unknown;
+            };
+            self.walk(next, remote, stack, budget)
+        };
+        let result = match m.exports.get(name) {
+            Some(Export::Local(local)) if m.definitions.contains_key(local) => {
+                Found((path, local), vec![])
+            }
+            Some(Export::Local(local)) => match m.imports.get(local) {
+                Some(i) if i.exported.is_some() => edge(&i.source, i.exported.as_deref().unwrap()),
+                _ => Unknown,
+            },
+            Some(Export::Forward(src, remote)) => edge(src, remote),
+            Some(Export::Unsupported) => Unknown,
+            None => {
+                let mut result = Missing;
+                if name != "default" {
+                    for source in &m.stars {
+                        match edge(source, name) {
+                            Missing => (),
+                            Found(sym, chain) => match &result {
+                                Found(existing, _) if *existing == sym => (),
+                                Found(existing, _) => {
+                                    result = Ambiguous(*existing, sym);
+                                    break;
+                                }
+                                Missing => result = Found(sym, chain),
+                                _ => (),
+                            },
+                            other => {
+                                result = other;
+                                break;
+                            }
+                        }
+                    }
+                }
+                result
+            }
+        };
+        stack.pop();
+        match result {
+            Found(sym, mut chain) => {
+                chain.insert(0, path);
+                Found(sym, chain)
+            }
+            other => other,
+        }
     }
-    fn imported(&self, path: &'a str, i: &'a Import, name: &'a str) -> Option<Symbol<'a>> {
-        self.exported(self.targets.get(&(path, i.source.as_str()))?, name)
+    fn exported(&self, path: &'a str, name: &'a str) -> Resolution<'a> {
+        if let Some(cached) = self.cache.borrow().get(&(path, name)) {
+            return cached.clone();
+        }
+        let result = self.walk(path, name, &mut Vec::new(), &mut 256);
+        self.cache.borrow_mut().insert((path, name), result.clone());
+        result
+    }
+    fn imported(&self, path: &'a str, i: &'a Import, name: &'a str) -> Resolution<'a> {
+        self.targets
+            .get(&(path, i.source.as_str()))
+            .map_or(Resolution::Unknown, |next| self.exported(next, name))
     }
 }
 
@@ -282,6 +477,7 @@ pub(super) fn search(
     let mut graph = Graph {
         modules: BTreeMap::new(),
         targets: BTreeMap::new(),
+        cache: Default::default(),
     };
     let mut skipped = 0;
     for (name, f) in &index.files {
@@ -296,20 +492,27 @@ pub(super) fn search(
         }
         skipped += 1;
     }
+    let configs: Configs = index
+        .files
+        .iter()
+        .filter(|(p, _)| {
+            Path::new(p)
+                .file_name()
+                .is_some_and(|n| n == "tsconfig.json")
+        })
+        .map(|(p, f)| (p.clone(), paths_config(&f.body)))
+        .collect();
     for (&file, m) in &graph.modules {
-        for src in m
-            .imports
-            .values()
-            .map(|i| &i.source)
-            .chain(m.exports.values().filter_map(|e| {
+        for src in m.imports.values().map(|i| &i.source).chain(&m.stars).chain(
+            m.exports.values().filter_map(|e| {
                 if let Export::Forward(src, _) = e {
                     Some(src)
                 } else {
                     None
                 }
-            }))
-        {
-            if let Some(found) = target(index, file, src) {
+            }),
+        ) {
+            if let Some(found) = target(index, &configs, file, src) {
                 graph.targets.insert((file, src.as_str()), found);
             }
         }
@@ -320,17 +523,22 @@ pub(super) fn search(
             selected.insert((file, local.as_str()));
         }
         if let Some((name, _)) = m.exports.get_key_value(query) {
-            selected.extend(graph.exported(file, name));
+            if let Resolution::Found(sym, _) = graph.exported(file, name) {
+                selected.insert(sym);
+            }
         }
         if let Some(i) = m.imports.get(query) {
             if let Some(exported) = &i.exported {
-                selected.extend(graph.imported(file, i, exported));
+                if let Resolution::Found(sym, _) = graph.imported(file, i, exported) {
+                    selected.insert(sym);
+                }
             }
         }
     }
     selected
         .retain(|(file, _)| path.is_empty() || path == "." || Path::new(file).starts_with(path));
     let mut rows = Vec::new();
+    let mut ambiguous = BTreeSet::new();
     for &(file, name) in &selected {
         rows.push((
             (file, name),
@@ -338,18 +546,22 @@ pub(super) fn search(
             file,
             graph.modules[file].definitions[name],
             name,
+            vec![file],
         ));
     }
     for (&file, m) in &graph.modules {
         let mut namespaces = BTreeSet::new();
         for (alias, i) in &m.imports {
-            if let Some(sym) = i
-                .exported
-                .as_ref()
-                .and_then(|n| graph.imported(file, i, n))
-                .filter(|s| selected.contains(s))
-            {
-                rows.push((sym, 1, file, i.offset, alias.as_str()));
+            if let Some(name) = &i.exported {
+                match graph.imported(file, i, name) {
+                    Resolution::Found(sym, chain) if selected.contains(&sym) => {
+                        rows.push((sym, 1, file, i.offset, alias.as_str(), chain));
+                    }
+                    Resolution::Ambiguous(a, b) if query == alias || query == name => {
+                        ambiguous.insert((file, i.source.as_str(), name.as_str(), a, b));
+                    }
+                    _ => (),
+                }
             }
         }
         for call in &m.calls {
@@ -358,25 +570,34 @@ pub(super) fn search(
                     (Some(n), None) | (None, Some(n)) => n,
                     _ => continue,
                 };
-                let sym = graph.imported(file, i, remote);
-                if let Some(sym) = sym.filter(|s| selected.contains(s)) {
-                    if i.exported.is_none() && namespaces.insert((sym, i.offset)) {
-                        rows.push((sym, 1, file, i.offset, call.local.as_str()));
+                let (sym, chain) = match graph.imported(file, i, remote) {
+                    Resolution::Found(sym, chain) => (sym, chain),
+                    Resolution::Ambiguous(a, b) if query == remote => {
+                        ambiguous.insert((file, i.source.as_str(), remote.as_str(), a, b));
+                        continue;
                     }
+                    _ => continue,
+                };
+                if selected.contains(&sym)
+                    && i.exported.is_none()
+                    && namespaces.insert((sym, i.offset))
+                {
+                    rows.push((sym, 1, file, i.offset, call.local.as_str(), chain.clone()));
                 }
-                sym
+                Some((sym, chain))
             } else if call.member.is_none() {
-                Some((file, call.local.as_str()))
+                Some(((file, call.local.as_str()), Vec::new()))
             } else {
                 None
             };
-            if let Some(sym) = sym.filter(|s| selected.contains(s)) {
+            if let Some((sym, chain)) = sym.filter(|(s, _)| selected.contains(s)) {
                 rows.push((
                     sym,
                     2,
                     file,
                     call.offset,
                     call.member.as_ref().unwrap_or(&call.local).as_str(),
+                    chain,
                 ));
             }
         }
@@ -384,15 +605,16 @@ pub(super) fn search(
     rows.sort_unstable();
     let total = rows.len();
     ensure!(offset <= total, "Offset exceeds results");
-    let matches=rows.into_iter().skip(offset).take(limit).map(|((file,symbol),role,at,byte,local)|{
+    let matches=rows.into_iter().skip(offset).take(limit).map(|((file,symbol),role,at,byte,local,chain)|{
         let file_data=&index.files[at];
         let starts=&graph.modules[at].lines;
         let line=starts.partition_point(|&p|p<=byte as usize);
         let text=file_data.body[starts[line-1]..starts.get(line).copied().unwrap_or(file_data.body.len())].trim_end_matches(['\r','\n','\u{2028}','\u{2029}']);
-        json!({"role":(["definition","import","call"][role as usize]),"definition_path":file,"symbol":symbol,"local_name":local,"path":at,"line":line,"byte_offset":byte,"text":text.chars().take(512).collect::<String>(),"text_truncated":text.chars().count()>512,"sha256":file_data.hash})
+        let module_chain:Vec<_>=std::iter::once(at).chain(chain.into_iter().filter(|p|*p!=at)).collect();
+        json!({"module_chain":module_chain,"role":(["definition","import","call"][role as usize]),"definition_path":file,"symbol":symbol,"local_name":local,"path":at,"line":line,"byte_offset":byte,"text":text.chars().take(512).collect::<String>(),"text_truncated":text.chars().count()>512,"sha256":file_data.hash})
     }).collect::<Vec<_>>();
     Ok(
-        json!({"ok":true,"kind":"bindings","query":query,"matches":matches,"total_matches":total,"next_offset":(offset+matches.len()<total).then_some(offset+matches.len()),"workspace_fingerprint":index.fingerprint,"coverage":index.coverage,"skipped_semantic_files":skipped,"untrusted_source_data":true,"limits":"Static top-level function bindings in indexed JS/TS modules. Explicit local ESM imports and named re-exports only. External packages, tsconfig paths, export-star, CommonJS and dynamic dispatch are outside coverage. Ambiguous extensionless targets are omitted."}),
+        json!({"ok":true,"kind":"bindings","query":query,"matches":matches,"total_matches":total,"next_offset":(offset+matches.len()<total).then_some(offset+matches.len()),"workspace_fingerprint":index.fingerprint,"coverage":index.coverage,"skipped_semantic_files":skipped,"untrusted_source_data":true,"ambiguous_imports":ambiguous.iter().take(40).map(|(file,source,name,a,b)| json!({"path":file,"source":source,"symbol":name,"conflicting_definitions":[a,b]})).collect::<Vec<_>>(),"ambiguous_import_count":ambiguous.len(),"limits":"Static top-level function bindings in indexed JS/TS modules. Local ESM imports, named and star re-exports, and exact/single-wildcard paths from the nearest indexed tsconfig.json. Inherited configs, external packages, CommonJS and dynamic dispatch are outside coverage. Unknown star branches do not establish unique resolution. Ambiguous extensionless targets are omitted."}),
     )
 }
 
@@ -486,6 +708,94 @@ mod tests {
         let result = trace(&mut index, root, "formatQuote", "two.ts");
         assert_eq!(result["matches"][2]["line"], 6);
         assert_eq!(result["matches"][2]["local_name"], "other");
+    }
+
+    #[test]
+    fn config_alias_to_star_barrel_reports_exact_lines_and_module_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("src/pricing")).unwrap();
+        fs::write(root.join("tsconfig.json"), r#"{// local paths
+          "compilerOptions":{"baseUrl":"src","paths":{"@/*":["missing/*","*"],"@/pricing/*":["pricing/*"],},},}"#).unwrap();
+        fs::write(
+            root.join("src/pricing/index.ts"),
+            "export * from './quote';",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/pricing/quote.ts"),
+            "// source\nexport function formatQuote(){}",
+        )
+        .unwrap();
+        fs::write(
+            root.join("ui.ts"),
+            "import {formatQuote as show} from '@/pricing';\n\nshow();",
+        )
+        .unwrap();
+        let mut index = Index::default();
+        let res = trace(&mut index, root, "formatQuote", "");
+        assert_eq!(res["total_matches"], 3, "{res}");
+        assert_eq!(res["matches"][0]["line"], 2);
+        let call = &res["matches"][2];
+        assert_eq!(call["role"], "call");
+        assert_eq!(call["line"], 3);
+        assert_eq!(
+            call["module_chain"],
+            json!(["ui.ts", "src/pricing/index.ts", "src/pricing/quote.ts"])
+        );
+        fs::write(
+            root.join("tsconfig.json"),
+            r#"{"compilerOptions":{"paths":{"@/pricing":["missing"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            trace(&mut index, root, "formatQuote", "")["total_matches"],
+            1
+        );
+    }
+
+    #[test]
+    fn stars_resolve_cycles_and_diamonds_and_refuse_conflicts_or_unknown_branches() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for (file, body) in [
+            ("ui.js", "import {f} from './index.js'; f();"),
+            ("one.js", "export function f(){}"),
+            ("two.js", "export function f(){}"),
+            (
+                "left.js",
+                "export * from './index.js'; export * from './one.js';",
+            ),
+            ("right.js", "export {f} from './one.js';"),
+            (
+                "index.js",
+                "export * from './left.js'; export * from './right.js';",
+            ),
+        ] {
+            fs::write(root.join(file), body).unwrap();
+        }
+        let mut index = Index::default();
+        assert_eq!(trace(&mut index, root, "f", "one.js")["total_matches"], 3);
+        fs::write(root.join("right.js"), "export * from './two.js';").unwrap();
+        let conflict = trace(&mut index, root, "f", "");
+        assert_eq!(conflict["total_matches"], 2);
+        assert_eq!(conflict["ambiguous_imports"][0]["path"], "ui.js");
+        fs::write(
+            root.join("index.js"),
+            "export * from './left.js'; export {f} from './two.js';",
+        )
+        .unwrap();
+        assert_eq!(trace(&mut index, root, "f", "two.js")["total_matches"], 3);
+        fs::write(
+            root.join("index.js"),
+            "export * from './one.js'; export * from 'unindexed';",
+        )
+        .unwrap();
+        assert_eq!(trace(&mut index, root, "f", "one.js")["total_matches"], 1);
+        fs::write(root.join("one.js"), "export default function f(){}").unwrap();
+        fs::write(root.join("ui.js"), "import f from './index.js'; f();").unwrap();
+        fs::write(root.join("index.js"), "export * from './one.js';").unwrap();
+        assert_eq!(trace(&mut index, root, "f", "one.js")["total_matches"], 1);
     }
 
     #[test]

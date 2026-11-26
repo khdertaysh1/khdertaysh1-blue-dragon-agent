@@ -44,6 +44,7 @@ oxc_semantic = "=0.75.0"
 oxc_span = "=0.75.0"
 oxc_ast = "=0.75.0"
 oxc_syntax = "=0.75.0"
+jsonc-parser = { version = "0.26.3", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3"

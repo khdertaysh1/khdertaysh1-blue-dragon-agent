@@ -146,9 +146,12 @@ offset and workspace fingerprint.
 
 The index hashes current workspace files before reusing module facts. Oxc
 resolves lexical identities locally, including import aliases and shadowed
-names. Relative ES module imports, namespace member calls and explicit named
-re-exports link across indexed files. The trace covers named top-level
-functions and function-valued variable declarations. Package aliases,
-export-star chains, dynamic dispatch and arbitrary TypeScript project
+names. Relative ES module imports, namespace member calls, named re-exports
+and star re-exports link across indexed files. Each match includes its module
+chain. Conflicting star exports appear in `ambiguous_imports`. The nearest
+indexed `tsconfig.json` can map exact and single-wildcard aliases through
+`compilerOptions.paths`, relative to its directory or its `baseUrl`. The trace covers named top-level
+functions and function-valued variable declarations. External packages,
+inherited tsconfig settings, dynamic dispatch and arbitrary TypeScript project
 configuration require separate analysis. Check coverage and skipped files
 before interpreting an empty result.

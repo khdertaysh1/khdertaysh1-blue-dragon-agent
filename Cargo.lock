@@ -182,6 +182,7 @@ dependencies = [
  "getrandom 0.4.3",
  "httparse",
  "ignore",
+ "jsonc-parser",
  "libc",
  "oxc_allocator",
  "oxc_ast",
@@ -1228,6 +1229,15 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.26.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d6d80e6d70e7911a29f3cf3f44f452df85d06f73572b494ca99a2cad3fcf8f4"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
