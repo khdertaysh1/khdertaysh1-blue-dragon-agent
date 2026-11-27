@@ -29,7 +29,6 @@ pub(crate) const TASK_APPROVAL: &str = "Approve this task";
 
 pub struct ToolBox {
     task_approved: bool,
-    single_prompt: bool,
     root: PathBuf,
     pub scope: crate::scope::Policy,
     approval: ApprovalMode,
@@ -48,7 +47,6 @@ impl ToolBox {
         Self {
             root,
             task_approved: false,
-            single_prompt: true,
             user_declined: std::sync::atomic::AtomicBool::new(false),
             scope: crate::scope::Policy::default(),
             approval,
@@ -464,13 +462,7 @@ impl ToolBox {
         if matches!(self.approval, ApprovalMode::ReadOnly) {
             return Ok(true);
         }
-        self.single_prompt = std::env::var("BLUE_DRAGON_STEP_PROMPTS").as_deref() != Ok("1");
-        let extra = if self.single_prompt {
-            "Operations outside this grant stop without another prompt."
-        } else {
-            "Operations outside this grant ask separately."
-        };
-        let detail = format!("This request only: workspace edits, Python unittest and cargo test (execute project code), browser navigation and reads, scoped or loopback GETs, captured file saves, and normal form controls on loopback pages or within mutation scope. {extra}\n\nWorkspace: {}\nRequest: {prompt}", self.root.display());
+        let detail = format!("This request only: workspace edits, Python unittest and cargo test (execute project code), browser navigation and reads, scoped or loopback GETs, captured file saves, and normal form controls on loopback pages or within mutation scope. Other operations ask separately before execution.\n\nWorkspace: {}\nRequest: {prompt}", self.root.display());
         self.task_approved = self.approve(TASK_APPROVAL, &detail)?;
         Ok(self.task_approved)
     }
@@ -508,9 +500,6 @@ impl ToolBox {
         }
         if matches!(&self.approval, ApprovalMode::ReadOnly) {
             return Ok(false);
-        }
-        if self.task_approved && self.single_prompt {
-            anyhow::bail!("outside_task_grant: {action}. This operation was not dispatched. Do not retry during this task.");
         }
         if let ApprovalMode::Tui(sender) = &self.approval {
             if action != TASK_APPROVAL && detail.len() > 8_000 {
@@ -1211,20 +1200,19 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
         let mut tools = ToolBox::new(root.path().into(), ApprovalMode::Tui(tx));
         let approvals = std::thread::spawn(move || {
-            for (prompt, accept) in [("first", true), ("second", false)] {
+            for (action, detail, accept) in [
+                (TASK_APPROVAL, "first", true),
+                ("Unlisted operation", "fixture", true),
+                (TASK_APPROVAL, "second", false),
+            ] {
                 let r = rx.recv_timeout(Duration::from_secs(3)).unwrap();
-                assert_eq!(r.action, TASK_APPROVAL);
-                assert!(r.detail.ends_with(prompt));
+                assert_eq!(r.action, action);
+                assert!(r.detail.ends_with(detail));
                 r.respond_to.send(accept).unwrap();
             }
         });
         assert!(tools.begin_task_approval("first").unwrap());
-        tools.single_prompt = true;
-        assert!(tools
-            .approve("Unlisted operation", "fixture")
-            .unwrap_err()
-            .to_string()
-            .contains("outside_task_grant"));
+        assert!(tools.approve("Unlisted operation", "fixture").unwrap());
         tools.create_directory("src").unwrap();
         tools.write_file("src/first.txt", "example").unwrap();
         assert_eq!(

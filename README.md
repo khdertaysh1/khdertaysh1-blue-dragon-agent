@@ -26,7 +26,7 @@ The release includes platform binaries, SHA-256 checksums and browser extensions
 
 ## Task approval
 
-The terminal asks once at the start of each interactive request. The approval covers workspace edits, supported test runners, browser reads, captured file saves and normal page controls on loopback or within configured mutation scope. A step outside the displayed grant returns `outside_task_grant` without opening another dialog. To use individual prompts for additional operations, start the terminal with `BLUE_DRAGON_STEP_PROMPTS=1 blue-dragon tui`. Each new request starts with a new approval.
+The terminal asks once at the start of each interactive request. The approval covers workspace edits, supported test runners, browser reads, captured file saves and normal page controls on loopback or within configured mutation scope. When an operation needs separate permission, the terminal shows the action and asks before executing it. Approving it lets the task proceed. Each new request starts with a new approval.
 
 ## Graphical workspace
 
