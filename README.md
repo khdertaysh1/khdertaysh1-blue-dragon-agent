@@ -24,6 +24,10 @@ curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon
 
 The release includes platform binaries, SHA-256 checksums and browser extensions. For a first session on your phone, follow the Termux walkthrough. [Downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.4) · [Termux walkthrough](docs/FIRST_SESSION.md) · [Install and update](docs/INSTALL.md)
 
+## Task approval
+
+The terminal asks once at the start of each interactive request. The approval covers workspace edits, supported test runners, browser reads, captured file saves and normal page controls on loopback or within configured mutation scope. A step outside the displayed grant returns `outside_task_grant` without opening another dialog. To use individual prompts for additional operations, start the terminal with `BLUE_DRAGON_STEP_PROMPTS=1 blue-dragon tui`. Each new request starts with a new approval.
+
 ## Graphical workspace
 
 Run `blue-dragon gui` in your project directory on Windows, Linux or macOS. On Android, run `blue-dragon tui` in Termux. The Android `gui` alias also opens the terminal. Type `/steps` there to expand or collapse tool activity. On desktop this opens a native Blue Dragon window. Choose **Open project** to switch workspaces, or **Sessions** to resume a conversation. The next launch restores the last desktop session. Open a relative file reference such as `src/main.rs:16` in a reply to see the highlighted source line. Use `gui --no-open` for the private web client. The Linux Debian package adds an Applications entry and the macOS package installs Blue Dragon.app. On Windows, run `.\blue-dragon.exe gui` or register the executable with `.\scripts\register-desktop.ps1 -Binary .\blue-dragon.exe` from a source checkout.

@@ -68,7 +68,10 @@ fn task_dom_read(expression: &str) -> bool {
     let Some((call, property)) = expression.rsplit_once(").") else {
         return false;
     };
-    if !matches!(property, "value" | "textContent" | "innerText") {
+    if !matches!(
+        property,
+        "value" | "textContent" | "innerText" | "src" | "currentSrc" | "open" | "selectedIndex"
+    ) {
         return false;
     }
     let Some(literal) = call.strip_prefix("document.querySelector(") else {
@@ -526,7 +529,6 @@ impl Browser {
             self.scope.check(&url, "read")?;
         }
         self.check_save_document_origin(&url)?;
-        let local_page = Self::loopback_lab_url(&url);
         let missing_parent = tools.missing_response_parent(path)?;
         if missing_parent.is_none() {
             tools.check_browser_save_destination(path)?;
@@ -538,8 +540,8 @@ impl Browser {
             json!(id),
             json!(path)
         );
-        let approved = if let Some(parent) = missing_parent.as_ref().filter(|_| !local_page) {
-            tools.approve(
+        let approved = if let Some(parent) = missing_parent.as_ref() {
+            tools.approve_task_step(
                 "Save observed response in a new workspace directory",
                 &format!("{detail}\nCreate directory: {}", json!(parent)),
             )?
@@ -577,7 +579,7 @@ impl Browser {
             self.check_save_document_origin(&url)?;
         }
         let mut result = tools.persist_browser_response(path, &bytes)?;
-        if local_page {
+        if Self::loopback_lab_url(&url) {
             result["local_read"] = json!({"tool":"read_file_window","arguments":{
                 "path":result["path"],"byte_offset":0,"byte_count":bytes.len().min(4096)
             }});
@@ -742,27 +744,35 @@ impl Browser {
                 self.scope.check(url, operation)?;
             }
         }
+        let task_control = matches!(
+            action,
+            "fill" | "click" | "select" | "set_checked" | "scroll"
+        );
+        let local_candidate = task_control
+            && args.get("frame_selector").is_none()
+            && (self.scope.enabled || tools.has_task_approval());
         let mut form_doc = None;
-        if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
-            if matches!(action, "fill" | "click" | "select" | "set_checked")
-                && args.get("frame_selector").is_none()
-            {
-                let page = self.raw("evaluate", &json!({"expression":"location.href"}))?;
-                let url = page.as_str().context("Current tab URL unavailable")?;
-                if let Err(error) = self.scope.check(url, operation) {
-                    if !Self::loopback_lab_url(url) || self.scope.check(url, "read").is_err() {
-                        return Err(error);
-                    }
+        if local_candidate {
+            let page = self.raw("evaluate", &json!({"expression":"location.href"}))?;
+            let url = page.as_str().context("Current tab URL unavailable")?;
+            let mutation_scope = self.scope.check(url, operation);
+            if mutation_scope.is_err() || !self.scope.enabled {
+                if Self::loopback_lab_url(url)
+                    && self.scope.check(url, "read").is_ok()
+                    && (action != "scroll" || tools.has_task_approval())
+                {
                     let identity = self.raw("document_identity", &json!({}))?;
                     anyhow::ensure!(
                         identity[0] == page && identity[1].as_str().is_some_and(|s| !s.is_empty()),
                         "Page changed before approval"
                     );
                     form_doc = Some((url.to_owned(), identity));
+                } else {
+                    mutation_scope?;
                 }
-            } else {
-                self.check_document_scope(args, operation)?;
             }
+        } else if self.scope.enabled && !matches!(action, "open" | "navigate" | "close") {
+            self.check_document_scope(args, operation)?;
         }
 
         let automatic_read = self.inspection_grant
@@ -798,11 +808,7 @@ impl Browser {
                     action,
                     "snapshot" | "wait_for" | "network" | "console" | "source" | "screenshot"
                 )
-                || (self.scope.enabled
-                    && matches!(
-                        action,
-                        "fill" | "select" | "click" | "set_checked" | "scroll"
-                    ))
+                || (self.scope.enabled && task_control)
                 || approved_dom_read);
         if let Some((url, identity)) = &form_doc {
             let key = (url.clone(), action.to_owned());
@@ -1232,6 +1238,46 @@ mod tests {
         ));
         approval.join().unwrap();
         worker.join().unwrap();
+    }
+
+    #[test]
+    fn one_task_prompt_covers_loopback_select_click_and_read_without_a_scope_command() {
+        let root = tempfile::tempdir().unwrap();
+        let mut browser = Browser::new(root.path());
+        browser.command("start 0").unwrap();
+        let url = "http://127.0.0.1:41135/";
+        let identity = json!([url, "order-preview"]);
+        let mut calls = Vec::new();
+        for (action, result) in [
+            ("select", json!({"matched":true})),
+            ("click", json!({"clicked":true})),
+        ] {
+            calls.extend([
+                ("evaluate", Some(json!(url))),
+                ("document_identity", Some(identity.clone())),
+                ("document_identity", Some(identity.clone())),
+                (action, Some(result)),
+            ]);
+        }
+        calls.push(("evaluate", Some(json!("90 credits"))));
+        let transport = extension_fixture(&browser, calls);
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        let mut tools = ToolBox::new(root.path().into(), crate::tools::ApprovalMode::Tui(tx));
+        let prompt = std::thread::spawn(move || {
+            let only = rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
+            assert_eq!(only.action, crate::tools::TASK_APPROVAL);
+            only.respond_to.send(true).unwrap();
+        });
+        assert!(tools.begin_task_approval("Test the calculator").unwrap());
+        for args in [
+            json!({"action":"select","selector":"#plan","value":"excluded"}),
+            json!({"action":"click","selector":"#calculate"}),
+            json!({"action":"evaluate","expression":"document.querySelector('#due').textContent"}),
+        ] {
+            assert_eq!(browser.invoke(&tools, &args).unwrap()["ok"], true);
+        }
+        prompt.join().unwrap();
+        transport.join().unwrap();
     }
 
     #[test]

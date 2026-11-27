@@ -29,6 +29,7 @@ pub(crate) const TASK_APPROVAL: &str = "Approve this task";
 
 pub struct ToolBox {
     task_approved: bool,
+    single_prompt: bool,
     root: PathBuf,
     pub scope: crate::scope::Policy,
     approval: ApprovalMode,
@@ -47,6 +48,7 @@ impl ToolBox {
         Self {
             root,
             task_approved: false,
+            single_prompt: true,
             user_declined: std::sync::atomic::AtomicBool::new(false),
             scope: crate::scope::Policy::default(),
             approval,
@@ -462,7 +464,13 @@ impl ToolBox {
         if matches!(self.approval, ApprovalMode::ReadOnly) {
             return Ok(true);
         }
-        let detail = format!("This request only: workspace edits, Python unittest and cargo test (execute project code), browser navigation and reads, captured file saves and scoped form controls. Other commands, arbitrary JavaScript and external integrations require separate approval.\n\nWorkspace: {}\nRequest: {prompt}", self.root.display());
+        self.single_prompt = std::env::var("BLUE_DRAGON_STEP_PROMPTS").as_deref() != Ok("1");
+        let extra = if self.single_prompt {
+            "Operations outside this grant stop without another prompt."
+        } else {
+            "Operations outside this grant ask separately."
+        };
+        let detail = format!("This request only: workspace edits, Python unittest and cargo test (execute project code), browser navigation and reads, scoped or loopback GETs, captured file saves, and normal form controls on loopback pages or within mutation scope. {extra}\n\nWorkspace: {}\nRequest: {prompt}", self.root.display());
         self.task_approved = self.approve(TASK_APPROVAL, &detail)?;
         Ok(self.task_approved)
     }
@@ -500,6 +508,9 @@ impl ToolBox {
         }
         if matches!(&self.approval, ApprovalMode::ReadOnly) {
             return Ok(false);
+        }
+        if self.task_approved && self.single_prompt {
+            anyhow::bail!("outside_task_grant: {action}. This operation was not dispatched. Do not retry during this task.");
         }
         if let ApprovalMode::Tui(sender) = &self.approval {
             if action != TASK_APPROVAL && detail.len() > 8_000 {
@@ -738,7 +749,8 @@ impl ToolBox {
         {
             anyhow::bail!("Use HTTPS, or loopback HTTP; no URL credentials or fragments");
         }
-        if !self.approve("Fetch URL (GET, no browser session)", raw)? {
+        let approved_get = self.has_task_approval() && (local || self.scope.enabled);
+        if !approved_get && !self.approve("Fetch URL (GET, no browser session)", raw)? {
             return Ok(
                 json!({"ok":false,"denied":true,"status":"denied by user","category":"denied","execution_status":"not_executed"}),
             );
@@ -1207,6 +1219,12 @@ mod tests {
             }
         });
         assert!(tools.begin_task_approval("first").unwrap());
+        tools.single_prompt = true;
+        assert!(tools
+            .approve("Unlisted operation", "fixture")
+            .unwrap_err()
+            .to_string()
+            .contains("outside_task_grant"));
         tools.create_directory("src").unwrap();
         tools.write_file("src/first.txt", "example").unwrap();
         assert_eq!(
