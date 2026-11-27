@@ -13,7 +13,7 @@ import threading
 def run(binary, conflict=False):
     barrier = threading.Barrier(3)
     errors = []
-    original = {"calc.py": "def double(x): return x\n", "check.py": "pass\n"}
+    original = {"calc.py": "def double(x): return x\n"}
     changed = {"calc.py": "def double(x): return 2*x\n",
                "check.py": "from calc import double\nassert double(3) == 6\n"}
     plan = [{"task": name, "kind": kind, "after": deps} for name, kind, deps in
@@ -42,7 +42,7 @@ def run(binary, conflict=False):
                             barrier.wait(12)
                         if path:
                             args = {"files": [{"path": path, "content": changed[path],
-                                               "expected_sha256": hashlib.sha256(original[path].encode()).hexdigest()}]}
+                                               "expected_sha256": (hashlib.sha256(original[path].encode()).hexdigest() if path in original else "absent")}]}
                             answer["tool_calls"] = [{"type": "function", "id": "change", "function": {
                                 "name": "agent_propose_edits", "arguments": json.dumps(args)}}]
                 data = json.dumps({"choices": [{"message": answer}]}).encode()
@@ -69,9 +69,9 @@ def run(binary, conflict=False):
             (project / "check.py").write_bytes(b"# local edit\n")
         threading.Thread(target=server.serve_forever, daemon=True).start()
         command = json.dumps([sys.executable, "check.py"])
-        # One planner, four delegates, two trial patches, two trial checks,
-        # two workspace patches and one final workspace check.
-        approvals = 9 if conflict else 12
+        # One planner, four delegates, two trial checks,
+        # one combined workspace patch and one final workspace check.
+        approvals = 7 if conflict else 9
         proc = subprocess.run([binary, "--root", str(project), "--base-url",
                                f"http://127.0.0.1:{server.server_port}/v1", "--model", "fixture",
                                "--no-stream", "--no-rotation", "chat"],
@@ -82,6 +82,9 @@ def run(binary, conflict=False):
         assert not errors, errors
         output = proc.stdout + proc.stderr
         assert proc.returncode == 0 and '"phase": "implementation"' in output, output[-5000:]
+        if not conflict:
+            assert output.count('"phase": "workspace_apply"') == 1, output[-5000:]
+            assert '"isolated_checkout_updated": true' in str(output).replace('\\"','"') or '"trial_checkout_updated": true' in output
         assert git("worktree", "list", "--porcelain").count("worktree ") == 1
         if conflict:
             assert '"verified": false' in output, output[-5000:]

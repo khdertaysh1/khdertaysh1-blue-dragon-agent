@@ -305,11 +305,19 @@ impl Agent {
     }
     pub fn select_model(&mut self, input: &str) -> Result<String> {
         let words: Vec<_> = input.split_whitespace().collect();
-        if words.is_empty() || words.len() > 2 {
-            anyhow::bail!("Use /model PROVIDER [MODEL_ID]");
+        if words.is_empty() || words.len() > 3 {
+            anyhow::bail!("Use /model PROVIDER [MODEL_ID [KEY_SLOT]]");
         }
-        let selection = crate::models::Selection::new(words[0], words.get(1).copied())?;
-        let provider = Provider::new(selection.base(), selection.model.clone(), None)?
+        let mut selection = crate::models::Selection::new(words[0], words.get(1).copied())?;
+        if let Some(slot) = words.get(2) {
+            anyhow::ensure!(
+                selection.key_slot.is_some(),
+                "This provider uses no key slots"
+            );
+            selection.key_slot = Some(slot.parse()?);
+        }
+        let key = selection.credential()?;
+        let provider = Provider::new(selection.base(), selection.model.clone(), key.clone())?
             .coordinated(
                 self.settings
                     .sessions_dir
@@ -333,7 +341,7 @@ impl Agent {
         self.context_ceiling = None;
         self.settings.base_url = selection.base().into();
         self.settings.model = selection.model.clone();
-        self.settings.api_key = None;
+        self.settings.api_key = key;
         self.rotation = crate::rotation::Rotation::new(
             self.settings.free_rotation
                 && selection.provider == "kilo"
@@ -1669,6 +1677,7 @@ impl Agent {
             && actions.is_empty();
         let mut budget_report = false;
         let mut initial_limit_retry = false;
+        let mut replaced_rejected_key = false;
         let step_limit = if structured {
             self.settings.max_steps.min(8)
         } else {
@@ -2361,6 +2370,30 @@ impl Agent {
                         else {
                             return Err(error);
                         };
+                        if failure.status == 401
+                            && self.settings.free_rotation
+                            && !replaced_rejected_key
+                            && std::env::var("BLUE_DRAGON_KEY_ROTATION").as_deref() == Ok("1")
+                        {
+                            if let Some(next) = self.settings.api_key.as_deref().and_then(|key| {
+                                crate::models::Selection::next_key_slot(
+                                    &self.settings.base_url,
+                                    &self.settings.model,
+                                    key,
+                                )
+                            }) {
+                                let selected = self.select_model(&format!(
+                                    "{} {} {}",
+                                    next.provider,
+                                    next.model,
+                                    next.key_slot.unwrap()
+                                ))?;
+                                self.output(AgentEvent::Notice(format!("Credential rejected. Switched to the next configured slot on the same endpoint. {selected}")));
+                                replaced_rejected_key = true;
+                                previous_projection = None;
+                                continue;
+                            }
+                        }
                         if failure.status == 429
                             && self.switch_quota_provider(&mut tried_providers)?
                         {

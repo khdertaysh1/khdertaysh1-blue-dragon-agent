@@ -36,7 +36,21 @@ impl Provider {
                 "Kilo free access requires a free model ID and no credential; use --provider kilo"
             );
         }
-        let anthropic = parsed.host_str() == Some("api.anthropic.com");
+        let anthropic = parsed.host_str() == Some("api.anthropic.com")
+            || (std::env::var("BLUE_DRAGON_ANTHROPIC_ENDPOINT")
+                .ok()
+                .as_deref()
+                == Some(base_url)
+                && !matches!(
+                    parsed.host_str(),
+                    Some(
+                        "ai-gateway.kilo.ai"
+                            | "api.kilo.ai"
+                            | "api.jarvisclaw.ai"
+                            | "openrouter.ai"
+                            | "api.openai.com"
+                    )
+                ));
         let url = if anthropic {
             format!("{}/messages", base_url)
         } else {

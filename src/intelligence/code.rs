@@ -23,7 +23,31 @@ pub struct Item {
     pub end_line: usize,
     pub scope: String,
 }
+#[derive(Default)]
+struct TermLines {
+    count: usize,
+    first: Vec<(u32, u32)>,
+}
+type Postings = BTreeMap<String, TermLines>;
+
+fn postings(body: &str) -> Postings {
+    let mut index = Postings::new();
+    let mut offset = 0;
+    for (line_no, line) in body.split_inclusive('\n').enumerate() {
+        for term in tokens(line.trim_end_matches(['\r', '\n'])) {
+            let posting = index.entry(term).or_default();
+            posting.count += 1;
+            if posting.first.len() < 5 {
+                posting.first.push((line_no as u32 + 1, offset as u32));
+            }
+        }
+        offset += line.len();
+    }
+    index
+}
+
 struct File {
+    lines: std::sync::OnceLock<Postings>,
     bindings: std::sync::OnceLock<Option<bindings::Module>>,
     trace_depth_ok: bool,
     hash: String,
@@ -395,6 +419,16 @@ impl Index {
             self.root = root.clone();
         }
         let started = Instant::now();
+        let scale = std::env::var("BLUE_DRAGON_INDEX_SCALE")
+            .ok()
+            .map(|value| value.parse::<usize>())
+            .transpose()
+            .context("Invalid BLUE_DRAGON_INDEX_SCALE")?
+            .unwrap_or(1);
+        anyhow::ensure!(
+            (1..=4).contains(&scale),
+            "BLUE_DRAGON_INDEX_SCALE must be 1..4"
+        );
         let mut current = BTreeSet::new();
         let mut bytes_read = 0;
         let mut entries = 0;
@@ -417,9 +451,9 @@ impl Index {
         });
         for entry in walker.build() {
             entries += 1;
-            if entries > 4000
-                || current.len() >= MAX_FILES
-                || started.elapsed() > Duration::from_secs(3)
+            if entries > 4000 * scale
+                || current.len() >= MAX_FILES * scale
+                || started.elapsed() > Duration::from_secs(3 * scale as u64)
             {
                 limited = true;
                 break;
@@ -453,7 +487,7 @@ impl Index {
             }
             let file = fs::File::open(&canonical)?;
             let size = file.metadata()?.len() as usize;
-            if size > MAX_FILE || bytes_read + size > MAX_BYTES {
+            if size > MAX_FILE || bytes_read + size > MAX_BYTES * scale {
                 skipped += 1;
                 limited = true;
                 continue;
@@ -483,6 +517,7 @@ impl Index {
             self.files.insert(
                 path,
                 File {
+                    lines: Default::default(),
                     trace_depth_ok,
                     bindings: Default::default(),
                     hash: digest,
@@ -504,7 +539,7 @@ impl Index {
         }
         self.fingerprint = format!("{:x}", snapshot.finalize());
         self.complete = !limited;
-        self.coverage = json!({"indexed_files":self.files.len(),"bytes_read":bytes_read,"parses_rebuilt":parsed,"parses_reused":reused,"large_files_skipped":skipped,"limited":limited,"structure_limited_files":self.files.values().filter(|f|f.structure_limited).count(),"max_files":MAX_FILES,"max_file_bytes":MAX_FILE,"max_total_bytes":MAX_BYTES,"depth_limit":12,"snapshot_scope":"eligible text/source files; gitignore, secret/binary exclusions and resource limits apply"});
+        self.coverage = json!({"indexed_files":self.files.len(),"bytes_read":bytes_read,"parses_rebuilt":parsed,"parses_reused":reused,"large_files_skipped":skipped,"limited":limited,"structure_limited_files":self.files.values().filter(|f|f.structure_limited).count(),"max_files":MAX_FILES*scale,"max_file_bytes":MAX_FILE,"max_total_bytes":MAX_BYTES*scale,"depth_limit":12,"snapshot_scope":"eligible text/source files; gitignore, secret/binary exclusions and resource limits apply"});
         Ok(self.coverage.clone())
     }
     pub fn search(&mut self, root: &Path, args: &Value) -> Result<Value> {
@@ -567,17 +602,23 @@ impl Index {
             if kind != "code" && item_hits.is_empty() {
                 continue;
             }
-            let mut snippets = Vec::new();
+            let index = file.lines.get_or_init(|| postings(&file.body));
+            let mut first = BTreeSet::new();
             let mut line_score = 0;
-            for (line_no, line) in file.body.lines().enumerate() {
-                let overlap = tokens(line).intersection(&terms).count();
-                if overlap > 0 {
-                    line_score += overlap;
-                    if snippets.len() < 5 {
-                        snippets.push(json!({"line":line_no+1,"text":line.chars().take(240).collect::<String>()}));
-                    }
+            for term in &terms {
+                if let Some(locations) = index.get(term) {
+                    line_score += locations.count;
+                    first.extend(locations.first.iter().copied());
                 }
             }
+            let snippets = first
+                .into_iter()
+                .take(5)
+                .map(|(line, offset)| {
+                    let text = file.body[offset as usize..].lines().next().unwrap_or("");
+                    json!({"line":line,"text":text.chars().take(240).collect::<String>()})
+                })
+                .collect::<Vec<_>>();
             let score = name_words.intersection(&terms).count() * 8
                 + item_hits.len() * 4
                 + line_score.min(20);

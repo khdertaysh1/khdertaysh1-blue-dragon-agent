@@ -48,6 +48,10 @@ Selections are stored as provider/model names in `model.json`, never from reposi
 | `jarvis` | `auto/free` | None |
 | `ollama` | Installed model with tools | None; local server required |
 
+Select a personal-key route with `/model openrouter MODEL`, `/model openai MODEL` or `/model anthropic MODEL`. Set the corresponding `OPENROUTER_API_KEY`, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the launching shell. The saved selection stores the provider, model and slot number. To rotate within the same provider, set e.g. `OPENROUTER_API_KEY_2` and select `/model openrouter MODEL 2`. Slots 1–16 are supported. With `BLUE_DRAGON_KEY_ROTATION=1`, a main conversation can advance once per turn to the next configured slot on an HTTP 401 before response content arrives. A 429 follows the existing cooldown and quota handling. The free routes keep using anonymous requests.
+
+For a compatible custom server, select its API base with `--base-url` and its model with `--model`. To authenticate, set `BLUE_DRAGON_KEY_ENDPOINT` to the exact base URL (without a trailing slash) and set `BLUE_DRAGON_API_KEY`. Set `BLUE_DRAGON_ANTHROPIC_ENDPOINT` to that same base to use the Messages protocol. The default protocol sends Chat Completions requests. HTTPS is required outside loopback.
+
 Custom keyless endpoints can be selected with `--base-url` and `--model`. A saved selection for a removed provider prompts the operator to choose a keyless replacement.
 
 ## Data handling and validation

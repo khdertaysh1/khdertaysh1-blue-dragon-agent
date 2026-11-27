@@ -47,7 +47,7 @@ Use **Sessions** to choose a workspace or continue a saved conversation. Message
 
 | Area | What is currently available |
 |:--|:--|
-| **AI providers** | Direct keyless Kilo and JarvisClaw gateways, user-selected quota fallback, local Ollama |
+| **AI providers** | Direct keyless Kilo and JarvisClaw gateways, user-selected quota fallback, local Ollama, personal-key OpenAI, Anthropic and OpenRouter routes |
 | **Workspace intelligence** | Tree-sitter symbols/imports/syntactic references for Rust, Python, JS and TS/TSX; bounded ranked local code search and exact file reads |
 | **Code changes** | Targeted exact-match edit and full text-file write, both behind diff approval |
 | **Git inspection** | Working-tree status and unstaged diff |
@@ -86,3 +86,10 @@ cargo clippy --locked --all-targets -- -D warnings
 ```
 
 Start a source build with `./target/release/blue-dragon tui`. See the [architecture](docs/ARCHITECTURE.md), [documentation index](docs/README.md), [release history](docs/RELEASE_NOTES.md), and [third-party notices](third_party/NOTICE.md).
+
+
+For a 30-turn continuity trial on a Termux device, run `python scripts/accept_context_continuity.py --field "$(command -v blue-dragon)"` from the source checkout. The trial uses temporary project and session directories, a local HTTP provider, a simulated 429 and a dropped connection. It checks saved reads and session continuity across three CLI processes with compact mode enabled.
+
+In `/swarm fix`, test and implementation workers can edit existing files and create tests inside assigned directories in detached Git checkouts. The parent tests the pinned changes in an integration checkout and presents the combined diff for one journaled workspace application. A stale base, overlapping changes, or a combined proposal beyond the bounded edit limits stops integration before the project write.
+
+Local code search caches a per-file inverted term index alongside Tree-sitter. Changed content rebuilds that file's postings. Set `BLUE_DRAGON_INDEX_SCALE=2` to double the default 500-file / 12 MB scan budget. Supported scale factors are 1 through 4. Each search reports the coverage it actually achieved.

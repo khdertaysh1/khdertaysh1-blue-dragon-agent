@@ -255,6 +255,10 @@ impl ToolBox {
         )
     }
 
+    pub(crate) fn new_file_path(&self, path: &str) -> Result<PathBuf> {
+        self.resolve(path, true)
+    }
+
     pub(crate) fn local_file_path(&self, path: &str) -> Result<PathBuf> {
         self.resolve(path, false)
     }

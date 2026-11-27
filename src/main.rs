@@ -290,7 +290,9 @@ fn run() -> Result<()> {
         Some(models::Selection::new(provider, args.model.as_deref())?)
     } else if let Some(mut saved) = models::load(&home)? {
         if let Some(model) = args.model.as_deref() {
+            let slot = saved.key_slot;
             saved = models::Selection::new(&saved.provider, Some(model))?;
+            saved.key_slot = slot;
         }
         Some(saved)
     } else {
@@ -317,6 +319,18 @@ fn run() -> Result<()> {
         .or(args.model)
         .unwrap_or_else(|| models::KILO_MODEL.into());
     let mut settings = Settings::new(root, base, model)?;
+    settings.api_key = if let Some(s) = &selection {
+        s.credential()?
+    } else if std::env::var("BLUE_DRAGON_KEY_ENDPOINT").ok().as_deref()
+        == Some(settings.base_url.as_str())
+    {
+        Some(
+            std::env::var("BLUE_DRAGON_API_KEY")
+                .context("Set BLUE_DRAGON_API_KEY for the bound endpoint")?,
+        )
+    } else {
+        None
+    };
     settings.mcp_config = args.mcp_config;
     settings.stream = !args.no_stream;
     settings.free_rotation = !args.no_rotation;
