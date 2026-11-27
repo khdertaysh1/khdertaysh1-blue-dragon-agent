@@ -1373,6 +1373,13 @@ impl Agent {
             let arabic = prompt
                 .chars()
                 .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c));
+            if let Some(m) = &self.session.mission {
+                let receipt = m.command_receipt(&self.session.task_checks, arabic);
+                if !receipt.is_empty() {
+                    summary.push('\n');
+                    summary.push_str(&receipt);
+                }
+            }
             for line in browser_outcomes(&actions, arabic) {
                 summary.push('\n');
                 summary.push_str(&line);
@@ -1644,6 +1651,8 @@ impl Agent {
         };
         let mut tried_providers = std::collections::BTreeSet::new();
         let mut quote_retry = false;
+        let mut final_quote_repair = false;
+        let mut reminded_check = false;
         let mut quota_recovery_used = false;
         let mut report_recovery = false;
         let mut can_finish_local_verification = false;
@@ -1673,6 +1682,7 @@ impl Agent {
             if step >= step_limit
                 && !(structured && report_repair_used)
                 && !capture_report_retry
+                && !final_quote_repair
                 && !recall_report_due
             {
                 break;
@@ -1685,8 +1695,13 @@ impl Agent {
             if !structured && !report_recovery && !actions.is_empty() && step + 1 == step_limit {
                 budget_report = true;
                 report_recovery = true;
-                self.session.messages.push(json!({"role":"user","content":
-                    "This is the final report round. Explain what was accomplished, what the recorded results show, and what remains unknown. No further tools."}));
+                let receipt = self
+                    .session
+                    .mission
+                    .as_ref()
+                    .map(|m| m.command_receipt(&self.session.task_checks, false))
+                    .unwrap_or_default();
+                self.session.messages.push(json!({"role":"user","content":format!("This is the final report round. Explain what was accomplished and what remains unverified. Report each recorded command attempt by evidence ID. Use observed amounts only. No further tools.\n{receipt}")}));
                 self.persist()?;
             }
             if !structured
@@ -2540,6 +2555,7 @@ impl Agent {
                     ) {
                         if !quote_retry && step < step_limit {
                             quote_retry = true;
+                            final_quote_repair = step + 1 == step_limit;
                             report_recovery = true;
                             self.session.messages.push(json!({"role":"user","content":format!("A source quotation did not match native file-read evidence ({ids}). Answer the original task using the observed results. Quote only exact substrings of the cited read. Omit optional code examples. No more tools.")}));
                             self.persist()?;
@@ -2584,6 +2600,8 @@ impl Agent {
                 if fresh["required"] == true && fresh["all_observed"] != true {
                     self.session.messages.push(message.clone());
                     if fresh_reviews == 0
+                        && !report_recovery
+                        && step + 1 < step_limit
                         && fresh["checks"].as_array().unwrap().iter().any(|r| {
                             r["state"] == "missing"
                                 || r["state"] == "stale"
@@ -2740,6 +2758,20 @@ impl Agent {
                         "Verified byte windows (end exclusive): {}",
                         json!(windows)
                     )));
+                }
+                if budget_report {
+                    if let Some(m) = &self.session.mission {
+                        let receipt = m.command_receipt(
+                            &self.session.task_checks,
+                            prompt
+                                .chars()
+                                .any(|c| ('\u{0600}'..='\u{06ff}').contains(&c)),
+                        );
+                        if !receipt.is_empty() {
+                            answer.push('\n');
+                            answer.push_str(&receipt);
+                        }
+                    }
                 }
                 if budget_report
                     && self.completion_state == "answer_returned_no_acceptance_contract"
@@ -3451,6 +3483,9 @@ impl Agent {
                 {
                     action["saved_file"] = json!({"path":result["path"],"bytes":result["bytes"],"evidence_id":result["evidence_id"]});
                 }
+                if name == "run_command" {
+                    action["evidence_id"] = result["evidence_id"].clone();
+                }
                 if name == "run_command" && result["command_outcome"] == "spawn_failure" {
                     action["spawn_program"] = guard_args["program"].clone();
                     action["spawn_reason"] = result["spawn_reason"].clone();
@@ -3509,8 +3544,16 @@ impl Agent {
                     && name == "run_command"
                     && argument_error.is_none()
                 {
-                    // Report the command outcome, including a failed start, without replaying it.
-                    report_recovery = true;
+                    let baseline_failed = result["command_outcome"] == "nonzero_exit"
+                        && self
+                            .session
+                            .task_checks
+                            .checks
+                            .iter()
+                            .any(|c| c.tool == name && c.arguments == guard_args)
+                        && crate::tool_selection::requests_local_edit(prompt);
+                    can_finish_local_verification = false;
+                    report_recovery = !baseline_failed;
                 }
                 if let Some(mission) = &mut self.session.mission {
                     let fingerprint = (!self.code_index.fingerprint.is_empty())
@@ -3547,6 +3590,29 @@ impl Agent {
             }
             if denial_violation {
                 anyhow::bail!("Stopped after user denial; no alternative action executed");
+            }
+            if !reminded_check && !user_denied_action && !report_recovery {
+                if let Some(mission) = &self.session.mission {
+                    let unrelated_failure =
+                        mission.last_command_attempt.as_ref().is_some_and(|a| {
+                            a["step"] == step + 1
+                                && a["outcome"] == "nonzero_exit"
+                                && !self
+                                    .session
+                                    .task_checks
+                                    .checks
+                                    .iter()
+                                    .enumerate()
+                                    .any(|(i, _)| mission.last_run_is(i, &a["evidence_id"]))
+                        });
+                    if unrelated_failure {
+                        let receipt = mission.command_receipt(&self.session.task_checks, false);
+                        if !receipt.is_empty() {
+                            self.session.messages.push(json!({"role":"user","content":format!("The failed command used different arguments from the declared check. Continue the original task. Once prerequisites are ready, use the exact registered command for verification. Preserve the baseline and diagnose its output before editing.\n{receipt}")}));
+                            reminded_check = true;
+                        }
+                    }
+                }
             }
             if let Some(index) = repeated_missing_browser_recall(actions) {
                 if prompt
@@ -3657,11 +3723,11 @@ impl Agent {
                             && !browser_only
                             && resumed.is_none()
                             && step + 2 < step_limit
-                            && !actions
-                                .iter()
-                                .rev()
-                                .take_while(|a| a.get("saved_file").is_none())
-                                .any(|a| a["tool"] == "run_command");
+                            && verification_pending_after_save(
+                                actions,
+                                &self.session.task_checks,
+                                self.session.mission.as_ref(),
+                            );
                         can_finish_local_verification = verification_pending;
                         report_recovery = !verification_pending;
                         let next = if verification_pending {
@@ -3686,6 +3752,27 @@ impl Agent {
 }
 
 /// A recovery report is not a successful task completion or a new finding.
+fn verification_pending_after_save(
+    actions: &[Value],
+    contract: &crate::intelligence::checks::Contract,
+    mission: Option<&crate::mission::Mission>,
+) -> bool {
+    let commands = || {
+        actions
+            .iter()
+            .rev()
+            .take_while(|a| a.get("saved_file").is_none())
+            .filter(|a| a["tool"] == "run_command")
+    };
+    if !contract.checks.iter().any(|c| c.tool == "run_command") {
+        return commands().next().is_none();
+    }
+    contract.checks.iter().enumerate().any(|(i, c)| {
+        c.tool == "run_command"
+            && !commands().any(|a| mission.is_some_and(|m| m.last_run_is(i, &a["evidence_id"])))
+    })
+}
+
 fn progress_receipt(
     prompt: &str,
     session: &session::Session,
@@ -6434,6 +6521,29 @@ mod tests {
         assert!(report.contains(action["evidence_id"].as_str().unwrap()));
         assert_eq!(server.join().unwrap().len(), 10);
     }
+    #[test]
+    fn final_round_quote_correction_gets_one_tool_free_answer() {
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("read", "read_file", json!({"path":"sample.js"})),
+            completion(json!({"role":"assistant","content":"The file calls `wrong()`."})),
+            completion(json!({"role":"assistant","content":"The file calls `right()`."})),
+        ]);
+        std::fs::write(root.path().join("sample.js"), "right()").unwrap();
+        agent.settings.max_steps = 2;
+        agent
+            .turn("Read sample.js and quote its exact statement.")
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        for request in &requests[1..] {
+            assert!(request["tools"].as_array().is_none_or(Vec::is_empty));
+        }
+        assert!(agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .contains("right()"));
+    }
+
     #[test]
     fn exhausted_history_budget_gets_one_tool_free_report_at_step_limit() {
         let mut replies = (0..9)

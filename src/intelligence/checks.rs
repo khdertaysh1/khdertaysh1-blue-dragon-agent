@@ -65,6 +65,20 @@ impl Contract {
         )
     }
     pub fn observe(&mut self, name: &str, args: &Value, result: &Value, proof: Proof) {
+        if proof.message_index > self.declared_at
+            && name == "run_command"
+            && result["execution_status"] == "completed"
+            && result["command_outcome"] == "nonzero_exit"
+            && result["exit_code"].as_i64().is_some_and(|code| code != 0)
+            && !crate::reasoning::claims::is_historical(result)
+            && !crate::reasoning::claims::unverified_execution(result)
+        {
+            for (check, slot) in self.checks.iter().zip(&mut self.observations) {
+                if check.tool == name && check.arguments == *args {
+                    *slot = None;
+                }
+            }
+        }
         if proof.message_index <= self.declared_at
             || result["ok"] == false
             || result["denied"] == true
