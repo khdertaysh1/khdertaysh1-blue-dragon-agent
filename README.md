@@ -60,7 +60,7 @@ Use **Sessions** to choose a workspace or continue a saved conversation. Message
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
 | **Real browser** | Connect via CDP or a paired Firefox/Chromium extension to inspect page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
-| **Parallel code review** | `/swarm PATH \| TASK` runs implementation and test reviewers concurrently and collects their evidence. |
+| **Parallel code review** | `/swarm PATH \| TASK` runs implementation and test reviewers concurrently and collects their evidence. In the same parent session, use `/swarm resume REVIEWER_ID` to finish an incomplete report from saved reads. A written report can be displayed again without contacting the provider. |
 | **JavaScript review** | Search saved source files, follow imports and named calls across cached modules, and inspect assignments within a function. Findings cite source locations and identify unresolved paths. |
 | **Recorded HTTP requests** | `/httpflow EVIDENCE_ID [OFFSET]` pages through network observations already captured by the browser. |
 | **Web search and desktop editor** | `/websearch WORDS` uses a configured JSON-enabled SearXNG instance. `/desktop open PATH` opens a workspace text file in an installed editor. |

@@ -687,6 +687,11 @@ impl Agent {
         crate::operator::run(line)
     }
     fn coding_swarm(&self, args: &str) -> Result<Value> {
+        if let Some(id) = args.strip_prefix("resume ") {
+            return self
+                .delegates
+                .resume_report(id.trim(), &self.provider, &self.cancelled);
+        }
         if args.trim() == "status" {
             return Ok(self.swarm_team()?.status());
         }

@@ -1,4 +1,5 @@
 //! Bounded independent read-only agent sessions, not background shell jobs.
+mod resume;
 use crate::{
     config::Settings,
     provider::Provider,
@@ -38,6 +39,8 @@ struct State {
     output: String,
     assignment: String,
     native_summary: bool,
+    provider_retry: Value,
+    resumed_report: Value,
     inbox: VecDeque<Value>,
     updates: Vec<Value>,
     evidence: Vec<Value>,
@@ -322,6 +325,8 @@ impl Manager {
                                 .as_str()
                                 .unwrap_or("")
                                 .to_owned(),
+                            provider_retry: saved.last_report["provider_retry"].clone(),
+                            resumed_report: saved.last_report["resumed_report"].clone(),
                             native_summary: saved.last_report["summary_is_model_authored"] == false,
                             failure: if terminal {
                                 saved.last_report["failure"].as_str().map(str::to_owned)
@@ -404,7 +409,7 @@ impl Manager {
     }
     pub fn status(&self) -> Value {
         let children = self.shared.children.lock().unwrap();
-        let rows=children.iter().map(|(id,c)|{let s=c.state.lock().unwrap();json!({"agent_id":id,"session_id":id,"parent_agent_id":s.parent_agent_id,"state":s.status,"summary":s.output,"failure":s.failure,"provider_requests":s.requests,"updates":s.updates,"evidence":s.evidence,"evidence_revalidation_rejected":s.evidence_revalidation_rejected,"evidence_omitted":s.evidence_omitted,"pending_messages":s.inbox.len(),"cancellation_requested":c.cancelled.load(Ordering::SeqCst),"assignment":s.assignment,"summary_is_model_authored":!s.native_summary,"semantic_claim_verified":false})}).collect::<Vec<_>>();
+        let rows=children.iter().map(|(id,c)|{let s=c.state.lock().unwrap();json!({"agent_id":id,"session_id":id,"parent_agent_id":s.parent_agent_id,"state":s.status,"summary":s.output,"failure":s.failure,"provider_requests":s.requests,"updates":s.updates,"evidence":s.evidence,"evidence_revalidation_rejected":s.evidence_revalidation_rejected,"evidence_omitted":s.evidence_omitted,"resumed_report":s.resumed_report,"pending_messages":s.inbox.len(),"cancellation_requested":c.cancelled.load(Ordering::SeqCst),"assignment":s.assignment,"provider_retry":s.provider_retry,"summary_is_model_authored":!s.native_summary,"semantic_claim_verified":false})}).collect::<Vec<_>>();
         let consistency = source_consistency(&rows);
         json!({"agents":rows,"source_consistency":consistency,"shared_provider_requests_remaining":self.shared.requests.load(Ordering::SeqCst),"shared_tool_calls_remaining":self.shared.calls.load(Ordering::SeqCst),"shared_output_bytes_remaining":self.shared.output.load(Ordering::SeqCst),"max_concurrency":self.live_limit,"max_agents":self.retained_limit,"mode":"independent_read_only_sessions","automatic_patch_merge":false,"summary_agreement":"not_assessed; preserve contradictory findings for parent review","browser_shared":false,"restart_policy":"No automatic restart; saved child sessions and parent observations are historical evidence only","limits":"Concurrency and retained-agent caps are reported above. Provider, tool-call and output budgets are shared and durably reserved across this team, including restart. Six turns/child and 90s work deadline; an in-flight provider call may take up to 15s more to stop. No child shell, writes, browser, MCP, external fetch or stdin approvals. Adaptive swarm workers may delegate one level of local reads in their own execution slot. Model summaries are untrusted; inspect original child evidence. Workspace guards are not OS process isolation."})
     }
@@ -826,7 +831,7 @@ impl Manager {
                     let result=worker.run(&state,&mut child_session);
                     let mut s=state.lock().unwrap();
                     if let Err(error)=result {s.status=if cancelled.load(Ordering::SeqCst)||parent_cancelled.load(Ordering::SeqCst)||shared.parent_cancelled.lock().unwrap().load(Ordering::SeqCst){"cancelled"}else{"incomplete"}.into();s.failure=Some(crate::reasoning::context::clip(&error.to_string(),1000));s.partial_report();} else {s.status="completed".into();}
-                    child_session.last_report=json!({"state":s.status,"failure":s.failure,"provider_requests":s.requests,"assignment":s.assignment,"summary_is_model_authored":!s.native_summary,"summary":s.output});
+                    child_session.last_report=json!({"state":s.status,"failure":s.failure,"provider_requests":s.requests,"assignment":s.assignment,"provider_retry":s.provider_retry,"summary_is_model_authored":!s.native_summary,"summary":s.output});
                     if session::save(&directory,&mut child_session).is_err(){s.status="incomplete".into();s.failure=Some("Could not save independent child checkpoint".into());}
                 });
                 if spawn.is_err() {
@@ -1045,7 +1050,7 @@ impl Worker<'_> {
         if s.failure.is_some() {
             s.partial_report();
         }
-        leaf.last_report = json!({"parent_agent_id":parent.id,"state":s.status,"failure":s.failure,"provider_requests":s.requests,"summary":s.output,"assignment":s.assignment,"summary_is_model_authored":!s.native_summary});
+        leaf.last_report = json!({"parent_agent_id":parent.id,"state":s.status,"failure":s.failure,"provider_requests":s.requests,"summary":s.output,"assignment":s.assignment,"provider_retry":s.provider_retry,"summary_is_model_authored":!s.native_summary});
         if let Err(e) = session::save(self.directory, &mut leaf) {
             s.status = "incomplete".into();
             s.failure = Some("Subtask checkpoint failed".into());
@@ -1053,7 +1058,7 @@ impl Worker<'_> {
         }
         let evidence: Vec<_> = s.evidence.iter().map(|e| &e["evidence_id"]).collect();
         Ok(
-            json!({"ok":s.status=="completed","agent_id":leaf.id,"parent_agent_id":parent.id,"state":s.status,"failure":s.failure,"summary":s.output,"assignment":s.assignment,"summary_is_model_authored":!s.native_summary,"evidence_ids":evidence}),
+            json!({"ok":s.status=="completed","agent_id":leaf.id,"parent_agent_id":parent.id,"state":s.status,"failure":s.failure,"summary":s.output,"assignment":s.assignment,"provider_retry":s.provider_retry,"summary_is_model_authored":!s.native_summary,"evidence_ids":evidence}),
         )
     }
 
@@ -1085,6 +1090,7 @@ impl Worker<'_> {
         let mut seen_calls = BTreeSet::new();
         let mut retried_provider = false;
         let mut corrected_batch = false;
+        let mut retry_next = false;
         for round in 0..6 {
             if self.stopped() {
                 bail!("Delegate cancelled; no more tool calls");
@@ -1101,12 +1107,31 @@ impl Worker<'_> {
             }
             reserve(shared, 1, 0, 0)?;
             state.lock().unwrap().requests += 1;
+            let retrying = std::mem::take(&mut retry_next);
+            if retrying {
+                let mut s = state.lock().unwrap();
+                s.provider_retry["attempt_request"] = json!(s.requests);
+                s.provider_retry["outcome"] = json!("unknown");
+            }
             let parent_id = state.lock().unwrap().parent_agent_id.clone();
             session.last_report = json!({"parent_agent_id":parent_id,"state":"running","provider_requests":state.lock().unwrap().requests,"in_flight":"provider_request_outcome_unknown"});
+            session.last_report["provider_retry"] = state.lock().unwrap().provider_retry.clone();
             session::save(directory, session)?;
             let message = match provider.complete(&session.messages, json!(definitions)) {
-                Ok(message) => message,
+                Ok(message) => {
+                    if retrying {
+                        state.lock().unwrap().provider_retry["outcome"] =
+                            json!("response_received");
+                    }
+                    message
+                }
                 Err(error) => {
+                    if retrying {
+                        let mut s = state.lock().unwrap();
+                        s.provider_retry["outcome"] = json!("failed");
+                        s.provider_retry["error"] =
+                            json!(crate::reasoning::context::clip(&error.to_string(), 1000));
+                    }
                     let http = error.downcast_ref::<crate::rotation::ProviderFailure>();
                     let transport = error.downcast_ref::<reqwest::Error>();
                     let connection_failed = error
@@ -1129,6 +1154,11 @@ impl Worker<'_> {
                             && *d < deadline.saturating_duration_since(Instant::now())
                     }) {
                         retried_provider = true;
+                        retry_next = true;
+                        {
+                            let mut s = state.lock().unwrap();
+                            s.provider_retry = json!({"failed_request":s.requests,"cause":crate::reasoning::context::clip(&error.to_string(),1000),"outcome":"scheduled","attempt_request":null});
+                        }
                         let until = Instant::now() + wait;
                         while Instant::now() < until && !self.stopped() {
                             std::thread::sleep(
@@ -1155,6 +1185,15 @@ impl Worker<'_> {
                             &session.messages,
                         )
                     };
+                    if !retried_provider {
+                        let skipped = match delay {
+                            None => "error_not_retryable",
+                            Some(_) if round >= 5 => "round_limit",
+                            Some(_) => "deadline",
+                        };
+                        let mut s = state.lock().unwrap();
+                        s.provider_retry = json!({"failed_request":s.requests,"outcome":"not_attempted","reason":skipped});
+                    }
                     bail!("Delegate provider request failed: {reason}");
                 }
             };
@@ -1291,6 +1330,73 @@ mod tests {
         session::save(folder, &mut child).unwrap();
         child
     }
+    #[test]
+    fn report_resume_reads_checkpoint_only_and_reuses_written_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let dir = root.join("team");
+        let initial = Manager::new(root.clone(), dir.clone());
+        reserve(&initial.shared, 4, 0, 0).unwrap();
+        drop(initial);
+        let mut child = report_fixture(
+            &root,
+            &dir,
+            json!({"ok":true,"content":"archived source line"}),
+        );
+        child.last_report =
+            json!({"state":"incomplete","assignment":"Review shared.py","provider_requests":4});
+        session::save(&dir, &mut child).unwrap();
+        assert!(!root.join("shared.py").exists());
+        let team = Manager::new(root.clone(), dir.clone());
+        let cancelled = AtomicBool::new(false);
+        let response = |message: Value| {
+            json!({"choices":[{"message":message,"finish_reason":"stop"}]}).to_string()
+        };
+        let (url, server) = crate::test_support::http(vec![
+            (
+                "application/json",
+                response(
+                    json!({"role":"assistant","tool_calls":[{"id":"bad","type":"function","function":{"name":"list_files","arguments":"{}"}}]}),
+                ),
+            ),
+            (
+                "application/json",
+                response(
+                    json!({"role":"assistant","content":"Report from the archived source line."}),
+                ),
+            ),
+        ]);
+        let provider = Provider::delegated(&url, "fixture".into(), None).unwrap();
+        let first = team
+            .resume_report(&child.id, &provider, &cancelled)
+            .unwrap();
+        assert_eq!(first["status"], "failed");
+        let report = team
+            .resume_report(&child.id, &provider, &cancelled)
+            .unwrap();
+        assert_eq!(report["status"], "written");
+        assert_eq!(report["tools_replayed"], 0);
+        let reqs = server.join().unwrap();
+        assert_eq!(reqs.len(), 2);
+        assert!(reqs[1]["messages"]
+            .to_string()
+            .contains("archived source line"));
+        assert!(reqs[1]["tools"].is_null() || reqs[1]["tools"] == json!([]));
+        assert_eq!(team.status()["shared_tool_calls_remaining"], 64);
+        drop(team);
+        let restored = Manager::new(root.clone(), dir.clone());
+        assert_eq!(
+            restored
+                .resume_report(&child.id, &provider, &cancelled)
+                .unwrap(),
+            report
+        );
+        let saved = session::load(&dir, &child.id, &root).unwrap();
+        assert_eq!(saved.last_report["state"], "incomplete");
+        assert_eq!(saved.last_report["provider_requests"], 6);
+        assert_eq!(saved.observations.len(), 1);
+    }
+
     #[test]
     fn inspect_is_pinned_bounded_utf8_and_does_not_replay() {
         let dir = tempfile::tempdir().unwrap();
@@ -1776,6 +1882,8 @@ mod tests {
         assert_eq!(state.evidence[0]["ok"], true);
         assert_eq!(state.output, "Reviewed input.js.");
         assert_eq!(state.requests, 4);
+        assert_eq!(state.provider_retry["attempt_request"], 3);
+        assert_eq!(state.provider_retry["outcome"], "response_received");
     }
 
     #[test]
