@@ -650,8 +650,14 @@ impl Agent {
     }
     pub fn inspect_saved_tool(&self, id: &str) -> Result<Value> {
         let (tool, original, result) = crate::audit::request_for(&self.session, id)?;
+        let mut diagnostic = crate::tool_arguments::diagnostic_view(&tool, &result);
+        if tool == "browser" && original["action"] == "evaluate" && result["ok"] == true {
+            if let Some(value) = result.get("result") {
+                crate::tool_arguments::describe_evaluation(&mut diagnostic, value);
+            }
+        }
         Ok(
-            json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" || result["category"]=="invalid_arguments" {crate::tool_arguments::summary(&crate::tool_arguments::diagnostic_view(&tool, &result))}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_argument_view(&original),"original_argument_shape":crate::tool_arguments::argument_shape(&tool, &original),"native_action":crate::tool_arguments::native_action(&tool, &original),"result":crate::tool_arguments::diagnostic_view(&tool, &result),"redaction":"User string values omitted, including commands, URLs, tokens and stdout. Only fixed diagnostic vocabulary and native schema paths may be displayed; structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
+            json!({"tool":tool,"evidence_id":id,"historical":true,"actions_replayed":0,"provider_requests":0,"outcome":if tool=="run_command" || result["category"]=="invalid_arguments" {crate::tool_arguments::summary(&crate::tool_arguments::diagnostic_view(&tool, &result))}else{"Historical result; arbitrary strings redacted".into()},"original_arguments":crate::tool_arguments::private_argument_view(&original),"original_argument_shape":crate::tool_arguments::argument_shape(&tool, &original),"native_action":crate::tool_arguments::native_action(&tool, &original),"result":diagnostic,"redaction":"User string values omitted, including commands, URLs, tokens and stdout. Only fixed diagnostic vocabulary and native schema paths may be displayed; structure, lengths and numeric/bool results retained. Original private session is unchanged."}),
         )
     }
     pub fn operator_command(&self, line: &str) -> Result<Value> {
@@ -5253,6 +5259,35 @@ mod tests {
         assert!(!text.contains("tool returned successfully"));
         assert_eq!(agent.session.observations.len(), 3);
         assert_eq!(agent.session.last_report["finished"], false);
+    }
+    #[test]
+    fn saved_evaluations_distinguish_both_booleans_from_an_empty_object() {
+        let (mut agent, _workspace, _state, server) = scripted_agent(vec![]);
+        let args = json!({"action":"evaluate","expression":"PRIVATE_EXPRESSION"});
+        for value in [json!(false), json!(true), json!({})] {
+            let call = agent.record_direct_call("browser", &args).unwrap();
+            let result = agent
+                .record_direct_result(
+                    "browser",
+                    &args,
+                    &call,
+                    json!({"ok":true,"untrusted_web_content":true,"result":value}),
+                )
+                .unwrap();
+            let view = agent
+                .inspect_saved_tool(result["evidence_id"].as_str().unwrap())
+                .unwrap();
+            assert_eq!(
+                view["result"]["evaluated_boolean"].as_bool(),
+                value.as_bool()
+            );
+            if value.is_object() {
+                assert_eq!(view["result"]["evaluated_type"], "object");
+                assert_eq!(view["result"]["evaluated_object_fields"], 0);
+            }
+            assert!(!view.to_string().contains("PRIVATE_EXPRESSION"));
+        }
+        assert!(server.join().unwrap().is_empty());
     }
     #[test]
     fn discovered_browser_status_corrects_unadvertised_call_without_page_claim() {
