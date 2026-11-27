@@ -702,34 +702,14 @@ impl Agent {
             !path.is_empty() && !task.is_empty() && task.len() <= 3600,
             "Supply a workspace path and a task of 1..3600 bytes"
         );
-        let invoke = |args: Value| {
-            self.delegates.invoke(
-                &self.settings,
-                self.provider.model(),
-                &self.tools,
-                self.cancelled.clone(),
-                &args,
-            )
-        };
-        let mut ids = Vec::new();
-        let mut issues = Vec::new();
-        for focus in [
-            "Review implementation and correctness",
-            "Review tests and missing regression coverage",
-        ] {
-            match invoke(json!({"action":"spawn","paths":[path],"task":format!("{focus}: {task}")}))
-            {
-                Ok(v) if v["agent_id"].is_string() => ids.push(v["agent_id"].clone()),
-                Ok(v) => {
-                    issues.push(v);
-                    break;
-                }
-                Err(e) => {
-                    issues.push(json!({"error":e.to_string()}));
-                    break;
-                }
-            }
-        }
+        let (ids, issues) = self.delegates.launch_review_pair(
+            &self.settings,
+            self.provider.model(),
+            &self.tools,
+            self.cancelled.clone(),
+            path,
+            task,
+        )?;
         loop {
             let status = self.delegates.status();
             let results: Vec<_> = status["agents"]
