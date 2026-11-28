@@ -1504,11 +1504,30 @@ impl Agent {
             });
         }
         let prior_start = self.session.user_turns.last().copied();
+        let turn_start = self.session.messages.len();
+        // Reconstruct the active boundary from persisted human turns, even after resume.
+        let task_start = if starts_independent_task(prompt) && prior_start.is_some() {
+            turn_start
+        } else {
+            self.session
+                .user_turns
+                .iter()
+                .skip(1)
+                .rev()
+                .copied()
+                .find(|&i| {
+                    self.session
+                        .messages
+                        .get(i)
+                        .and_then(|m| m["content"].as_str())
+                        .is_some_and(starts_independent_task)
+                })
+                .unwrap_or(0)
+        };
         let prior_dialogue = resumed
             .is_none()
-            .then(|| crate::reasoning::checkpoint::prior_dialogue(&self.session))
+            .then(|| crate::reasoning::checkpoint::prior_dialogue(&self.session, task_start))
             .flatten();
-        let turn_start = self.session.messages.len();
         let operational_prompt = crate::reasoning::turn_evidence::operational_prompt(prompt);
         let evidence_requirement =
             crate::reasoning::turn_evidence::Requirement::from_prompt(prompt);
@@ -1595,7 +1614,7 @@ impl Agent {
                 "Browser inspection result recorded. Analysing with the selected model...".into(),
             ));
         }
-        let historical = if resumed.is_none() && self.settings.project_memory {
+        let historical = if task_start == 0 && resumed.is_none() && self.settings.project_memory {
             match self.project_memory.search_with_sources(
                 prompt,
                 self.current_origin.as_deref(),
@@ -1652,7 +1671,9 @@ impl Agent {
         let mut denied_artifact_read = false;
         let mut denial_violation = false;
         let mut context_recovery_used = false;
-        let historical_native_evidence = if resumed.is_none() {
+        let historical_native_evidence = if resumed.is_none()
+            && (task_start == 0 || crate::reasoning::turn_evidence::references_history(prompt))
+        {
             crate::reasoning::evidence_memory::select(&self.session, prompt)
         } else {
             Value::Null
@@ -1900,7 +1921,23 @@ impl Agent {
                     self.output(AgentEvent::Notice("Capacity mode: bounded input and core schemas; discover_tools enables additional tools without changing permissions. Original history remains saved.".into()));
                     continue; // Recompute schemas locally before projection; no HTTP dispatch.
                 }
-                let mut memory = json!({"derived_continuity_checkpoint":self.session.continuity_checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":self.session.observations.iter().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().take(8).collect::<Vec<_>>(),"recent_observations":self.session.observations.iter().rev().take_while(|o| o.message_index > turn_start).take(12).collect::<Vec<_>>()});
+                let active = || {
+                    self.session
+                        .observations
+                        .iter()
+                        .rev()
+                        .take_while(|o| o.message_index >= task_start)
+                };
+                let active_ids: std::collections::BTreeSet<_> =
+                    active().map(|o| o.id.as_str()).collect();
+                let checkpoint = if task_start == 0 {
+                    self.session.continuity_checkpoint.clone()
+                } else {
+                    json!({"active_task_start":task_start,
+                        "failed_observation_refs":active().filter(|o| !o.ok).take(4).map(|o|&o.id).collect::<Vec<_>>(),
+                        "recent_evidence_refs":active().take(8).map(|o|&o.id).collect::<Vec<_>>()})
+                };
+                let mut memory = json!({"derived_continuity_checkpoint":checkpoint,"historical_native_evidence":historical_native_evidence,"enforced_scope":self.session.scope,"historical_project_notes":historical,"acceptance_checks":self.check_status(),"automatic_browser_indexes":active().filter(|o|o.tool=="browser_url_inspection").map(|o|o.message_index).collect::<Vec<_>>(),"plan":self.session.plan,"findings":self.session.findings.iter().rev().filter(|f|task_start==0 || f.evidence_ids.iter().all(|id|active_ids.contains(id.as_str())) && !f.evidence_ids.is_empty()).take(8).collect::<Vec<_>>(),"recent_observations":active().take_while(|o|o.message_index>turn_start).take(12).collect::<Vec<_>>()});
                 if let Some(snapshot) = actions.iter().rev().find(|a| {
                     a["browser_action"] == "snapshot"
                         && a["ok"] == true
@@ -1962,6 +1999,26 @@ impl Agent {
                     if !recovered_excerpts.is_empty() {
                         memory["verified_checkpoint_windows"] = json!(recovered_excerpts);
                     }
+                    &isolated_messages
+                } else if task_start > 0 {
+                    // Keep original indices for recall_context, skill receipts and compact projections.
+                    isolated_messages = self
+                        .session
+                        .messages
+                        .iter()
+                        .enumerate()
+                        .map(|(i, m)| {
+                            if i >= task_start
+                                || m["role"] == "system"
+                                || (self.session.user_turns.binary_search(&i).is_ok()
+                                    && m["content"].as_str().is_some_and(standing_instruction))
+                            {
+                                m.clone()
+                            } else {
+                                Value::Null
+                            }
+                        })
+                        .collect::<Vec<_>>();
                     &isolated_messages
                 } else {
                     &self.session.messages
@@ -4323,6 +4380,78 @@ fn saved_command_output_id(prompt: &str) -> Option<&str> {
 // Only clearly retrospective questions need the tool-free history phase.
 // Every other turn can answer in prose or request tools, with the prior dialogue
 // still available for references such as "in the same tab".
+fn standing_instruction(prompt: &str) -> bool {
+    let lower = prompt.trim_start().to_lowercase();
+    [
+        "always ",
+        "never ",
+        "from now on",
+        "for this session",
+        "for all tasks",
+        "طول الجلسة",
+        "من هلق",
+        "دائماً ",
+        "دائما ",
+    ]
+    .iter()
+    .any(|p| lower.starts_with(p))
+}
+
+fn starts_independent_task(prompt: &str) -> bool {
+    let lower = prompt.trim().to_lowercase();
+    if [
+        "new task",
+        "new topic",
+        "مهمة جديدة",
+        "طلب جديد",
+        "خلينا بموضوع جديد",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix))
+    {
+        return true;
+    }
+    if session::continuation(prompt)
+        || asks_about_prior_work(prompt)
+        || crate::reasoning::turn_evidence::references_history(prompt)
+        || ["continue ", "resume ", "كمل ", "كمّل ", "تابع "]
+            .iter()
+            .any(|p| lower.starts_with(p))
+        || [
+            "same tab",
+            "current tab",
+            "open tab",
+            "as before",
+            "from before",
+            "same file",
+            "same command",
+            "its output",
+            "نفس التبويب",
+            "نفس الملف",
+        ]
+        .iter()
+        .any(|p| lower.contains(p))
+    {
+        return false;
+    }
+    let concrete_target = prompt.split_whitespace().any(|w| {
+        crate::intelligence::fresh::source_path(w).is_some()
+            || w.contains("://")
+            || w.contains('/')
+            || w.trim_matches(['`', '.', ',']).ends_with(".mjs")
+    });
+    (concrete_target
+        && (crate::reasoning::turn_evidence::operational_prompt(prompt)
+            || crate::tool_selection::requests_local_edit(prompt)
+            || ["test ", "review ", "work only ", "اختبر ", "راجع "]
+                .iter()
+                .any(|p| lower.starts_with(p))))
+        || (lower.starts_with("run ")
+            && lower
+                .split_whitespace()
+                .any(|w| w.trim_end_matches('.') == "--version"))
+}
+
 fn asks_about_prior_work(prompt: &str) -> bool {
     let question: String = prompt
         .trim()
@@ -5535,6 +5664,38 @@ mod tests {
     }
 
     #[test]
+    fn repeated_task_drops_stale_observations_and_continue_keeps_only_current_task() {
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("prior", "file_info", json!({"path":"sample.txt"})),
+            completion(json!({"role":"assistant","content":"OLD_FAILURE_MARKER"})),
+            tool_call("fresh", "file_info", json!({"path":"sample.txt"})),
+            completion(json!({"role":"assistant","content":"CURRENT_RESULT_MARKER"})),
+            completion(json!({"role":"assistant","content":"Finished."})),
+        ]);
+        let prompt = "Inspect the size of sample.txt.";
+        agent.turn(prompt).unwrap();
+        let old_id = agent.session.observations.last().unwrap().id.clone();
+        std::fs::write(root.path().join("sample.txt"), "NEW_FILE_CONTENT").unwrap();
+        agent.queued_turn(prompt).unwrap();
+        agent.turn("كمّل").unwrap();
+        let packets = server.join().unwrap();
+        for packet in &packets[2..] {
+            let messages = packet["messages"].to_string();
+            assert!(!messages.contains("OLD_FAILURE_MARKER"));
+            assert!(!messages.contains(&old_id));
+        }
+        assert!(packets[4]["messages"]
+            .to_string()
+            .contains("CURRENT_RESULT_MARKER"));
+        assert!(agent
+            .session
+            .messages
+            .iter()
+            .any(|m| m["content"] == "OLD_FAILURE_MARKER"));
+        assert!(crate::audit::request_for(&agent.session, &old_id).is_ok());
+    }
+
+    #[test]
     fn free_form_followups_receive_prior_dialogue() {
         let replies = ["First answer", "Second answer", "Third answer"]
             .map(|text| completion(json!({"role":"assistant","content":text})));
@@ -5556,12 +5717,12 @@ mod tests {
                 .filter_map(|m| m["content"].as_str())
                 .find(|text| text.starts_with("Blue Dragon working notes"))
                 .unwrap();
-            assert_eq!(notes.contains("\"prior_dialogue\""), index > 0);
-            if index > 0 {
+            assert_eq!(notes.contains("\"prior_dialogue\""), index == 1);
+            if index == 1 {
                 assert!(notes.contains("First answer"));
             }
             if index == 2 {
-                assert!(notes.contains("طيب والعمود التاني؟"));
+                assert!(!request.to_string().contains("طيب والعمود التاني؟"));
             }
         }
     }

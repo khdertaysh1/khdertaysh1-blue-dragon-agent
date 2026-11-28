@@ -571,6 +571,10 @@ fn project(
     let mut delta_used = false;
     while i < history.len() {
         let message = &history[i];
+        if message.is_null() {
+            i += 1;
+            continue;
+        }
         if level >= 2
             && i < recent
             && message["role"] == "assistant"
@@ -772,7 +776,10 @@ pub fn build_with_budget(
     };
     for level in first_level..=6 {
         let (mut view, archived) = if level == 0 {
-            (history.to_vec(), 0)
+            (
+                history.iter().filter(|m| !m.is_null()).cloned().collect(),
+                0,
+            )
         } else {
             project(history, level, &automatic)
         };
