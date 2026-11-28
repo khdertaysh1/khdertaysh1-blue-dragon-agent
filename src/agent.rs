@@ -1694,6 +1694,25 @@ impl Agent {
             ]
             .iter()
             .any(|order| instruction.contains(order));
+        let compare_runs = local_repair
+            && (instruction.contains("baseline")
+                || instruction.contains("before editing")
+                || instruction.contains("before and after")
+                || instruction.contains("unchanged files")
+                || instruction.contains("قبل التعديل"))
+            && (instruction.contains("register")
+                || instruction.contains("set_task_checks")
+                || instruction.contains("سجّل"));
+        let repair_baseline = compare_runs
+            && instruction
+                .split(|c: char| !c.is_alphabetic())
+                .any(|w| matches!(w, "fix" | "repair" | "صلح" | "أصلح"));
+        let verify_values = instruction.split(|c: char| !c.is_alphabetic()).any(|w| {
+            matches!(
+                w,
+                "amount" | "amounts" | "value" | "values" | "المبالغ" | "القيم"
+            )
+        });
         let mut archived_retry_used = false;
         let mut quote_read_step = None;
         let mut quote_retry = false;
@@ -1851,7 +1870,19 @@ impl Agent {
                         .collect();
                     crate::tool_selection::filter(&self.all_definitions(), Some(&names))
                 } else if edit_recovery_step == Some(step) {
-                    let names = ["edit_file".to_owned()].into_iter().collect();
+                    let mut names = std::collections::BTreeSet::from(["edit_file".to_owned()]);
+                    if compare_runs
+                        && self.session.mission.as_ref().is_some_and(|m| {
+                            m.baseline_edit_blocker(
+                                &self.session.task_checks,
+                                repair_baseline,
+                                verify_values,
+                            )
+                            .is_some()
+                        })
+                    {
+                        names.extend(["set_task_checks".to_owned(), "run_command".to_owned()]);
+                    }
                     crate::tool_selection::filter(&self.all_definitions(), Some(&names))
                 } else if can_finish_local_verification {
                     let names = ["run_command".to_owned(), "set_task_checks".to_owned()]
@@ -2024,6 +2055,9 @@ impl Agent {
                     &self.session.messages
                 };
                 let mut briefing = crate::reasoning::briefing(prompt).to_owned();
+                if compare_runs {
+                    briefing.push_str(" For the required before/after comparison, register an executable assertion that exits nonzero on incorrect values; printing values alone cannot test them. Use workspace-root-relative imports. If an agent-chosen check cannot run and a diagnostic reveals the correct invocation, replace the broken declaration with set_task_checks preserving all requested cases, then run the new exact command on the unchanged source. Retain any user-mandated command. Rerun the same checks after editing. Cite the final disk read when quoting the changed line.");
+                }
                 if local_repair {
                     briefing.push_str(" Check each explicit behavior and preservation requirement against the actual test inputs. If an existing test omits a required case, keep its assertions intact and run a focused additional check. Distinguish requirements verified by execution from those still untested.");
                 }
@@ -2934,6 +2968,24 @@ impl Agent {
                         }
                     }
                 }
+                if compare_runs && crate::report_quotes::requested(prompt) {
+                    let mut reads = std::collections::BTreeMap::new();
+                    for action in actions.iter() {
+                        if let Some(path) = action["saved_file"]["path"].as_str() {
+                            reads.insert(path, None);
+                        } else if let Some(read) = action["disk_read"]["path"].as_str() {
+                            if let Some(slot) = reads.get_mut(read) {
+                                *slot = action["disk_read"]["evidence_id"].as_str();
+                            }
+                        }
+                    }
+                    for (path, id) in reads {
+                        if let Some(id) = id.filter(|id| !answer.contains(id)) {
+                            answer.push_str(&format!("\nFinal disk read: {path} ({id})"));
+                        }
+                    }
+                    message["content"] = json!(answer);
+                }
                 if budget_report
                     && self.completion_state == "answer_returned_no_acceptance_contract"
                 {
@@ -3056,6 +3108,27 @@ impl Agent {
                 let artifact_metadata_only = denied_artifact_read
                     && name == "source_artifact"
                     && guard_args["action"] == "discover";
+                let source_saved =
+                    compare_runs && actions.iter().any(|a| a["baseline_source_edit"] == true);
+                let updates_file = compare_runs
+                    && (matches!(name, "edit_file" | "multi_edit_file")
+                        || (name == "write_file"
+                            && guard_args["path"].as_str().is_some_and(|path| {
+                                self.tools.local_file_path(path).is_ok_and(|p| p.is_file())
+                            })));
+                let baseline_edit = updates_file && !source_saved;
+                let baseline_blocker = self
+                    .session
+                    .mission
+                    .as_ref()
+                    .filter(|_| baseline_edit)
+                    .and_then(|m| {
+                        m.baseline_edit_blocker(
+                            &self.session.task_checks,
+                            repair_baseline,
+                            verify_values,
+                        )
+                    });
                 let outcome = if user_denied_action && !artifact_metadata_only {
                     denial_violation |= !denied_artifact_read;
                     Ok(self.loop_guard.before(name, &guard_args).filter(|result| result["ok"] != true).unwrap_or_else(|| {
@@ -3067,6 +3140,12 @@ impl Agent {
                     Ok(
                         json!({"ok":false,"category":"cancellation","execution_status":"not_executed","error":"Task cancelled; tool not executed"}),
                     )
+                } else if compare_runs && name == "set_task_checks" && source_saved {
+                    Ok(
+                        json!({"ok":false,"execution_status":"not_executed","category":"baseline_already_changed","error":"The compared source has been edited. Keep the declaration used for the baseline and rerun its exact checks. Report any additional checks separately."}),
+                    )
+                } else if let Some(blocker) = baseline_blocker {
+                    Ok(blocker)
                 } else if register_first
                     && name == "run_command"
                     && self.session.task_checks.checks.is_empty()
@@ -3367,6 +3446,21 @@ impl Agent {
                         }
                     }
                 };
+                if compare_runs
+                    && name == "run_command"
+                    && !source_saved
+                    && !user_denied_action
+                    && !self.session.task_checks.checks.is_empty()
+                    && result["execution_status"] == "completed"
+                    && !self
+                        .session
+                        .task_checks
+                        .checks
+                        .iter()
+                        .any(|c| c.tool == name && c.arguments == guard_args)
+                {
+                    result["acceptance_note"] = json!("Diagnostic only: the executed program/args differ from the registered baseline. If this corrects a broken check, register the corrected assertion first and rerun it before editing. Its current exit code cannot verify the registered checks.");
+                }
                 if name == "recall_context" && result["category"] == "recall_budget_exhausted" {
                     recall_report_due = true;
                 }
@@ -3647,6 +3741,18 @@ impl Agent {
                 {
                     action["saved_file"] = json!({"path":result["path"],"bytes":result["bytes"],"evidence_id":result["evidence_id"]});
                 }
+                if compare_runs
+                    && ok
+                    && matches!(name, "read_file" | "read_file_window")
+                    && result["content"].is_string()
+                    && !crate::reasoning::claims::is_historical(&result)
+                {
+                    action["disk_read"] =
+                        json!({"path":result["path"],"evidence_id":result["evidence_id"]});
+                }
+                if updates_file && action["saved_file"].is_object() {
+                    action["baseline_source_edit"] = json!(true);
+                }
                 if matches!(name, "run_command" | "set_task_checks") {
                     action["evidence_id"] = result["evidence_id"].clone();
                 }
@@ -3717,7 +3823,7 @@ impl Agent {
                             .any(|c| c.tool == name && c.arguments == guard_args)
                         && crate::tool_selection::requests_local_edit(prompt);
                     can_finish_local_verification = false;
-                    report_recovery = !baseline_failed;
+                    report_recovery = !baseline_failed && !compare_runs;
                 }
                 if let Some(mission) = &mut self.session.mission {
                     let fingerprint = (!self.code_index.fingerprint.is_empty())
@@ -5087,6 +5193,95 @@ mod tests {
             std::fs::read_to_string(root.path().join("demo.txt")).unwrap(),
             "const value = 42;"
         );
+    }
+
+    #[test]
+    fn calculator_replacement_requires_its_own_pre_edit_baseline() {
+        if std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return; // Node is optional on end-user and build hosts.
+        }
+        let node = |js: &str| json!({"program":"node","args":["--input-type=module","-e",js]});
+        let broken = node("import {payable} from './checkout.mjs'; console.log(payable('guest'));");
+        let print = "import {payable} from './mission/checkout.mjs'; const a=['standard','member','guest'].map(payable); console.log(JSON.stringify(a));";
+        let diagnostic = node(print);
+        let assertion = node(&format!(
+            "{print} if(JSON.stringify(a)!=='[100,80,90]') process.exitCode=1;"
+        ));
+        let declare = |args: &Value| json!({"checks":[{"label":"price cases","tool":"run_command","arguments":args,"field":"/exit_code","equals":0}]});
+        let patch = json!({"path":"mission/checkout.mjs","find":"?? 0","replace":"?? 0.1"});
+        let (mut agent, root, _state, server) = scripted_agent(vec![
+            tool_call("wrong", "set_task_checks", declare(&broken)),
+            tool_call("module", "run_command", broken),
+            tool_call("print", "run_command", diagnostic.clone()),
+            tool_call("early", "edit_file", patch.clone()),
+            tool_call("print_contract", "set_task_checks", declare(&diagnostic)),
+            tool_call("green", "run_command", diagnostic),
+            completion(
+                json!({"role":"assistant","content":"MISSION_CONTINUE: output is incorrect despite zero exit"}),
+            ),
+            tool_call("false_green", "edit_file", patch.clone()),
+            tool_call("register", "set_task_checks", declare(&assertion)),
+            tool_call("before", "run_command", assertion.clone()),
+            tool_call("fix", "edit_file", patch),
+            tool_call("after", "run_command", assertion),
+            completion(
+                json!({"role":"assistant","content":"MISSION_CONTINUE: read the saved source line"}),
+            ),
+            tool_call(
+                "readback",
+                "read_file",
+                json!({"path":"mission/checkout.mjs"}),
+            ),
+            completion(json!({"role":"assistant","content":"Changed fallback to `?? 0.1`."})),
+        ]);
+        agent.settings.max_steps = 24;
+        std::fs::create_dir(root.path().join("mission")).unwrap();
+        std::fs::write(
+            root.path().join("mission/checkout.mjs"),
+            "export const payable=p=>Math.round(100*(1-({standard:0,member:0.2}[p] ?? 0)));",
+        )
+        .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<crate::tools::ApprovalRequest>();
+        agent.tools = ToolBox::new(root.path().canonicalize().unwrap(), ApprovalMode::Tui(tx));
+        let approvals = std::thread::spawn(move || {
+            for _ in 0..6 {
+                rx.recv_timeout(std::time::Duration::from_secs(10))
+                    .unwrap()
+                    .respond_to
+                    .send(true)
+                    .unwrap();
+            }
+        });
+        agent.turn("Work only in mission/. Fix only checkout.mjs. Register acceptance checks, record the baseline amounts, fix and rerun the identical checks. Quote the saved line.").unwrap();
+        approvals.join().unwrap();
+        server.join().unwrap();
+        let get = |id: &str| {
+            let m = agent
+                .session
+                .messages
+                .iter()
+                .find(|m| m["tool_call_id"] == id)
+                .unwrap();
+            serde_json::from_str::<Value>(m["content"].as_str().unwrap()).unwrap()
+        };
+        assert_eq!(get("early")["category"], "baseline_checks_pending");
+        assert_eq!(get("false_green")["category"], "baseline_checks_pending");
+        let read_id = get("readback")["evidence_id"].as_str().unwrap().to_string();
+        assert!(agent.session.messages.last().unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .contains(&read_id));
+        assert_eq!(get("print")["exit_code"], 0);
+        assert!(get("print")["acceptance_note"].is_string());
+        for (id, exit, output) in [("before", 1, "[100,80,100]"), ("after", 0, "[100,80,90]")] {
+            assert_eq!(get(id)["exit_code"], exit);
+            assert_eq!(get(id)["stdout"].as_str().unwrap().trim(), output);
+        }
+        assert_eq!(agent.mission_report()["declared_check_state"], "observed");
     }
 
     #[test]

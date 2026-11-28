@@ -92,7 +92,11 @@ pub fn for_prompt(prompt: &str) -> BTreeSet<String> {
     if requests_workspace_search(prompt) {
         selected.extend(["read_file", "search_files", "code_search"].map(str::to_owned));
     }
-    if prompt.contains("set_task_checks") {
+    if prompt.contains("set_task_checks")
+        || prompt
+            .to_ascii_lowercase()
+            .contains("register acceptance checks")
+    {
         selected.insert("set_task_checks".into());
     }
     if requests_local_edit(prompt) {

@@ -41,6 +41,7 @@ impl Mission {
             self.latest_proofs = vec![None; contract.checks.len()];
             self.checks_met_since_step = None;
             self.command_runs.clear();
+            self.completion_review_started = false;
         }
         self.command_runs
             .resize_with(contract.checks.len(), Vec::new);
@@ -68,6 +69,15 @@ impl Mission {
                     }
                     if let Some(attempt) = &self.last_command_attempt {
                         let mut row = attempt.clone();
+                        if row["outcome"] == "nonzero_exit"
+                            && args["program"] == "node"
+                            && result["stderr"].as_str().is_some_and(|err| {
+                                err.contains("ERR_MODULE_NOT_FOUND")
+                                    || err.contains("code: 'MODULE_NOT_FOUND'")
+                            })
+                        {
+                            row["module_load_failed"] = json!(true);
+                        }
                         if row["execution_confirmed"] == true {
                             if let Some(stdout) =
                                 result["stdout"].as_str().filter(|s| !s.is_empty())
@@ -124,6 +134,47 @@ impl Mission {
                 .iter()
                 .flatten()
                 .any(|r| &r["evidence_id"] == id)
+    }
+
+    /// A replacement declaration starts its own baseline. An exploratory run
+    /// with different arguments cannot satisfy an unexecuted criterion.
+    pub fn baseline_edit_blocker(
+        &self,
+        contract: &Contract,
+        require_failure: bool,
+        verify_values: bool,
+    ) -> Option<Value> {
+        let mut pending = Vec::new();
+        let mut observed = 0;
+        let mut failed = false;
+        for (i, criterion) in contract
+            .checks
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.tool == "run_command")
+        {
+            let last = self.command_runs.get(i).and_then(|runs| runs.last());
+            if let Some(run) = last.filter(|r| {
+                self.declaration == Some(contract.declared_at)
+                    && r["execution_confirmed"] == true
+                    && (!verify_values || r["module_load_failed"] != true)
+            }) {
+                observed += 1;
+                failed |= run["outcome"] == "nonzero_exit";
+            } else {
+                pending.push(&criterion.label);
+            }
+        }
+        let reason = if !pending.is_empty() || observed == 0 {
+            "The requested baseline is incomplete. Register runnable commands, preserve all requested cases, then execute each exact command on the original source."
+        } else if require_failure && !failed {
+            "All baseline commands exited zero. If a defect remains, register an assertion that exits nonzero for its wrong value and run it before editing. If all required behavior already passes, report that result."
+        } else {
+            return None;
+        };
+        Some(
+            json!({"ok":false,"execution_status":"not_executed","category":"baseline_checks_pending","pending":pending,"error":reason}),
+        )
     }
 
     pub fn last_run_is(&self, index: usize, id: &Value) -> bool {
