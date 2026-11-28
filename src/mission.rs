@@ -67,7 +67,16 @@ impl Mission {
                         runs.remove(1);
                     }
                     if let Some(attempt) = &self.last_command_attempt {
-                        runs.push(attempt.clone());
+                        let mut row = attempt.clone();
+                        if row["execution_confirmed"] == true {
+                            if let Some(stdout) =
+                                result["stdout"].as_str().filter(|s| !s.is_empty())
+                            {
+                                row["stdout_excerpt"] =
+                                    json!(crate::reasoning::context::clip(stdout, 512));
+                            }
+                        }
+                        runs.push(row);
                     }
                 }
                 // A contradictory rerun must supersede an earlier successful proof.
@@ -108,6 +117,15 @@ impl Mission {
         true
     }
 
+    pub fn recorded_run(&self, id: &Value) -> bool {
+        id.is_string()
+            && self
+                .command_runs
+                .iter()
+                .flatten()
+                .any(|r| &r["evidence_id"] == id)
+    }
+
     pub fn last_run_is(&self, index: usize, id: &Value) -> bool {
         self.command_runs
             .get(index)
@@ -133,7 +151,11 @@ impl Mission {
                         .as_i64()
                         .map(|n| format!("exit {n}"))
                         .unwrap_or_else(|| r["outcome"].as_str().unwrap_or("unknown").to_owned());
-                    format!("{} ({exit})", r["evidence_id"].as_str().unwrap_or("?"))
+                    let mut line = format!("{} ({exit})", r["evidence_id"].as_str().unwrap_or("?"));
+                    if r["stdout_excerpt"].is_string() {
+                        line.push_str(&format!(" stdout={}", r["stdout_excerpt"]));
+                    }
+                    line
                 })
                 .collect::<Vec<_>>();
             let outcomes = if !runs.is_empty() {

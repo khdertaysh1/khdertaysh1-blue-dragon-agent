@@ -30,7 +30,7 @@ pub fn requests_local_edit(prompt: &str) -> bool {
     } else {
         first
     };
-    matches!(
+    let imperative = matches!(
         verb,
         Some(
             "صلّح"
@@ -44,7 +44,24 @@ pub fn requests_local_edit(prompt: &str) -> bool {
                 | "edit"
                 | "modify"
         )
-    ) && words.next().is_some()
+    ) && words.next().is_some();
+    imperative
+        || normalized
+            .split(|c: char| matches!(c, '.' | ';' | ',' | ':' | '\n'))
+            .map(str::trim)
+            .any(|clause| {
+                [
+                    "fix only ",
+                    "edit only ",
+                    "test and fix ",
+                    "change line ",
+                    "change `",
+                    "عدل فقط ",
+                    "صلح فقط ",
+                ]
+                .iter()
+                .any(|start| clause.starts_with(start))
+            })
 }
 
 pub fn requests_workspace_search(prompt: &str) -> bool {
@@ -74,6 +91,9 @@ pub fn for_prompt(prompt: &str) -> BTreeSet<String> {
     let mut selected = core();
     if requests_workspace_search(prompt) {
         selected.extend(["read_file", "search_files", "code_search"].map(str::to_owned));
+    }
+    if prompt.contains("set_task_checks") {
+        selected.insert("set_task_checks".into());
     }
     if requests_local_edit(prompt) {
         selected.insert("read_file".into());
@@ -292,6 +312,15 @@ mod tests {
         assert_eq!(repeated["repetition_blocked"], true);
         assert_eq!(raw["names"][0], "\"run_command\"");
     }
+    #[test]
+    fn compound_local_repair_advertises_registration_and_edit() {
+        let tools = for_prompt("Complete the calculator requirement. Register with set_task_checks. If it fails, fix only mission/checkout.mjs.");
+        for tool in ["set_task_checks", "edit_file", "read_file"] {
+            assert!(tools.contains(tool));
+        }
+        assert!(!requests_local_edit("Read demo.js. Do not edit it."));
+    }
+
     #[test]
     fn malformed_or_unknown_discovery_names_cannot_change_selection() {
         let all = crate::tools::definitions();

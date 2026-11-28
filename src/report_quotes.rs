@@ -8,6 +8,8 @@ pub(crate) fn requested(prompt: &str) -> bool {
         "verbatim",
         "exact condition",
         "exact statement",
+        "exact changed line",
+        "exact saved line",
         "prediction from",
         "اقتب",
         "حرفي",
@@ -30,6 +32,52 @@ pub(crate) fn source_error(
         text.split(|c: char| !c.is_ascii_alphanumeric())
             .any(|word| word == id)
     };
+    let lower = prompt.to_lowercase();
+    let saved_line = [
+        "changed line",
+        "saved line",
+        "line from a final file read",
+        "line from disk",
+    ]
+    .iter()
+    .any(|term| lower.contains(term));
+    if saved_line {
+        let mut pending = std::collections::BTreeMap::new();
+        for o in session
+            .observations
+            .iter()
+            .filter(|o| o.ok && o.message_index > start)
+        {
+            if !matches!(
+                o.tool.as_str(),
+                "edit_file" | "write_file" | "multi_edit_file" | "read_file" | "read_file_window"
+            ) {
+                continue;
+            }
+            let Ok((_, _, result)) = crate::audit::request_for(session, &o.id) else {
+                continue;
+            };
+            if crate::reasoning::claims::is_historical(&result) {
+                continue;
+            }
+            let Some(path) = result["path"].as_str() else {
+                continue;
+            };
+            if result["saved_to_disk"] == true {
+                pending.insert(path.to_owned(), o.id.as_str());
+            } else if matches!(o.tool.as_str(), "read_file" | "read_file_window")
+                && result["content"].is_string()
+            {
+                pending.remove(path);
+            }
+        }
+        if !pending.is_empty() {
+            return Some(format!(
+                "missing post-edit read for {}",
+                pending.keys().cloned().collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
     let reads: Vec<_> = session
         .observations
         .iter()
@@ -37,7 +85,7 @@ pub(crate) fn source_error(
             o.ok && matches!(o.tool.as_str(), "read_file" | "read_file_window")
                 && (referenced(prompt, &o.id)
                     || (o.message_index > start
-                        && (referenced(answer, &o.id) || prompt.contains(".js"))))
+                        && (referenced(answer, &o.id) || prompt.contains(".js") || saved_line)))
         })
         .collect();
     if reads.is_empty() {
@@ -76,7 +124,9 @@ pub(crate) fn source_error(
             block.push(line);
         } else if fence.is_none() {
             for snippet in line.split('`').skip(1).step_by(2) {
-                if (snippet.contains('(') && snippet.contains(')') || snippet.contains("==="))
+                if (snippet.contains('(') && snippet.contains(')')
+                    || snippet.contains("===")
+                    || (saved_line && snippet.contains(" = ")))
                     && !matches(snippet)
                 {
                     return Some(ids);

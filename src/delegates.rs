@@ -670,7 +670,7 @@ impl Manager {
             (1, "implementation and correctness"),
             (2, "tests and regression coverage"),
         ] {
-            let assignment = format!("You are Reviewer {slot} of 2. Follow only your designated assignment in the request below. If no individual assignments are given, review {fallback}.\n{task}");
+            let assignment = format!("You are Reviewer {slot} of 2. Follow only your designated assignment in the request below. If no individual assignments are given, review {fallback}. For numerical differences, check the sign of actual minus expected before describing the impact.\n{task}");
             let args = json!({"action":"spawn","paths":[path],"task":assignment});
             match self.invoke_scoped(
                 settings,
