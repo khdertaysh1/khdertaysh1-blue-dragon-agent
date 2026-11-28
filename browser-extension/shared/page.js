@@ -111,12 +111,13 @@ function blueDragonPage(action, args, transportEnvelope = false) {
       script_tags_omitted: external.length - scriptTags.length} : {};
     const h1 = [...document.querySelectorAll('h1')].slice(0,4).map(e=>clip(e.innerText || e.textContent,500));
     if (args.compact === true) {
-      const selector = args.selector || 'a,button,input,textarea,select,[role="button"]';
+      const selector = args.selector || 'a,button,input,textarea,select,summary,[role="button"]';
       const nodes = [...document.querySelectorAll(selector)];
       return {...scriptMetadata,untrusted_web_content:true,url:location.href,title:clip(document.title,1000),h1,
         scripts:Array.from(document.scripts || []).filter(e=>e.src).slice(0,12).map(e=>e.src),
         ready:document.readyState,observation_kind:'current_page_read',compact:true,
-        elements:nodes.slice(0,12).map(e=>({selector:selectorFor(e),tag:e.tagName.toLowerCase(),text:clip(e.innerText || e.textContent,500),href:e.tagName==='A'?e.href:undefined})),
+        elements:nodes.slice(0,12).map(e=>({selector:selectorFor(e),tag:e.tagName.toLowerCase(),text:clip(e.innerText || e.textContent,500),href:e.tagName==='A'?e.href:undefined,
+          ...(e.tagName==='SELECT'?optionSummary(e):{})})),
         elements_omitted:Math.max(0,nodes.length-12),text:clip(document.body?.innerText,2000),
         limits:'Bounded current DOM read, not browser readiness alone or proof of server-side effects.'};
     }
@@ -128,7 +129,7 @@ function blueDragonPage(action, args, transportEnvelope = false) {
         fields_total: f.elements.length, fields_omitted: Math.max(0, f.elements.length - 60), fields_truncated: f.elements.length > 60,
         fields: Array.from({length: Math.min(f.elements.length, 60)}, (_, i) => f.elements[i]).map(e => ({tag: e.tagName.toLowerCase(), type: e.type || '', name: clip(e.name, 100), name_truncated: String(e.name ?? '').length > 100, selector: selectorFor(e), required: !!e.required, minlength: e.minLength, maxlength: e.maxLength, pattern: clip(e.pattern, 100), autocomplete: clip(e.autocomplete, 100)}))})),
       inline_scripts: [...document.scripts].filter(e => !e.src).slice(0, 6).map(e => clip(e.textContent, 4000)),
-      elements: [...document.querySelectorAll('a,button,input,textarea,select,[role="button"]')].filter(e => e.getClientRects().length).slice(0, 100).map(e => ({
+      elements: [...document.querySelectorAll('a,button,input,textarea,select,summary,[role="button"]')].filter(e => e.getClientRects().length).slice(0, 100).map(e => ({
         selector: selectorFor(e), tag: e.tagName.toLowerCase(), type: e.type || '',
         label: clip(e.getAttribute('aria-label') || e.innerText || e.placeholder || e.name, 200),
         href: e.tagName === 'A' ? e.href : undefined, disabled: !!e.disabled, checked: ['checkbox','radio'].includes(e.type) ? !!e.checked : undefined,
@@ -149,7 +150,7 @@ function blueDragonPage(action, args, transportEnvelope = false) {
   let nodes;
   try { nodes = document.querySelectorAll(args.selector); }
   catch (err) {
-    if (formTarget && err.name === 'SyntaxError') return rejected('invalid_selector');
+    if (err.name === 'SyntaxError') return rejected('invalid_selector');
     throw err;
   }
   if (nodes.length !== 1) {

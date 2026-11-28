@@ -23,6 +23,8 @@ pub fn kilo_id(id: &str) -> bool {
 pub struct Selection {
     pub provider: String,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_slot: Option<u8>,
 }
 
 impl Selection {
@@ -37,9 +39,11 @@ impl Selection {
         let default = match provider {
             "kilo" => KILO_MODEL,
             "jarvis" => FREE_MODEL,
-            "ollama" => "",
+            "ollama" | "openai" | "openrouter" | "anthropic" => "",
             _ => {
-                anyhow::bail!("Unknown provider. Use kilo, jarvis or ollama")
+                anyhow::bail!(
+                    "Unknown provider. Use kilo, jarvis, ollama, openrouter, openai or anthropic"
+                )
             }
         };
         let model = model.unwrap_or(default);
@@ -55,12 +59,59 @@ impl Selection {
         Ok(Self {
             provider: provider.into(),
             model: model.into(),
+            key_slot: match provider {
+                "openai" | "openrouter" | "anthropic" => Some(1),
+                _ => None,
+            },
         })
+    }
+    pub fn credential(&self) -> Result<Option<String>> {
+        let Some(slot) = self.key_slot else {
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            (1..=16).contains(&slot)
+                && matches!(
+                    self.provider.as_str(),
+                    "openai" | "openrouter" | "anthropic"
+                ),
+            "Invalid provider key slot"
+        );
+        let mut name = format!("{}_API_KEY", self.provider.to_ascii_uppercase());
+        if slot > 1 {
+            name.push_str(&format!("_{slot}"));
+        }
+        let key = std::env::var(&name)
+            .ok()
+            .filter(|v| !v.trim().is_empty() && !v.chars().any(char::is_control))
+            .with_context(|| format!("Configure {name} for the selected provider"))?;
+        Ok(Some(key))
+    }
+    pub fn next_key_slot(base: &str, model: &str, active: &str) -> Option<Self> {
+        let mut s = ["openai", "anthropic", "openrouter"]
+            .iter()
+            .filter_map(|name| Self::new(name, Some(model)).ok())
+            .find(|s| s.base() == base)?;
+        let mut found = false;
+        for slot in 1..=16 {
+            s.key_slot = Some(slot);
+            if let Ok(Some(key)) = s.credential() {
+                if key == active {
+                    found = true;
+                } else if found {
+                    return Some(s);
+                }
+            }
+        }
+        None
     }
     pub fn base(&self) -> &'static str {
         match self.provider.as_str() {
             "kilo" => KILO_BASE,
             "jarvis" => FREE_BASE,
+            "openrouter" => "https://openrouter.ai/api/v1",
+            "openai" => "https://api.openai.com/v1",
+            "anthropic" => "https://api.anthropic.com/v1",
             "ollama" => "http://127.0.0.1:11434/v1",
             _ => unreachable!("validated provider"),
         }
@@ -105,13 +156,14 @@ pub fn load(home: &Path) -> Result<Option<Selection>> {
     }
     let saved: Selection =
         serde_json::from_slice(&bytes).context("Invalid saved model selection")?;
-    if matches!(
-        saved.provider.as_str(),
-        "openrouter" | "openai" | "anthropic" | "groq" | "gemini"
-    ) {
-        anyhow::bail!("Saved provider requires a key and has been removed. Choose blue-dragon model kilo or blue-dragon model jarvis.");
-    }
-    Ok(Some(Selection::new(&saved.provider, Some(&saved.model))?))
+    let mut selection = Selection::new(&saved.provider, Some(&saved.model))?;
+    anyhow::ensure!(
+        selection.key_slot.is_some() == saved.key_slot.is_some()
+            && saved.key_slot.is_none_or(|n| (1..=16).contains(&n)),
+        "Select the provider and model explicitly to configure its key slot"
+    );
+    selection.key_slot = saved.key_slot;
+    Ok(Some(selection))
 }
 
 pub fn save(home: &Path, selection: &Selection) -> Result<()> {
@@ -126,7 +178,7 @@ pub fn save(home: &Path, selection: &Selection) -> Result<()> {
 }
 
 pub fn menu() -> &'static str {
-    "Direct keyless providers: /model kilo or /model jarvis. Use /models to see free tool-capable Kilo models. Local: /model ollama INSTALLED_ID. On quota limits choose the destination before conversation context is sent."
+    "Direct keyless providers: /model kilo or /model jarvis. Use /models to see free tool-capable Kilo models. Local: /model ollama INSTALLED_ID. Personal keys: /model openai|anthropic|openrouter MODEL [SLOT]. On quota limits choose the destination before conversation context is sent."
 }
 
 fn zero(value: Option<&Value>) -> bool {
@@ -561,7 +613,12 @@ mod tests {
     #[test]
     fn keyless_preset_never_uses_any_environment_key_or_paid_alias() {
         assert!(Selection::new("free", Some("auto/paid")).is_err());
-        assert!(Selection::new("openrouter", Some("vendor/paid")).is_err());
+        assert_eq!(
+            Selection::new("openrouter", Some("vendor/paid"))
+                .unwrap()
+                .key_slot,
+            Some(1)
+        );
         assert!(Selection::new("ollama", None).is_err());
     }
     #[test]

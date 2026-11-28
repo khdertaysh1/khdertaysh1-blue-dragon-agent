@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 pub(crate) struct Tree {
     repo: PathBuf,
-    temporary: tempfile::TempDir,
+    _temporary: tempfile::TempDir,
     pub root: PathBuf,
 }
 
@@ -64,12 +64,9 @@ impl Tree {
         );
         Ok(Self {
             repo: repo.into(),
-            temporary,
+            _temporary: temporary,
             root,
         })
-    }
-    pub fn journals(&self) -> &Path {
-        self.temporary.path()
     }
 }
 

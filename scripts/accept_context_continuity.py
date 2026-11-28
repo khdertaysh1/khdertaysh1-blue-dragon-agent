@@ -44,7 +44,7 @@ def negative_controls():
     assert not valid_window(good, {'ok': False, 'id': 'E1'}, expected)
 
 
-def run(binary, require_success):
+def run(binary, require_success, interruptions=False):
     packets, errors, verified = [], [], []
     with tempfile.TemporaryDirectory(prefix='blue-continuity-') as directory:
         root = Path(directory)
@@ -58,6 +58,7 @@ def run(binary, require_success):
                    BLUE_DRAGON_INPUT_BUDGET='8192', BLUE_DRAGON_MAX_OUTPUT_TOKENS='2048',
                    BLUE_DRAGON_RPM='120', NO_COLOR='1', TERM='dumb')
         phase = 0
+        faults = []
         class Server(http.server.BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
@@ -65,6 +66,16 @@ def run(binary, require_success):
                 nonlocal phase
                 try:
                     packet = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                    if interruptions and phase in (20, 40) and phase not in faults:
+                        faults.append(phase)
+                        if phase == 20:
+                            self.send_response(429)
+                            self.send_header("Retry-After", "0")
+                            self.send_header("Content-Length", "0")
+                            self.end_headers()
+                        else:
+                            self.close_connection = True
+                        return
                     names = {d['function']['name'] for d in packet['tools']}
                     packets.append({'max_output_tokens': packet.get('max_tokens'), 'tool_names': sorted(names),
                                     'message_bytes': len(json.dumps(packet['messages'], ensure_ascii=False).encode())})
@@ -118,11 +129,16 @@ def run(binary, require_success):
             stops = []
             for start in range(0, 30, 10):
                 process = subprocess.run(args + ['--resume', session['id'], 'chat'],
-                                         input='\n'.join(prompts[start:start+10] + ['/exit'])+'\n',
+                                         input='\n'.join((['/checkpoint', '/compact', 'Record the interruption probe.'] if interruptions and start else []) + prompts[start:start+10] + ['/exit'])+'\n',
                                          text=True, capture_output=True, env=env, timeout=120)
                 stops.append(process.stderr.count('exceed the context budget'))
             saved = json.loads(session_path.read_text())
             preserved = sum(any(m.get('role') == 'user' and m.get('content') == prompt.strip() for m in saved['messages']) for prompt in prompts)
+            if interruptions:
+                assert faults == [20, 40], faults
+                assert saved['compact_context']
+                ids = [obs['id'] for obs in saved['observations']]
+                assert len(ids) == len(set(ids))
             if require_success:
                 assert preserved == 30, (preserved, process.stderr[-2000:], process.stdout[-2000:])
             assert (work / 'app.js').read_bytes() == fixture
@@ -132,7 +148,7 @@ def run(binary, require_success):
                 assert len(verified) == 30 and len(packets) == 60, (len(verified), len(packets), saved['last_report'])
                 assert browser_calls == 30
                 assert saved['last_report']['context']['effective_context_tokens'] == 32768
-            return {'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'verified_exchanges': len(verified),
+            return {'injected_429_and_disconnect': faults == [20, 40], 'total_http_requests':len(packets)+len(faults), 'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'verified_exchanges': len(verified),
                     'provider_requests': len(packets), 'native_browser_status_calls': browser_calls,
                     'context_error_mentions': sum(stops), 'elapsed_seconds': round(time.monotonic()-started, 3),
                     'original_user_messages_preserved': preserved, 'fixture_unchanged': True,
@@ -146,7 +162,14 @@ def run(binary, require_success):
 if __name__ == '__main__':
     negative_controls()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--before', type=Path, required=True)
-    parser.add_argument('--after', type=Path, required=True)
+    parser.add_argument('--before', type=Path)
+    parser.add_argument('--after', type=Path)
+    parser.add_argument('--field', type=Path, help='Exercise one installed binary with quota and transport interruptions')
     args = parser.parse_args()
+    if args.field:
+        result = run(args.field.resolve(), True, interruptions=True)
+        print(json.dumps({k: v for k, v in result.items() if k not in ('packets', 'last_context')}, ensure_ascii=False, indent=2))
+        raise SystemExit
+    if not args.before or not args.after:
+        parser.error('Supply --field BINARY or both --before and --after')
     print(json.dumps({'before': run(args.before.resolve(), False), 'after': run(args.after.resolve(), True)}, ensure_ascii=False, indent=2))

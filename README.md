@@ -24,6 +24,10 @@ curl -fsSL https://raw.githubusercontent.com/khdertaysh1/khdertaysh1-blue-dragon
 
 The release includes platform binaries, SHA-256 checksums and browser extensions. For a first session on your phone, follow the Termux walkthrough. [Downloads](https://github.com/khdertaysh1/khdertaysh1-blue-dragon-agent/releases/tag/v1.1.14.4) · [Termux walkthrough](docs/FIRST_SESSION.md) · [Install and update](docs/INSTALL.md)
 
+## Task approval
+
+The terminal asks once at the start of each interactive request. The approval covers workspace edits, supported test runners, browser reads, captured file saves and normal page controls on loopback or within configured mutation scope. When an operation needs separate permission, the terminal shows the action and asks before executing it. Approving it lets the task proceed. Each new request starts with a new approval.
+
 ## Graphical workspace
 
 Run `blue-dragon gui` in your project directory on Windows, Linux or macOS. On Android, run `blue-dragon tui` in Termux. The Android `gui` alias also opens the terminal. Type `/steps` there to expand or collapse tool activity. On desktop this opens a native Blue Dragon window. Choose **Open project** to switch workspaces, or **Sessions** to resume a conversation. The next launch restores the last desktop session. Open a relative file reference such as `src/main.rs:16` in a reply to see the highlighted source line. Use `gui --no-open` for the private web client. The Linux Debian package adds an Applications entry and the macOS package installs Blue Dragon.app. On Windows, run `.\blue-dragon.exe gui` or register the executable with `.\scripts\register-desktop.ps1 -Binary .\blue-dragon.exe` from a source checkout.
@@ -43,7 +47,7 @@ Use **Sessions** to choose a workspace or continue a saved conversation. Message
 
 | Area | What is currently available |
 |:--|:--|
-| **AI providers** | Direct keyless Kilo and JarvisClaw gateways, user-selected quota fallback, local Ollama |
+| **AI providers** | Direct keyless Kilo and JarvisClaw gateways, user-selected quota fallback, local Ollama, personal-key OpenAI, Anthropic and OpenRouter routes |
 | **Workspace intelligence** | Tree-sitter symbols/imports/syntactic references for Rust, Python, JS and TS/TSX; bounded ranked local code search and exact file reads |
 | **Code changes** | Targeted exact-match edit and full text-file write, both behind diff approval |
 | **Git inspection** | Working-tree status and unstaged diff |
@@ -56,7 +60,7 @@ Use **Sessions** to choose a workspace or continue a saved conversation. Message
 | **Planning & evidence** | Saved task steps, bounded tool-action report, resume, exact native-result acceptance checks with freshness tracking |
 | **Network & files** | Approved text web fetch, directory creation, file metadata |
 | **Real browser** | Connect via CDP or a paired Firefox/Chromium extension to inspect page DOM, click/fill, JavaScript, network metadata, console, bounded source and local screenshots |
-| **Parallel code review** | `/swarm PATH \| TASK` runs implementation and test reviewers concurrently and collects their evidence. |
+| **Parallel code review** | `/swarm PATH \| TASK` runs implementation and test reviewers concurrently and collects their evidence. In the same parent session, use `/swarm resume REVIEWER_ID` to finish an incomplete report from saved reads. A written report can be displayed again without contacting the provider. |
 | **JavaScript review** | Search saved source files, follow imports and named calls across cached modules, and inspect assignments within a function. Findings cite source locations and identify unresolved paths. |
 | **Recorded HTTP requests** | `/httpflow EVIDENCE_ID [OFFSET]` pages through network observations already captured by the browser. |
 | **Web search and desktop editor** | `/websearch WORDS` uses a configured JSON-enabled SearXNG instance. `/desktop open PATH` opens a workspace text file in an installed editor. |
@@ -82,3 +86,10 @@ cargo clippy --locked --all-targets -- -D warnings
 ```
 
 Start a source build with `./target/release/blue-dragon tui`. See the [architecture](docs/ARCHITECTURE.md), [documentation index](docs/README.md), [release history](docs/RELEASE_NOTES.md), and [third-party notices](third_party/NOTICE.md).
+
+
+For a 30-turn continuity trial on a Termux device, run `python scripts/accept_context_continuity.py --field "$(command -v blue-dragon)"` from the source checkout. The trial uses temporary project and session directories, a local HTTP provider, a simulated 429 and a dropped connection. It checks saved reads and session continuity across three CLI processes with compact mode enabled.
+
+In `/swarm fix`, test and implementation workers can edit existing files and create tests inside assigned directories in detached Git checkouts. The parent tests the pinned changes in an integration checkout and presents the combined diff for one journaled workspace application. A stale base, overlapping changes, or a combined proposal beyond the bounded edit limits stops integration before the project write.
+
+Local code search caches a per-file inverted term index alongside Tree-sitter. Changed content rebuilds that file's postings. Set `BLUE_DRAGON_INDEX_SCALE=2` to double the default 500-file / 12 MB scan budget. Supported scale factors are 1 through 4. Each search reports the coverage it actually achieved.

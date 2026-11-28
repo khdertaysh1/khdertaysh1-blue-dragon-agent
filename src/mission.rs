@@ -11,6 +11,8 @@ pub struct Mission {
     latest_proofs: Vec<Option<String>>,
     pub checks_met_since_step: Option<usize>,
     pub last_command_attempt: Option<Value>,
+    #[serde(default)]
+    command_runs: Vec<Vec<Value>>,
     pub latest_step: usize,
     #[serde(default)]
     completion_review_started: bool,
@@ -38,7 +40,11 @@ impl Mission {
             self.declaration = Some(contract.declared_at);
             self.latest_proofs = vec![None; contract.checks.len()];
             self.checks_met_since_step = None;
+            self.command_runs.clear();
+            self.completion_review_started = false;
         }
+        self.command_runs
+            .resize_with(contract.checks.len(), Vec::new);
         let id = result["evidence_id"].as_str();
         let native = id.is_some() && !claims::is_historical(result);
         if native && tool == "run_command" {
@@ -55,6 +61,34 @@ impl Mission {
         }
         for (i, criterion) in contract.checks.iter().enumerate() {
             if native && tool == criterion.tool && *args == criterion.arguments {
+                if tool == "run_command" {
+                    let runs = &mut self.command_runs[i];
+                    // Retain the baseline and the seven latest attempts.
+                    if runs.len() == 8 {
+                        runs.remove(1);
+                    }
+                    if let Some(attempt) = &self.last_command_attempt {
+                        let mut row = attempt.clone();
+                        if row["outcome"] == "nonzero_exit"
+                            && args["program"] == "node"
+                            && result["stderr"].as_str().is_some_and(|err| {
+                                err.contains("ERR_MODULE_NOT_FOUND")
+                                    || err.contains("code: 'MODULE_NOT_FOUND'")
+                            })
+                        {
+                            row["module_load_failed"] = json!(true);
+                        }
+                        if row["execution_confirmed"] == true {
+                            if let Some(stdout) =
+                                result["stdout"].as_str().filter(|s| !s.is_empty())
+                            {
+                                row["stdout_excerpt"] =
+                                    json!(crate::reasoning::context::clip(stdout, 512));
+                            }
+                        }
+                        runs.push(row);
+                    }
+                }
                 // A contradictory rerun must supersede an earlier successful proof.
                 self.latest_proofs[i] = id
                     .filter(|id| {
@@ -93,12 +127,109 @@ impl Mission {
         true
     }
 
+    pub fn recorded_run(&self, id: &Value) -> bool {
+        id.is_string()
+            && self
+                .command_runs
+                .iter()
+                .flatten()
+                .any(|r| &r["evidence_id"] == id)
+    }
+
+    /// A replacement declaration starts its own baseline. An exploratory run
+    /// with different arguments cannot satisfy an unexecuted criterion.
+    pub fn baseline_edit_blocker(
+        &self,
+        contract: &Contract,
+        require_failure: bool,
+        verify_values: bool,
+    ) -> Option<Value> {
+        let mut pending = Vec::new();
+        let mut observed = 0;
+        let mut failed = false;
+        for (i, criterion) in contract
+            .checks
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.tool == "run_command")
+        {
+            let last = self.command_runs.get(i).and_then(|runs| runs.last());
+            if let Some(run) = last.filter(|r| {
+                self.declaration == Some(contract.declared_at)
+                    && r["execution_confirmed"] == true
+                    && (!verify_values || r["module_load_failed"] != true)
+            }) {
+                observed += 1;
+                failed |= run["outcome"] == "nonzero_exit";
+            } else {
+                pending.push(&criterion.label);
+            }
+        }
+        let reason = if !pending.is_empty() || observed == 0 {
+            "The requested baseline is incomplete. Register runnable commands, preserve all requested cases, then execute each exact command on the original source."
+        } else if require_failure && !failed {
+            "All baseline commands exited zero. If a defect remains, register an assertion that exits nonzero for its wrong value and run it before editing. If all required behavior already passes, report that result."
+        } else {
+            return None;
+        };
+        Some(
+            json!({"ok":false,"execution_status":"not_executed","category":"baseline_checks_pending","pending":pending,"error":reason}),
+        )
+    }
+
+    pub fn last_run_is(&self, index: usize, id: &Value) -> bool {
+        self.command_runs
+            .get(index)
+            .and_then(|rows| rows.last())
+            .is_some_and(|r| &r["evidence_id"] == id)
+    }
+
+    pub fn command_receipt(&self, contract: &Contract, arabic: bool) -> String {
+        let mut lines = Vec::new();
+        for (i, check) in contract
+            .checks
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.tool == "run_command")
+        {
+            let runs = self
+                .command_runs
+                .get(i)
+                .into_iter()
+                .flatten()
+                .map(|r| {
+                    let exit = r["exit_code"]
+                        .as_i64()
+                        .map(|n| format!("exit {n}"))
+                        .unwrap_or_else(|| r["outcome"].as_str().unwrap_or("unknown").to_owned());
+                    let mut line = format!("{} ({exit})", r["evidence_id"].as_str().unwrap_or("?"));
+                    if r["stdout_excerpt"].is_string() {
+                        line.push_str(&format!(" stdout={}", r["stdout_excerpt"]));
+                    }
+                    line
+                })
+                .collect::<Vec<_>>();
+            let outcomes = if !runs.is_empty() {
+                runs.join(", ")
+            } else if arabic {
+                "لا توجد محاولة مطابقة موثّقة".into()
+            } else {
+                "no matching attempt recorded".into()
+            };
+            lines.push(format!(
+                "{} {} — {outcomes}",
+                check.arguments["program"], check.arguments["args"]
+            ));
+        }
+        lines.join("\n")
+    }
+
     pub fn report(&self) -> Value {
         json!({"mode":"completion_review","completion_review_started":self.completion_review_started,"turn_message_index":self.turn_message_index,
             "latest_tool_step":self.latest_step,"declared_criteria":self.latest_proofs.len(),
             "declared_check_state":if self.latest_proofs.is_empty() {"not_declared"} else if self.checks_met_since_step.is_some() {"observed"} else {"unverified"},
             "checks_met_since_step":self.checks_met_since_step,"last_matching_evidence_ids":self.latest_proofs,
-            "last_command_attempt":self.last_command_attempt,
+            "command_attempts_by_criterion":self.command_runs,"last_command_attempt":self.last_command_attempt,
             "limits":"Historical observations at tool dispatch. Declared checks cover bounded native metadata. Command execution, successful exit, and delivery of the user's whole request are distinct. A completion review can finish with an answer or return to remaining work."})
     }
 }
@@ -126,6 +257,42 @@ mod tests {
             "command_outcome":"success","exit_code":0});
         mission.observe(1, &contract, None, "run_command", &args, &cached);
         assert!(mission.last_command_attempt.is_none());
+    }
+
+    #[test]
+    fn exact_command_keeps_baseline_and_rerun_across_unrelated_failures() {
+        let args = json!({"program":"node","args":["regression.mjs"]});
+        let other = json!({"program":"ls","args":["missing"]});
+        let mut c = Contract::default();
+        c.declare(&json!({"checks":[{"label":"calculator","tool":"run_command","arguments":args,"field":"/exit_code","equals":0}]}),1).unwrap();
+        let mut m = Mission::new(0);
+        for (step, command, code) in [
+            (2, &args, 1),
+            (3, &other, 2),
+            (4, &args, 0),
+            (5, &other, 2),
+            (6, &args, 1),
+        ] {
+            let id = format!("E{step}");
+            let r = json!({"ok":code==0,"evidence_id":id,"execution_status":"completed","command_outcome":if code==0 {"success"} else {"nonzero_exit"},"exit_code":code});
+            c.observe(
+                "run_command",
+                command,
+                &r,
+                Proof {
+                    evidence_id: id,
+                    message_index: step,
+                    workspace_fingerprint: "w".into(),
+                    coverage_complete: true,
+                },
+            );
+            m.observe(step, &c, Some("w"), "run_command", command, &r);
+            assert_eq!(c.needs_review(Some("w"), false), !(4..=5).contains(&step));
+        }
+        let m: Mission = serde_json::from_value(serde_json::to_value(m).unwrap()).unwrap();
+        let receipt = m.command_receipt(&c, false);
+        assert!(receipt.contains("E2 (exit 1), E4 (exit 0), E6 (exit 1)"));
+        assert!(!receipt.contains("exit 2"));
     }
 
     #[test]

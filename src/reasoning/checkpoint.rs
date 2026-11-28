@@ -3,10 +3,16 @@ use crate::session::Session;
 use serde_json::{json, Value};
 /// Capture the preceding dialogue before the new message becomes the latest goal.
 /// Use only real user turn boundaries; runtime-generated user-role guidance is excluded.
-pub fn prior_dialogue(session: &Session) -> Option<Value> {
+pub fn prior_dialogue(session: &Session, from: usize) -> Option<Value> {
     let mut turns = Vec::new();
     let mut end = session.messages.len();
-    for &index in session.user_turns.iter().rev().take(4) {
+    for &index in session
+        .user_turns
+        .iter()
+        .rev()
+        .take_while(|&&i| i >= from)
+        .take(4)
+    {
         if index >= end {
             continue;
         }

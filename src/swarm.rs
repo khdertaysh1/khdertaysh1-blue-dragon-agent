@@ -121,8 +121,8 @@ impl Agent {
             limit >= if fix { 2 } else { 1 },
             "Insufficient remaining team budget"
         );
-        let planner="You coordinate local coding workers. Return only a JSON array of {task,kind,after}. Choose the smallest useful team. kind is review, test or implementation. after is a list of zero-based earlier assignment indices, only when their results are needed. Split genuinely independent work. Workers can read the granted local path and propose edits to existing files. In repair mode each worker sees its own checkout of the same commit. Each test or implementation worker must call agent_propose_edits exactly once with its finished patch; review workers report findings. For repair assign test proposals and implementation proposals to separate owners of disjoint files. No worker executes commands.";
-        if !self.tools.approve("Plan local coding swarm",&format!("Send task to current provider: {task}\nPath: {path}\nPlan up to {limit} assignments, at most {live} live. Remaining swarm provider calls including this one: {requests}. Workers require separate approval. Repair uses disposable worktrees at HEAD, checks the supplied command there and asks before applying patches to the workspace.",requests=available+1))? {
+        let planner="You coordinate local coding workers. Return only a JSON array of {task,kind,after}. Choose the smallest useful team. kind is review, test or implementation. after is a list of zero-based earlier assignment indices, only when their results are needed. Split genuinely independent work. Workers can read the granted local path and propose modifications and new files inside assigned directories. In repair mode each worker sees its own checkout of the same commit. Each test or implementation worker must call agent_propose_edits exactly once with its finished patch; review workers report findings. For repair assign test proposals and implementation proposals to separate owners of disjoint files. No worker executes commands.";
+        if !self.tools.approve("Plan local coding swarm",&format!("Send task to current provider: {task}\nPath: {path}\nPlan up to {limit} assignments, at most {live} live. Remaining swarm provider calls including this one: {requests}. Workers require separate approval. Repair uses disposable worktrees at HEAD, checks the supplied command there and shows one combined diff before writing the workspace.",requests=available+1))? {
             return Ok(json!({"state":"denied","agents_started":0}));
         }
         let base = if fix {
@@ -280,6 +280,7 @@ impl Agent {
             let tree = crate::swarm_tree::Tree::new(self.tools.workspace_root(), base)?;
             let trial = self.tools.for_swarm_tree(tree.root.clone());
             let mut patches = Vec::new();
+            let mut files = Vec::new();
             for kind in ["test", "implementation"] {
                 for row in rows.iter().filter(|r| r["kind"] == kind) {
                     let worker = &row["worker"];
@@ -295,13 +296,17 @@ impl Agent {
                     );
                     let proposal = proposals[0];
                     let arg = json!({"action":"apply_edits","agent_id":worker["agent_id"],"evidence_id":proposal["evidence_id"],"expected_result_sha256":proposal["result_sha256"]});
-                    let result = team.proposal_in(&trial, &arg, "apply_edits", tree.journals())?;
-                    patches.push(arg.clone());
-                    history.push(json!({"phase":kind,"request":arg,"result":result}));
-                    ensure!(
-                        result["state"] == "committed" && result["current_files_verified"] == true,
-                        "Proposal did not commit"
+                    let pinned = team.pinned_proposal(&arg)?;
+                    crate::edit_proposals::apply_in_checkout(&tree, &trial, &pinned)?;
+                    files.extend(
+                        pinned["files"]
+                            .as_array()
+                            .context("Missing proposal files")?
+                            .iter()
+                            .cloned(),
                     );
+                    patches.push(arg.clone());
+                    history.push(json!({"phase":kind,"request":arg,"trial_checkout_updated":true}));
                 }
                 let result = trial.run_command(&cmd[0], &cmd[1..])?;
                 history.push(json!({"phase":kind,"verification":result}));
@@ -321,36 +326,24 @@ impl Agent {
                 crate::swarm_tree::revision(self.tools.workspace_root())? == base,
                 "Workspace HEAD changed during trial"
             );
-            // Verify every original before the first real workspace write.
-            for arg in &patches {
-                let mut review = arg.clone();
-                review["action"] = json!("review_edits");
-                let result = team.invoke(
-                    &self.settings,
-                    self.provider.model(),
-                    &self.tools,
-                    self.cancelled.clone(),
-                    &review,
-                )?;
-                ensure!(
-                    result["current_base_verified"] == true,
-                    "Workspace proposal is stale"
-                );
-            }
-            for arg in patches {
-                let result = team.invoke(
-                    &self.settings,
-                    self.provider.model(),
-                    &self.tools,
-                    self.cancelled.clone(),
-                    &arg,
-                )?;
-                history.push(json!({"phase":"workspace_apply","request":arg,"result":result}));
-                ensure!(
-                    result["state"] == "committed" && result["current_files_verified"] == true,
-                    "Workspace application incomplete; inspect recorded steps"
-                );
-            }
+            let combined = json!({"files":files});
+            let identity = json!(patches).to_string();
+            let result = crate::edit_proposals::parent_action(
+                &self.tools,
+                &self
+                    .settings
+                    .sessions_dir
+                    .join("swarms")
+                    .join(&self.session.id),
+                &identity,
+                &combined,
+                "apply_edits",
+            )?;
+            history.push(json!({"phase":"workspace_apply","requests":patches,"result":result}));
+            ensure!(
+                result["state"] == "committed" && result["current_files_verified"] == true,
+                "Combined workspace edit did not commit"
+            );
             let result = self.tools.run_command(&cmd[0], &cmd[1..])?;
             history.push(json!({"phase":"workspace_verify","verification":result}));
             ensure!(

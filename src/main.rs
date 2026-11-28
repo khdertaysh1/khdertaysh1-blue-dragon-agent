@@ -290,7 +290,9 @@ fn run() -> Result<()> {
         Some(models::Selection::new(provider, args.model.as_deref())?)
     } else if let Some(mut saved) = models::load(&home)? {
         if let Some(model) = args.model.as_deref() {
+            let slot = saved.key_slot;
             saved = models::Selection::new(&saved.provider, Some(model))?;
+            saved.key_slot = slot;
         }
         Some(saved)
     } else {
@@ -317,6 +319,18 @@ fn run() -> Result<()> {
         .or(args.model)
         .unwrap_or_else(|| models::KILO_MODEL.into());
     let mut settings = Settings::new(root, base, model)?;
+    settings.api_key = if let Some(s) = &selection {
+        s.credential()?
+    } else if std::env::var("BLUE_DRAGON_KEY_ENDPOINT").ok().as_deref()
+        == Some(settings.base_url.as_str())
+    {
+        Some(
+            std::env::var("BLUE_DRAGON_API_KEY")
+                .context("Set BLUE_DRAGON_API_KEY for the bound endpoint")?,
+        )
+    } else {
+        None
+    };
     settings.mcp_config = args.mcp_config;
     settings.stream = !args.no_stream;
     settings.free_rotation = !args.no_rotation;
@@ -497,7 +511,7 @@ fn run() -> Result<()> {
                         match text {
                             "/exit" | "/quit" => break,
                             "/help" => {
-                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /symbol NAME [PATH] /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor — or enter a task");
+                                println!("/help /audit-report /coverage /scope [allow URL read|interact|mutate ACCOUNT|clear] /browser [status|start|pair|attach PORT|launch|stop] /rotation /compact /context /findings /jobs [ID|cancel ID] /memory [query|forget ID] /checks /mission /models /model [PROVIDER MODEL] /exit /session /checkpoint /diff /status /map /symbol NAME [PATH] /skills /skill <name> /plan /report /saved-files /resume-file ID [task] /review-file PATH /review-response REQUEST PATH /resume-review /inventory EVIDENCE_ID [OFFSET] /swarm PATH | TASK /swarm resume REVIEWER_ID /swarm auto PATH | TASK /swarm fix PATH | JSON_ARGV | TASK /swarm status /httpflow EVIDENCE_ID [OFFSET] /desktop open PATH /websearch WORDS /clipboard copy TEXT|paste /sessions [WORDS] /sessions search WORDS /conversation-search WORDS /network EVIDENCE_ID [REQUEST_ID|*|--rows] [OFFSET] /tool-result EVIDENCE_ID /mcp [prompts SERVER|prompt SERVER NAME] /connect <name> /doctor — or enter a task");
                                 continue;
                             }
                             "/model" | "/models" => {

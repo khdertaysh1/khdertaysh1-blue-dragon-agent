@@ -68,6 +68,23 @@ fn safe_path(tools: &ToolBox, raw: &str) -> Result<PathBuf> {
     }
     Ok(full)
 }
+fn new_path(tools: &ToolBox, raw: &str) -> Result<PathBuf> {
+    let rel = Path::new(raw);
+    anyhow::ensure!(
+        raw.len() <= 512
+            && !raw.chars().any(char::is_control)
+            && rel.components().all(|c| matches!(c, Component::Normal(_))),
+        "Invalid new file path"
+    );
+    let path = tools.new_file_path(raw)?;
+    anyhow::ensure!(
+        path == tools.workspace_root().join(rel)
+            && fs::symlink_metadata(&path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
+        "New proposal file already exists or parent changed"
+    );
+    Ok(path)
+}
+
 fn text(path: &Path) -> Result<String> {
     let mut bytes = Vec::new();
     fs::File::open(path)?
@@ -115,7 +132,12 @@ pub(crate) fn propose(
     let mut total = 0;
     for file in files(args)? {
         let raw = file["path"].as_str().context("path required")?;
-        let full = safe_path(tools, raw)?;
+        let creation = file["expected_sha256"] == "absent";
+        let full = if creation {
+            new_path(tools, raw)?
+        } else {
+            safe_path(tools, raw)?
+        };
         if !allowed(&full) {
             bail!("Path outside delegated proposal scope");
         }
@@ -124,8 +146,16 @@ pub(crate) fn propose(
         }
         let content = file["content"].as_str().context("content required")?;
         validate_text(content)?;
-        let old = text(&full)?;
-        let before = hash(old.as_bytes());
+        let old = if creation {
+            String::new()
+        } else {
+            text(&full)?
+        };
+        let before = if creation {
+            String::from("absent")
+        } else {
+            hash(old.as_bytes())
+        };
         if file["expected_sha256"] != before {
             bail!("Proposal base hash conflict");
         }
@@ -148,6 +178,8 @@ struct Staged {
     raw: String,
     old: String,
     new: String,
+    create: bool,
+    delete: bool,
 }
 fn stage(tools: &ToolBox, proposal: &Value, reverse: bool) -> Result<Vec<Staged>> {
     let mut seen = BTreeSet::new();
@@ -155,17 +187,24 @@ fn stage(tools: &ToolBox, proposal: &Value, reverse: bool) -> Result<Vec<Staged>
     let mut total = 0;
     for file in files(proposal)? {
         let raw = file["path"].as_str().context("path required")?;
-        let path = safe_path(tools, raw)?;
+        let creation = file["expected_sha256"] == "absent";
+        let create = creation && !reverse;
+        let delete = creation && reverse;
+        let path = if create {
+            new_path(tools, raw)?
+        } else {
+            safe_path(tools, raw)?
+        };
         if !seen.insert(path.clone()) {
             bail!("Duplicate proposal path");
         }
-        let old = text(&path)?;
+        let old = if create { String::new() } else { text(&path)? };
         let (key, content) = if reverse {
             ("after_sha256", "before_content")
         } else {
             ("expected_sha256", "content")
         };
-        if file[key] != hash(old.as_bytes()) {
+        if !create && file[key] != hash(old.as_bytes()) {
             bail!("File version conflict: {raw}; nothing written");
         }
         let new = file[content]
@@ -178,7 +217,7 @@ fn stage(tools: &ToolBox, proposal: &Value, reverse: bool) -> Result<Vec<Staged>
         } else {
             "after_sha256"
         };
-        if file[target_key] != hash(new.as_bytes()) {
+        if !delete && file[target_key] != hash(new.as_bytes()) {
             bail!("Proposal content digest mismatch");
         }
         total += old.len() + new.len();
@@ -187,6 +226,8 @@ fn stage(tools: &ToolBox, proposal: &Value, reverse: bool) -> Result<Vec<Staged>
         }
         staged.push(Staged {
             path,
+            create,
+            delete,
             raw: raw.into(),
             old,
             new,
@@ -234,20 +275,56 @@ fn load(path: &Path) -> Result<Value> {
     }
     Ok(serde_json::from_slice(&bytes)?)
 }
-fn replace(tools: &ToolBox, file: &Staged, expected: &str, new: &str) -> Result<()> {
+fn replace(tools: &ToolBox, file: &Staged, undo: bool) -> Result<()> {
+    let (expected, new) = if undo {
+        (&file.new, &file.old)
+    } else {
+        (&file.old, &file.new)
+    };
+    let creating = if undo { file.delete } else { file.create };
+    let deleting = if undo { file.create } else { file.delete };
+    if creating {
+        let path = new_path(tools, &file.raw)?;
+        anyhow::ensure!(path == file.path, "Creation path changed");
+        let mut tmp = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+        tmp.write_all(new.as_bytes())?;
+        tmp.as_file().sync_all()?;
+        tmp.persist_noclobber(path).map_err(|e| e.error)?;
+        return Ok(());
+    }
     let current = safe_path(tools, &file.raw)?;
-    if current != file.path || text(&current)? != expected {
+    if current != file.path || text(&current)? != *expected {
         bail!("File changed during transaction: {}", file.raw);
+    }
+    if deleting {
+        fs::remove_file(current)?;
+        return Ok(());
     }
     let mut temp = tempfile::NamedTempFile::new_in(current.parent().unwrap())?;
     temp.write_all(new.as_bytes())?;
     temp.as_file()
         .set_permissions(fs::metadata(&current)?.permissions())?;
     temp.as_file().sync_all()?;
-    if safe_path(tools, &file.raw)? != current || text(&current)? != expected {
+    if safe_path(tools, &file.raw)? != current || text(&current)? != *expected {
         bail!("File changed before replacement");
     }
     temp.persist(current).map_err(|e| e.error)?;
+    Ok(())
+}
+
+pub(crate) fn apply_in_checkout(
+    tree: &crate::swarm_tree::Tree,
+    tools: &ToolBox,
+    proposal: &Value,
+) -> Result<()> {
+    anyhow::ensure!(
+        tools.workspace_root() == tree.root,
+        "Expected allocated repair checkout"
+    );
+    for file in stage(tools, proposal, false)? {
+        anyhow::ensure!(!tools.is_cancelled(), "Repair cancelled");
+        replace(tools, &file, false)?;
+    }
     Ok(())
 }
 
@@ -343,20 +420,24 @@ pub(crate) fn parent_action(
         let attempt = if tools.is_cancelled() {
             Err(anyhow::anyhow!("Cancelled during transaction"))
         } else {
-            replace(tools, file, &file.old, &file.new)
+            replace(tools, file, false)
         };
         if let Err(error) = attempt {
             let mut recovered = true;
             for previous in staged[..index].iter().rev() {
-                if replace(tools, previous, &previous.new, &previous.old).is_err() {
+                if replace(tools, previous, true).is_err() {
                     recovered = false;
                 }
             }
             // A failing rename or outside writer can leave the failed/unvisited
             // file uncertain too. Never claim complete rollback from prior files alone.
             recovered &= staged.iter().all(|entry| {
-                safe_path(tools, &entry.raw).ok().as_ref() == Some(&entry.path)
-                    && text(&entry.path).is_ok_and(|current| current == entry.old)
+                if entry.create {
+                    new_path(tools, &entry.raw).ok().as_ref() == Some(&entry.path)
+                } else {
+                    safe_path(tools, &entry.raw).ok().as_ref() == Some(&entry.path)
+                        && text(&entry.path).is_ok_and(|current| current == entry.old)
+                }
             });
             record["state"] = json!(if recovered {
                 if reverse {
@@ -386,8 +467,12 @@ pub(crate) fn parent_action(
     // Read every result independently before declaring the entire set committed.
     // A concurrent outside writer is not ours to undo.
     if !staged.iter().all(|entry| {
-        safe_path(tools, &entry.raw).ok().as_ref() == Some(&entry.path)
-            && text(&entry.path).is_ok_and(|current| current == entry.new)
+        if entry.delete {
+            new_path(tools, &entry.raw).ok().as_ref() == Some(&entry.path)
+        } else {
+            safe_path(tools, &entry.raw).ok().as_ref() == Some(&entry.path)
+                && text(&entry.path).is_ok_and(|current| current == entry.new)
+        }
     }) {
         lock.retain = true;
         record["state"] = json!("unknown");
@@ -409,7 +494,7 @@ pub(crate) fn parent_action(
 }
 
 pub(crate) fn definition() -> Value {
-    json!({"type":"function","function":{"name":"agent_propose_edits","description":"Propose changes only; never write workspace files. Existing granted regular UTF-8 files only, no symlinks/hardlinks, 1..4 files, 4096 bytes each, 16KiB combined old/new. Supply base SHA256 and complete replacement content. Parent must review and explicitly approve the pinned proposal.","parameters":{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"content":{"type":"string"}},"required":["path","expected_sha256","content"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}}})
+    json!({"type":"function","function":{"name":"agent_propose_edits","description":"Propose changes only; never write workspace files. Granted regular UTF-8 files; for a new file in a granted directory use expected_sha256=absent, no symlinks/hardlinks, 1..4 files, 4096 bytes each, 16KiB combined old/new. Supply base SHA256 and complete replacement content. Parent must review and explicitly approve the pinned proposal.","parameters":{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"content":{"type":"string"}},"required":["path","expected_sha256","content"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}}})
 }
 
 #[cfg(test)]
@@ -482,6 +567,8 @@ mod tests {
         assert!(validate_text("trailing\r").is_err());
         assert!(validate_text("valid\r\nnext\n").is_ok());
         let staged = vec![Staged {
+            create: false,
+            delete: false,
             path: PathBuf::from("a.txt"),
             raw: "a.txt".into(),
             old: "old\r\n".into(),
@@ -492,6 +579,32 @@ mod tests {
         assert!(shown.contains("-old\\r\n"));
         assert!(shown.contains("+new\\\\r\\r\n"));
         assert_eq!(staged[0].new, "new\\r\r\n");
+    }
+    #[test]
+    fn combined_patch_creates_test_and_preserves_untracked_conflicts() {
+        let (dir, raw, mut args) = fixture();
+        let new =
+            json!({"path":"new_test.py","expected_sha256":"absent","content":"assert True\n"});
+        args["files"].as_array_mut().unwrap().push(new);
+        let proposal = propose(&raw, &args, |_| true).unwrap();
+        let journals = dir.path().join("history");
+        let target = dir.path().join("new_test.py");
+        fs::write(&target, "user edit").unwrap();
+        assert!(parent_action(&raw, &journals, "conflict", &proposal, "apply_edits").is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "user edit");
+        fs::remove_file(&target).unwrap();
+        let apply = approved(dir.path(), || {});
+        assert_eq!(
+            parent_action(&apply, &journals, "group", &proposal, "apply_edits").unwrap()["state"],
+            "committed"
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "assert True\n");
+        let undo = approved(dir.path(), || {});
+        assert_eq!(
+            parent_action(&undo, &journals, "group", &proposal, "rollback_edits").unwrap()["state"],
+            "rolled_back"
+        );
+        assert!(!target.exists());
     }
     #[test]
     fn approved_multi_file_apply_and_explicit_rollback_are_pinned_once() {

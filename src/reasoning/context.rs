@@ -82,6 +82,10 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
         "execution_status",
         "evidence_id",
         "repetition_blocked",
+        "retry_hint",
+        "evaluated_boolean",
+        "evaluated_type",
+        "evaluated_object_fields",
         "exit_code",
         "path",
         "content_type",
@@ -158,16 +162,49 @@ fn compact(content: &str, cap: usize, index: usize) -> String {
                     selected.insert(key.into(), field.clone());
                 }
             }
-            let links: Vec<_> = result["elements"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|e| matches!(e["tag"].as_str(), Some("a" | "button")))
-                .take(3)
-                .map(|e| json!({"text":e.get("text").or(e.get("label")),"href":e["href"]}))
-                .filter(|e| e.to_string().len() < 1024)
-                .collect();
-            selected.insert("observed_controls".into(), json!(links));
+            let mut controls = Vec::new();
+            let mut budget = cap.clamp(512, 2400);
+            for control in result["elements"].as_array().into_iter().flatten() {
+                if controls.len() >= 12 {
+                    break;
+                }
+                let mut row = json!({"tag":control["tag"],"text":clip(control.get("text").or(control.get("label")).and_then(Value::as_str).unwrap_or_default(),100)});
+                // Never truncate an actionable selector or option value into a different target.
+                for key in ["selector", "href"] {
+                    if let Some(value) = control[key].as_str().filter(|s| s.len() <= 512) {
+                        row[key] = json!(value);
+                    }
+                }
+                let cost = row.to_string().len();
+                if cost > budget {
+                    continue;
+                }
+                budget -= cost;
+                if let Some(options) = control["options"].as_array() {
+                    let mut preview = Vec::new();
+                    for option in options.iter().take(8) {
+                        let cost = option.to_string().len();
+                        if cost > budget {
+                            break;
+                        }
+                        budget -= cost;
+                        preview.push(option);
+                    }
+                    row["options_omitted"] = json!(
+                        control["options_omitted"].as_u64().unwrap_or(0)
+                            + (options.len() - preview.len()) as u64
+                    );
+                    row["options"] = json!(preview);
+                }
+                controls.push(row);
+            }
+            let total = result["elements"].as_array().map_or(0, Vec::len)
+                + result["elements_omitted"].as_u64().unwrap_or(0) as usize;
+            selected.insert(
+                "controls_omitted".into(),
+                json!(total.saturating_sub(controls.len())),
+            );
+            selected.insert("observed_controls".into(), json!(controls));
         }
     }
     if let Some(text) = parsed["content"].as_str() {
@@ -534,6 +571,10 @@ fn project(
     let mut delta_used = false;
     while i < history.len() {
         let message = &history[i];
+        if message.is_null() {
+            i += 1;
+            continue;
+        }
         if level >= 2
             && i < recent
             && message["role"] == "assistant"
@@ -735,7 +776,10 @@ pub fn build_with_budget(
     };
     for level in first_level..=6 {
         let (mut view, archived) = if level == 0 {
-            (history.to_vec(), 0)
+            (
+                history.iter().filter(|m| !m.is_null()).cloned().collect(),
+                0,
+            )
         } else {
             project(history, level, &automatic)
         };
@@ -1309,6 +1353,25 @@ mod tests {
             &serde_json::Value::Null
         )
         .is_err());
+    }
+    #[test]
+    fn control_projection_keeps_selectors_and_distinguishes_option_values_from_labels() {
+        let row = json!({"tag":"select","selector":"#plan","text":"Plan","options":[{"value":"excluded","label":"No discount","value_truncated":false}],"options_omitted":2});
+        let result = json!({"untrusted_web_content":true,"ok":true,"observation_kind":"current_page_read","result":{"text":"x".repeat(9000),"elements":[{"tag":"button","text":"Blue triangle","selector":".grid > button:nth-of-type(2)"},row,{"tag":"summary","selector":"summary","text":"Delivery"}]}});
+        let view: Value =
+            serde_json::from_str(&super::compact(&result.to_string(), 800, 1)).unwrap();
+        let controls = &view["observed_controls"];
+        assert_eq!(controls[0]["selector"], ".grid > button:nth-of-type(2)");
+        assert_eq!(controls[1]["selector"], "#plan");
+        assert_eq!(controls[1]["options"][0]["value"], "excluded");
+        assert_eq!(controls[1]["options_omitted"], 2);
+        assert_eq!(controls[2]["tag"], "summary");
+        for value in [true, false] {
+            let result = json!({"ok":true,"untrusted_web_content":true,"result":value,"evaluated_boolean":value,"padding":"x".repeat(1000)});
+            let view: Value =
+                serde_json::from_str(&super::compact(&result.to_string(), 100, 2)).unwrap();
+            assert_eq!(view["evaluated_boolean"], value);
+        }
     }
     #[test]
     fn window_compaction_preserves_source_text_not_just_json_metadata() {

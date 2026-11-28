@@ -15,6 +15,15 @@ fn kind(v: &Value) -> &'static str {
         Value::Object(_) => "object",
     }
 }
+/// Describe the native evaluate payload without exposing page strings to diagnostics.
+pub(crate) fn describe_evaluation(out: &mut Value, value: &Value) {
+    out["evaluated_type"] = json!(kind(value));
+    if let Some(boolean) = value.as_bool() {
+        out["evaluated_boolean"] = json!(boolean);
+    } else if let Some(object) = value.as_object() {
+        out["evaluated_object_fields"] = json!(object.len());
+    }
+}
 fn invalid(tool: &str, field: &str, expected: &str, actual: &str) -> Value {
     json!({"ok":false,"category":"invalid_arguments","error_code":"schema_validation_failed","execution_status":"not_executed","tool":tool,"field":field,"expected_type":expected,"actual_type":actual,"error":format!("Invalid arguments: {field} expected {expected}, got {actual}"),"example":if tool=="run_command" {json!({"program":"example-program","args":["--help"],"timeout_seconds":30})} else {json!({"note":"Use the advertised tool schema; no supplied values are echoed."})},"retry_hint":if expected == "advertised tool" {"Tool was not advertised for this request. Use discover_tools to enable its exact registered name, then submit a schema-valid call. No permission, approval or execution occurred."} else {"Correct this field for this tool once. Successful discovery does not correct another tool. Do not repeat the same invalid call. No approval or execution occurred."}})
 }

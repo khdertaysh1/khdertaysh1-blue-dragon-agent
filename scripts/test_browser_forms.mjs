@@ -50,6 +50,10 @@ assert(first.options_omitted>0);
 assert.equal(snapshot.elements.at(-1).options.length,0);
 assert.equal(snapshot.elements.at(-1).options_omitted,100);
 assert(JSON.stringify(snapshot).length<40000);
+const targeted = context.blueDragonPage('snapshot',{compact:true, selector:'select'});
+assert.equal(targeted.elements[0].selector,'#select0');
+assert.equal(targeted.elements[0].options[0].value_truncated,true);
+assert(targeted.elements[0].options_omitted>0);
 console.log('Snapshot option budget tests passed');
 
 const readyDoc={readyState:'complete',location:{href:'https://example.test/app'},querySelectorAll:()=>[{innerText:'Loaded',getClientRects:()=>[{}]}]};

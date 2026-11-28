@@ -255,6 +255,10 @@ impl ToolBox {
         )
     }
 
+    pub(crate) fn new_file_path(&self, path: &str) -> Result<PathBuf> {
+        self.resolve(path, true)
+    }
+
     pub(crate) fn local_file_path(&self, path: &str) -> Result<PathBuf> {
         self.resolve(path, false)
     }
@@ -462,7 +466,7 @@ impl ToolBox {
         if matches!(self.approval, ApprovalMode::ReadOnly) {
             return Ok(true);
         }
-        let detail = format!("This request only: workspace edits, Python unittest and cargo test (execute project code), browser navigation and reads, captured file saves and scoped form controls. Other commands, arbitrary JavaScript and external integrations require separate approval.\n\nWorkspace: {}\nRequest: {prompt}", self.root.display());
+        let detail = format!("This request only: workspace edits, Python unittest and cargo test (execute project code), browser navigation and reads, scoped or loopback GETs, captured file saves, and normal form controls on loopback pages or within mutation scope. Other operations ask separately before execution.\n\nWorkspace: {}\nRequest: {prompt}", self.root.display());
         self.task_approved = self.approve(TASK_APPROVAL, &detail)?;
         Ok(self.task_approved)
     }
@@ -738,7 +742,8 @@ impl ToolBox {
         {
             anyhow::bail!("Use HTTPS, or loopback HTTP; no URL credentials or fragments");
         }
-        if !self.approve("Fetch URL (GET, no browser session)", raw)? {
+        let approved_get = self.has_task_approval() && (local || self.scope.enabled);
+        if !approved_get && !self.approve("Fetch URL (GET, no browser session)", raw)? {
             return Ok(
                 json!({"ok":false,"denied":true,"status":"denied by user","category":"denied","execution_status":"not_executed"}),
             );
@@ -1199,14 +1204,19 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel::<ApprovalRequest>();
         let mut tools = ToolBox::new(root.path().into(), ApprovalMode::Tui(tx));
         let approvals = std::thread::spawn(move || {
-            for (prompt, accept) in [("first", true), ("second", false)] {
+            for (action, detail, accept) in [
+                (TASK_APPROVAL, "first", true),
+                ("Unlisted operation", "fixture", true),
+                (TASK_APPROVAL, "second", false),
+            ] {
                 let r = rx.recv_timeout(Duration::from_secs(3)).unwrap();
-                assert_eq!(r.action, TASK_APPROVAL);
-                assert!(r.detail.ends_with(prompt));
+                assert_eq!(r.action, action);
+                assert!(r.detail.ends_with(detail));
                 r.respond_to.send(accept).unwrap();
             }
         });
         assert!(tools.begin_task_approval("first").unwrap());
+        assert!(tools.approve("Unlisted operation", "fixture").unwrap());
         tools.create_directory("src").unwrap();
         tools.write_file("src/first.txt", "example").unwrap();
         assert_eq!(

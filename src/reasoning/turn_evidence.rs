@@ -40,6 +40,10 @@ pub(crate) fn operational_prompt(prompt: &str) -> bool {
     )
 }
 
+pub(crate) fn references_history(prompt: &str) -> bool {
+    requests_previous_input(prompt) || evidence_ids(prompt).next().is_some()
+}
+
 fn requests_previous_input(prompt: &str) -> bool {
     let text = prompt.to_lowercase();
     [
